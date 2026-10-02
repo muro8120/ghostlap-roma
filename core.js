@@ -14,7 +14,7 @@
   const TRACKS = [
     {
       id: 'circo', name: 'Circo Massimo', blurb: 'The original racetrack. Two long straights, two turns.',
-      w: 150, medals: [44, 46.5, 52],
+      w: 150, medals: [51, 54.5, 60],
       pts: [
         [-1100, 300], [-500, 300], [100, 300], [700, 300], [1100, 300],
         [1330, 230], [1460, 60], [1440, -150], [1300, -280], [1100, -330],
@@ -25,7 +25,7 @@
     },
     {
       id: 'colosseo', name: 'Colosseo', blurb: 'Round the amphitheatre, hairpin at Piazza Venezia.',
-      w: 130, medals: [51, 55, 61],
+      w: 130, medals: [58.5, 63, 70],
       pts: [
         [600, 200], [520, 520], [200, 720], [-200, 700], [-520, 480],
         [-760, 200], [-1150, 30], [-1650, -80], [-2050, -100],
@@ -37,7 +37,7 @@
     },
     {
       id: 'tevere', name: 'Lungotevere', blurb: 'Both banks of the Tiber. Two bridges, endless esses.',
-      w: 120, medals: [65, 70, 78],
+      w: 120, medals: [74.5, 80, 89],
       pts: (function () {
         // Track follows a meandering river: south bank westward, bridge, north bank eastward, bridge.
         const p = [];
@@ -52,7 +52,7 @@
     },
     {
       id: 'appia', name: 'Via Appia Antica', blurb: 'Narrow, fast, lined with cypress. For the brave.',
-      w: 106, medals: [84.5, 92.5, 103],
+      w: 106, medals: [96, 102.5, 114],
       pts: [
         [0, 0], [700, -60], [1300, -280], [1750, -180], [1900, 220],
         [1650, 560], [1250, 560], [950, 700], [780, 920], [880, 1060], [1150, 1080], [1550, 1300],
@@ -184,9 +184,12 @@
   }
 
   // ---- Car ---------------------------------------------------------------
+  const PACE = 0.85;   // every car's top speed and acceleration (15% calmer than the first cut)
   const CAR = {
     vmaxOff: 210,     // top speed off the asphalt
     brake: 700,
+    revMax: 130,      // reverse top speed
+    revAccel: 260,
     slipDrag: 0.6,
     wall: 70,         // run-off width beyond the asphalt edge before the barrier
   };
@@ -226,27 +229,33 @@
   // input: { left: bool, right: bool } for touch; or { steer: -1..1 } analog (bots).
   function stepCar(T, c, input, dt) {
     const P = c.spec;
+    const fx = Math.cos(c.a), fy = Math.sin(c.a);
+    const rx = -fy, ry = fx;
+    let vF = c.vx * fx + c.vy * fy;
+    let vR = c.vx * rx + c.vy * ry;
     let target;
     let braking = false;
-    if (input.steer != null) { target = input.steer; braking = !!input.brake; }
+    if (input.steer != null) { target = input.steer; braking = !!input.brake; c.rev = false; }
     else {
-      target = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-      braking = input.left && input.right;
-      if (braking) target = 0;
+      // Both thumbs: brake to a stop; keep holding and the car backs up. While reversing,
+      // one thumb steers (like a real car: hold left to swing the back to the left).
+      // Let go of everything to drive forward again.
+      const both = input.left && input.right, any = input.left || input.right;
+      c.hold = both ? (c.hold || 0) + dt : 0;
+      if (!any) c.rev = false;
+      else if (both && c.hold > 0.45 && Math.abs(vF) < 25) c.rev = true;
+      target = both ? 0 : (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      braking = both && !c.rev;
     }
     // Steering ramps so a quick tap is a small correction (forgiving in turbulence).
     const rate = target === 0 ? 9 : (Math.sign(target) !== Math.sign(c.steer) && c.steer !== 0 ? 12 : P.ramp);
     if (c.steer < target) c.steer = Math.min(target, c.steer + rate * dt);
     else if (c.steer > target) c.steer = Math.max(target, c.steer - rate * dt);
 
-    const fx = Math.cos(c.a), fy = Math.sin(c.a);
-    const rx = -fy, ry = fx;
-    let vF = c.vx * fx + c.vy * fy;
-    let vR = c.vx * rx + c.vy * ry;
-
-    const vmax = c.onRoad ? P.vmax : CAR.vmaxOff;
-    if (braking) vF -= CAR.brake * dt * Math.sign(vF || 1);
-    else if (vF < vmax) vF += P.accel * (1 - Math.max(0, vF) / vmax) * dt;
+    const vmax = (c.onRoad ? P.vmax : CAR.vmaxOff) * PACE;
+    if (c.rev) { if (vF > -CAR.revMax) vF -= CAR.revAccel * (1 - Math.max(0, -vF) / CAR.revMax) * dt; }
+    else if (braking) vF = Math.abs(vF) <= CAR.brake * dt ? 0 : vF - CAR.brake * dt * Math.sign(vF);
+    else if (vF < vmax) vF += P.accel * PACE * (1 - Math.max(0, vF) / vmax) * dt;
     if (!c.onRoad) vF *= Math.exp(-1.6 * dt);
     if (vF > vmax) vF += (vmax - vF) * Math.min(1, 2.5 * dt);
 
@@ -325,7 +334,7 @@
     }
     // wrong way detector
     const dot = c.vx * T.tx[c.idx] + c.vy * T.ty[c.idx];
-    R.wrong = dot < -40 ? R.wrong + DT : 0;
+    R.wrong = dot < -40 && !c.rev ? R.wrong + DT : 0;
     // ghost sampling
     R.recAcc += DT;
     if (R.recAcc >= 1 / GHOST_HZ - 1e-9) {
@@ -388,7 +397,7 @@
     return { time: R.done ? R.finishT : null, laps: R.laps, bumps, offT, rec: R.rec, splits: R.splits };
   }
 
-  const api = { TRACKS, CARS, carById, buildTrack, nearest, newCar, stepCar, newRace, stepRace, ghostAt, botInput, simulate, DT, LAPS, SECTORS, GHOST_HZ, CAR };
+  const api = { TRACKS, CARS, carById, buildTrack, nearest, newCar, stepCar, newRace, stepRace, ghostAt, botInput, simulate, DT, LAPS, SECTORS, GHOST_HZ, CAR, PACE };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.GL = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -121,6 +121,9 @@
   #hud.help .hint { opacity: 1; }
   #brakeHint { position: absolute; bottom: calc(var(--sb) + 146px); left: 0; right: 0; text-align: center; color: rgba(255,255,255,.5); font-size: 13px; opacity: 0; transition: opacity .4s; }
   #hud.help #brakeHint { opacity: 1; }
+  #gear { position: absolute; left: 50%; bottom: calc(var(--sb) + 22px); transform: translateX(-50%); width: 34px; height: 34px; border-radius: 9px;
+    display: none; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: rgba(229,72,77,.85); }
+  #gear.on { display: grid; }
 
   /* countdown lights */
   #lights { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); display: none; gap: 14px; padding: 12px 16px;
@@ -189,7 +192,8 @@
       <span class="pill" id="offline">Checking offline&hellip;</span>
     </div>
     <p class="how"><b>Hold left</b> or <b>right</b> half of the screen to steer. Gas is automatic.
-      <b>Both thumbs</b> = brake. Your best run becomes the ghost. Bronze unlocks the next circuit.</p>
+      <b>Both thumbs</b> = brake; keep holding to <b>reverse</b> (one thumb steers while backing up).
+      Your best run becomes the ghost. Bronze unlocks the next circuit.</p>
     <p class="how" id="osmCredit" hidden>Map data &copy; OpenStreetMap contributors (ODbL). Routes follow streets you can walk; they are not driving directions.</p>
   </div>
 </section>
@@ -207,7 +211,8 @@
   <div id="lights"><i></i><i></i><i></i></div>
   <div class="hint l">&#9664; hold</div>
   <div class="hint r">hold &#9654;</div>
-  <div id="brakeHint">both = brake</div>
+  <div id="brakeHint">both = brake &middot; keep holding = reverse</div>
+  <div id="gear">R</div>
 </section>
 
 <div class="sheet" id="pause">

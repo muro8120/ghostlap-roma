@@ -68,4 +68,11 @@ write('water', all.filter((e) => t(e).waterway === 'river'));
 const isPlace = (e) => t(e).name && (t(e).tourism || t(e).railway || t(e).station || t(e).amenity || t(e).historic || t(e).place);
 write('places', [...[...tagged.values()].filter(isPlace), ...all.filter(isPlace).map((e) => ({ ...e,
   center: { lat: e.geometry.reduce((a, g) => a + g.lat, 0) / e.geometry.length, lon: e.geometry.reduce((a, g) => a + g.lon, 0) / e.geometry.length } }))]);
+// shop fronts and street furniture you'd recognise walking past (pharmacy crosses, tabacchi, nasoni...)
+const POI_KEYS = ['amenity', 'shop', 'railway', 'historic', 'tourism'];
+const unnamedOk = (q) => /^(pharmacy|drinking_water|atm|bank|toilets|post_office)$/.test(q.amenity || '') ||
+  /^(tobacco|supermarket)$/.test(q.shop || '') || q.railway === 'subway_entrance';
+const isPoi = (e) => { const q = t(e); return POI_KEYS.some((k) => q[k]) && (q.name || unnamedOk(q)); };
+const centre = (e) => ({ lat: e.geometry.reduce((a, g) => a + g.lat, 0) / e.geometry.length, lon: e.geometry.reduce((a, g) => a + g.lon, 0) / e.geometry.length });
+write('pois', [...[...tagged.values()].filter(isPoi), ...all.filter(isPoi).map((e) => ({ type: 'way', id: e.id, tags: e.tags, center: centre(e) }))]);
 console.log(`merged: ${nodes.size} nodes, ${ways.size} ways, ${tagged.size} tagged nodes`);

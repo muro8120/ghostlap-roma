@@ -8,11 +8,16 @@
   const FAST = Math.max(1, Math.min(8, +params.get('fast') || 1)); // test time-warp
 
   // ---------- saving --------------------------------------------------------
-  const KEY = 'ghostlap-roma-v1';
+  // v2: cars got 15% slower (Oct 2026), so old times and ghosts were reset; car and sound carry over
+  const KEY = 'ghostlap-roma-v2';
   let save = { car: 'maranello', sound: false, help: true, tracks: {} };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) save = Object.assign(save, JSON.parse(raw));
+    else {
+      const old = JSON.parse(localStorage.getItem('ghostlap-roma-v1') || 'null');
+      if (old) { save.car = old.car || save.car; save.sound = !!old.sound; localStorage.removeItem('ghostlap-roma-v1'); }
+    }
   } catch (e) { /* private mode: keep in memory */ }
   function persist() { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (e) {} }
 
@@ -172,30 +177,98 @@
     W.labels = () => drawCityLabels();
     return W;
   }
+  // screen areas covered by the race panels, so map labels don't show through them
+  let hudCache = null;
+  function hudRects() {
+    if (hudCache) return hudCache;
+    hudCache = [];
+    for (const el of document.querySelectorAll('#hud .box, #pauseBtn, #nav, #mini, #gear')) {
+      const r = el.getBoundingClientRect();
+      if (r.width && r.height) hudCache.push([r.left - 6, r.top - 6, r.right + 6, r.bottom + 6]);
+    }
+    return hudCache;
+  }
+  const underHud = (x, y, rects) => rects.some((r) => x > r[0] && x < r[2] && y > r[1] && y < r[3]);
+
   // street names and places, drawn crisp in screen space
   function drawCityLabels() {
     const z = cam.z, ox = vw / 2 - cam.x * z, oy = vh / 2 - cam.y * z;
+    const hud = state === 'menu' ? [] : hudRects();
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
     g.font = '600 11px -apple-system, system-ui, sans-serif';
     for (const a of ROME.anchors) {
       const sx = a[0] * z + ox, sy = a[1] * z + oy;
-      if (sx < -90 || sx > vw + 90 || sy < -20 || sy > vh + 20) continue;
+      if (sx < -90 || sx > vw + 90 || sy < -20 || sy > vh + 20 || underHud(sx, sy, hud)) continue;
       const t = ROME.names[a[3]];
       g.save(); g.translate(sx, sy); g.rotate(a[2] / 100);
       g.lineWidth = 3; g.strokeStyle = 'rgba(12,13,17,.9)'; g.strokeText(t, 0, 0);
       g.fillStyle = 'rgba(200,206,216,.62)'; g.fillText(t, 0, 0);
       g.restore();
     }
+    const taken = hud.slice();
+    const free = (x0, y0, x1, y1) => { for (const r of taken) if (x0 < r[2] && x1 > r[0] && y0 < r[3] && y1 > r[1]) return false; taken.push([x0, y0, x1, y1]); return true; };
     for (const p of ROME.places) {
       const sx = p.x * z + ox, sy = p.y * z + oy;
-      if (sx < -120 || sx > vw + 120 || sy < -30 || sy > vh + 30) continue;
+      if (sx < -120 || sx > vw + 120 || sy < -30 || sy > vh + 30 || underHud(sx, sy - 10, hud)) continue;
+      taken.push([sx - 70, sy - 24, sx + 70, sy + 8]);
       const col = p.k === 'hotel' ? '#f2b24c' : p.k === 'metro' ? '#ff5a5f' : p.k === 'stop' ? '#ffffff' : '#a9d2ff';
       g.fillStyle = col; g.strokeStyle = 'rgba(12,13,17,.9)'; g.lineWidth = 2;
       g.beginPath(); g.arc(sx, sy, p.k === 'hotel' ? 7 : 5, 0, 7); g.fill(); g.stroke();
       if (p.k === 'metro') { g.fillStyle = '#fff'; g.font = '800 8px -apple-system, system-ui, sans-serif'; g.fillText('M', sx, sy + 0.5); }
       g.font = (p.k === 'sight' ? 'italic 600 ' : '800 ') + (p.k === 'hotel' || p.k === 'stop' ? '13px' : '11px') + ' -apple-system, system-ui, sans-serif';
       g.lineWidth = 4; g.strokeText(p.n, sx, sy - 15); g.fillStyle = col; g.fillText(p.n, sx, sy - 15);
+    }
+    drawLandmarks(ox, oy, z, free);
+  }
+
+  // shop fronts and street furniture you'd spot on foot: green pharmacy crosses, the tabacchi T,
+  // churches, supermarkets, gelaterie, nasoni (drinking fountains), cash machines...
+  const POI_STYLE = {
+    pharmacy: { pri: 1, col: '#3ddc84', icon: 'cross' }, tabacchi: { pri: 1, col: '#ffffff', bg: '#1d3f8f', icon: 'T' },
+    metro: { pri: 1, col: '#ff7a7f', bg: '#c4262e', icon: 'M' }, church: { pri: 2, col: '#e6dcc4', icon: 'church', it: 1 },
+    sight: { pri: 2, col: '#a9d2ff', icon: 'dot', it: 1 }, fountain: { pri: 2, col: '#8fd0ff', icon: 'drop', it: 1 },
+    market: { pri: 3, col: '#ffb347', bg: '#a65200', icon: 'sign' }, gelato: { pri: 3, col: '#ff9ecb', icon: 'dot' },
+    tram: { pri: 3, col: '#ffd166', bg: '#6b4f00', icon: 't' }, water: { pri: 4, col: '#8fd0ff', icon: 'drop', small: 1 },
+    atm: { pri: 4, col: '#9fe0c8', bg: '#1d5f4f', icon: '\u20ac' }, wc: { pri: 4, col: '#d5dbe5', bg: '#3a4150', icon: 'WC' },
+    post: { pri: 4, col: '#ffd84a', bg: '#23408f', icon: 'P' }, cafe: { pri: 5, col: '#e3c9a8', icon: 'dot' },
+  };
+  let POIS = null;
+  const textW = new Map();
+  function drawLandmarks(ox, oy, z, free) {
+    if (!ROME.pois) return;
+    if (!POIS) POIS = ROME.pois.map(([k, x, y, l]) => ({ st: POI_STYLE[ROME.poiKinds[k]] || POI_STYLE.sight, x, y, t: ROME.poiLabels[l] })).sort((a, b) => a.st.pri - b.st.pri);
+    const font = (st) => (st.it ? 'italic 600 ' : '700 ') + (st.small ? '9px' : '10px') + ' -apple-system, system-ui, sans-serif';
+    g.textBaseline = 'middle';
+    for (const p of POIS) {
+      const sx = p.x * z + ox, sy = p.y * z + oy, st = p.st;
+      if (sx < -20 || sx > vw + 20 || sy < -20 || sy > vh + 20) continue;
+      g.font = font(st);
+      const key = p.t + st.small;
+      if (!textW.has(key)) textW.set(key, g.measureText(p.t).width);
+      const w = textW.get(key), sign = st.icon === 'sign';
+      if (!free(sx - 8, sy - 8, sx + (sign ? w + 4 : w + 14), sy + 8)) continue;
+      g.lineJoin = 'round';
+      if (sign) { // supermarket: the label is the sign
+        g.fillStyle = st.bg; rr(g, sx - 6, sy - 7, w + 12, 14, 3); g.fill();
+        g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(p.t, sx, sy + 0.5);
+        continue;
+      }
+      if (st.bg) {
+        g.fillStyle = st.bg; rr(g, sx - 6, sy - 6, 12, 12, 2.5); g.fill();
+        g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '800 ' + (st.icon.length > 1 ? '6px' : '9px') + ' -apple-system, system-ui, sans-serif';
+        g.fillText(st.icon, sx, sy + 0.5);
+      } else if (st.icon === 'cross') {
+        g.save(); g.shadowColor = '#3ddc84'; g.shadowBlur = 8; g.fillStyle = '#3ddc84';
+        g.fillRect(sx - 1.8, sy - 6, 3.6, 12); g.fillRect(sx - 6, sy - 1.8, 12, 3.6); g.restore();
+      } else if (st.icon === 'church') {
+        g.strokeStyle = st.col; g.lineWidth = 1.6; g.beginPath(); g.moveTo(sx, sy - 6); g.lineTo(sx, sy + 6); g.moveTo(sx - 3.5, sy - 2.5); g.lineTo(sx + 3.5, sy - 2.5); g.stroke();
+      } else {
+        g.fillStyle = st.col; g.beginPath(); g.arc(sx, sy, st.small ? 2.8 : 3.6, 0, 7); g.fill();
+      }
+      g.font = font(st); g.textAlign = 'left';
+      g.lineWidth = 3; g.strokeStyle = 'rgba(12,13,17,.92)'; g.strokeText(p.t, sx + 9, sy + 0.5);
+      g.fillStyle = st.col; g.fillText(p.t, sx + 9, sy + 0.5);
     }
   }
 
@@ -460,7 +533,7 @@
     } else rr(g, -L / 2, -W / 2, L, W, W * (s.style === 'bubble' ? 0.45 : s.style === 'hyper' ? 0.42 : 0.3));
   }
   // Draws a car centred at the origin pointing +x. ghost: translucent outline only.
-  function drawCarLocal(g, s, ghost, brake) {
+  function drawCarLocal(g, s, ghost, brake, rev) {
     const L = s.len, W = s.wid;
     if (ghost) {
       bodyPath(g, s); g.fillStyle = 'rgba(169,210,255,.34)'; g.fill();
@@ -490,11 +563,11 @@
     const hy = s.style === 'wedge' ? 0.24 : 0.42, hh = s.style === 'wedge' ? 0.14 : 0.2;
     g.fillStyle = '#fff4d6';
     g.fillRect(L / 2 - 3, -W * hy, 2.5, W * hh); g.fillRect(L / 2 - 3, W * (hy - hh), 2.5, W * hh);
-    g.fillStyle = brake ? '#ff3b3b' : '#8a1c1c';
+    g.fillStyle = rev ? '#f4f6ff' : brake ? '#ff3b3b' : '#8a1c1c';
     g.fillRect(-L / 2 + 0.5, -W * 0.42, 2, W * 0.22); g.fillRect(-L / 2 + 0.5, W * 0.2, 2, W * 0.22);
   }
-  function drawCar(g, s, x, y, a, ghost, brake) {
-    g.save(); g.translate(x, y); g.rotate(a); drawCarLocal(g, s, ghost, brake); g.restore();
+  function drawCar(g, s, x, y, a, ghost, brake, rev) {
+    g.save(); g.translate(x, y); g.rotate(a); drawCarLocal(g, s, ghost, brake, rev); g.restore();
   }
 
   // ---------- canvas, camera, rendering ----------------------------------------
@@ -503,7 +576,7 @@
   const cam = { x: 0, y: 0, z: 0.7 };
   function baseZoom() { return Math.max(0.42, Math.min(1.3, Math.min(vw, vh * 0.62) / 520)); }
   function resize() {
-    vw = window.innerWidth; vh = window.innerHeight; dpr = dprCap;
+    vw = window.innerWidth; vh = window.innerHeight; dpr = dprCap; hudCache = null;
     view.width = Math.round(vw * dpr); view.height = Math.round(vh * dpr);
     if (!running()) drawStill();
   }
@@ -563,7 +636,7 @@
     }
     for (const o of W.over) if (vis(o)) o.draw(g);
     if (ghost) drawCar(g, ghost.spec, ghost.x, ghost.y, ghost.a, true);
-    if (car) drawCar(g, car.spec, car.x, car.y, car.a, false, car.braking);
+    if (car) drawCar(g, car.spec, car.x, car.y, car.a, false, car.braking, car.rev);
     // light pass
     g.globalCompositeOperation = 'lighter';
     for (const f of W.floods) if (vis(f)) { g.globalAlpha = f.a; g.drawImage(GLOW[f.c], f.x - f.r, f.y - f.r, f.r * 2, f.r * 2); }
@@ -799,7 +872,7 @@
     skids = []; lastRear = null; touches.clear(); acc = 0; cd = 0; finishWait = 0; deltaT = 0; bannerT = 0;
     $('delta').className = 'num'; $('banner').className = '';
     $('lapV').textContent = '1/' + T.laps; $('timeV').textContent = fmt(0);
-    markIdx = 0; navStreet = null; hud.classList.toggle('city', !!T.def.city); prepMini(T);
+    markIdx = 0; navStreet = null; hud.classList.toggle('city', !!T.def.city); prepMini(T); $('gear').classList.remove('on'); hudCache = null;
     if (T.def.city) updateNav(race.car);
     snapCamera(race.car);
     sheet('pause', false); sheet('finish', false);
@@ -936,7 +1009,7 @@
       while (acc >= GL.DT && state === 'race') {
         acc -= GL.DT;
         const inp = readInput();
-        c.braking = !!(inp.left && inp.right) || !!inp.brake;
+        c.braking = (!!(inp.left && inp.right) || !!inp.brake) && !c.rev;
         const s0 = c.s;
         const ev = GL.stepRace(race, inp);
         if (race.T.def.city) checkMark(s0, c.s);
@@ -947,10 +1020,11 @@
       $('lapV').textContent = Math.min(race.lap + 1, race.T.laps) + '/' + race.T.laps;
       $('timeV').textContent = fmt(race.t);
       if (race.wrong > 1.2) banner('WRONG WAY', true, 0.3);
+      $('gear').classList.toggle('on', !!c.rev);
     } else if (state === 'finishing') {
       const k = Math.exp(-2.2 * dt);
       c.vx *= k; c.vy *= k; c.x += c.vx * dt; c.y += c.vy * dt; c.speed = Math.hypot(c.vx, c.vy); c.slip = 0; c.braking = true;
-      $('timeV').textContent = fmt(race.finishT);
+      $('timeV').textContent = fmt(race.finishT); $('gear').classList.remove('on');
       $('lapV').textContent = race.T.laps + '/' + race.T.laps;
       finishWait -= dt * FAST;
       if (finishWait <= 0) {

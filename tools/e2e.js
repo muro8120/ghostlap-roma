@@ -21,6 +21,8 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   p.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
   const base = 'http://localhost:8765/';
+  await ctx.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('ghostlap-roma-v1', JSON.stringify({ car: 'cinque', sound: false, tracks: { circo: { best: 40 } } })); } });
   await p.goto(base + '?bot=1&fast=6');
   await p.waitForTimeout(800);
   await p.screenshot({ path: SHOTS + '/01-menu.png' });
@@ -28,6 +30,9 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.evaluate(() => document.getElementById('menu').scrollTo(0, 1400));
   await p.waitForTimeout(200);
   await p.screenshot({ path: SHOTS + '/02-menu-scrolled.png' });
+  const mig = await p.evaluate(() => ({ v1: localStorage.getItem('ghostlap-roma-v1'), car: window.__ghostlap.save.car, tracks: Object.keys(window.__ghostlap.save.tracks).length }));
+  check('old save: car kept, times reset', mig.v1 === null && mig.car === 'cinque' && mig.tracks === 0, JSON.stringify(mig));
+  await p.evaluate(() => { document.getElementById('carNext').click(); });
   // locked cards
   const locked = await p.$$eval('#trackList .card.locked', (e) => e.length);
   check('3 tracks locked at start', locked === 3, 'locked=' + locked);
@@ -43,7 +48,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.waitForSelector('#finish.on', { timeout: 60000 });
   await p.waitForTimeout(300);
   await p.screenshot({ path: SHOTS + '/05-finish.png' });
-  const s1 = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-roma-v1')));
+  const s1 = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-roma-v2')));
   check('circo best saved', !!(s1 && s1.tracks.circo && s1.tracks.circo.best > 30), s1 && s1.tracks.circo && s1.tracks.circo.best.toFixed(2));
   check('ghost recorded', s1.tracks.circo.rec.length > 1000, 'samples=' + s1.tracks.circo.rec.length / 3);
   // race again: ghost visible
@@ -74,7 +79,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
     await p.waitForTimeout(2200);
     await p.screenshot({ path: SHOTS + `/1${i}-${id}.png` });
     const done = await p.waitForSelector('#finish.on', { timeout: 90000 }).then(() => true).catch(() => false);
-    const t = await p.evaluate((k) => { const s = JSON.parse(localStorage.getItem('ghostlap-roma-v1')); return s.tracks[k] && s.tracks[k].best; }, id);
+    const t = await p.evaluate((k) => { const s = JSON.parse(localStorage.getItem('ghostlap-roma-v2')); return s.tracks[k] && s.tracks[k].best; }, id);
     check(id + ' completes', done && t > 0, t && t.toFixed(2));
     await p.click('#menuBtn');
   }
@@ -104,7 +109,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   }
   // car picker cycles and persists
   await p.click('#carNext'); await p.waitForTimeout(100);
-  const car = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-roma-v1')).car);
+  const car = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-roma-v2')).car);
   check('car choice persists', car === 'modena', car);
   for (let k = 0; k < 5; k++) { await p.screenshot({ path: SHOTS + `/2${k}-car.png`, clip: { x: 0, y: 100, width: 390, height: 330 } }); await p.click('#carNext'); await p.waitForTimeout(80); }
   await p.evaluate(() => document.getElementById('menu').scrollTo(0, 0));
@@ -133,6 +138,19 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p2.waitForTimeout(400);
   const v1 = await p2.evaluate(() => window.__ghostlap.race.car.speed);
   check('both thumbs brake', v1 < v0 - 50, `v0=${v0.toFixed(0)} v1=${v1.toFixed(0)}`);
+  // keep holding both = reverse (after stopping), with a white reverse light and the R badge
+  await p2.waitForTimeout(1300);
+  const rv = await p2.evaluate(() => { const c = window.__ghostlap.race.car; return { rev: !!c.rev, vF: c.vx * Math.cos(c.a) + c.vy * Math.sin(c.a), badge: document.getElementById('gear').classList.contains('on') }; });
+  check('holding both reverses', rv.rev && rv.vF < -40 && rv.badge, JSON.stringify(rv));
+  const a2 = await p2.evaluate(() => window.__ghostlap.race.car.a);
+  await p2.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 9, bubbles: true, pointerType: 'touch' })));
+  await p2.waitForTimeout(600);
+  const r2 = await p2.evaluate(() => { const c = window.__ghostlap.race.car; return { rev: !!c.rev, a: c.a }; });
+  check('one thumb steers while reversing', r2.rev && Math.abs(r2.a - a2) > 0.15, JSON.stringify({ a2, ...r2 }));
+  await p2.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 8, bubbles: true, pointerType: 'touch' })));
+  await p2.waitForTimeout(900);
+  const r3 = await p2.evaluate(() => { const c = window.__ghostlap.race.car; return { rev: !!c.rev, vF: c.vx * Math.cos(c.a) + c.vy * Math.sin(c.a) }; });
+  check('letting go drives forward again', !r3.rev && r3.vF > 20, JSON.stringify(r3));
   // hidden page pauses
   await p2.evaluate(() => { Object.defineProperty(document, 'hidden', { value: true, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
   check('backgrounding pauses', (await p2.evaluate(() => window.__ghostlap.state)) === 'paused');
