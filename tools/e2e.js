@@ -13,6 +13,31 @@ const srv = http.createServer((q, r) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, extra || '']); };
+// physics checks (node): soft walls and turning circles on the real map
+if (process.env.ROME_JS) {
+  const GL = require(path.join(ROOT, 'core.js'));
+  global.window = {}; eval(fs.readFileSync(process.env.ROME_JS, 'utf8'));
+  const route = (id) => { const r = window.ROME.routes.find((q) => q.id === id), pts = []; for (let i = 0; i < r.pts.length; i += 2) pts.push([r.pts[i], r.pts[i + 1]]); return { r, T: GL.buildTrack({ ...r, pts, names: r.names }) }; };
+  const { r, T } = route('r-vaticano');
+  const R = GL.newRace(T, GL.CARS[1]);
+  while (R.car.s < r.marks[1].s - 600) GL.stepRace(R, GL.botInput(T, R.car, { digital: true, line: 0.7 }));
+  let flips = 0, last = 0;
+  for (let k = 0; k < 360; k++) { const a = R.car.a; GL.stepRace(R, { left: true, right: false }); const da = R.car.a - a; if (Math.abs(da) > 1e-4 && Math.sign(da) !== Math.sign(last)) flips++; last = da; }
+  check('wall scrape is smooth (no wobble)', flips <= 3 && R.car.speed > 15, `flips=${flips} speed=${R.car.speed.toFixed(0)}`);
+  check('Vatican Museums has a turning circle', T.zones.length >= 1, 'zones=' + T.zones.length);
+  // drive into the circle, stop, reverse, turn round, drive out: the route must count it
+  const R2 = GL.newRace(T, GL.CARS[0]); const z = T.zones[0];
+  while (!R2.car.zone) GL.stepRace(R2, GL.botInput(T, R2.car, { digital: true, line: 0.7 }));
+  for (let k = 0; k < 120; k++) GL.stepRace(R2, { left: true, right: true });
+  for (let k = 0; k < 600 && R2.car.zdone !== z; k++) GL.stepRace(R2, { left: true, right: false });
+  check('turning round inside the circle counts', R2.car.zdone === z && R2.wrong < 1.2, `zdone=${R2.car.zdone === z} idx=${R2.car.idx} iOut=${z.iOut}`);
+  for (const id of ['r-vaticano', 'r-popolo', 'r-pantheon', 'r-picks', 'r-prati']) {
+    const { T: Tr } = route(id);
+    const times = GL.CARS.map((c) => GL.simulate(Tr, { digital: true, line: 0.7 }, 300, c).time);
+    check(id + ': every car finishes', times.every((t) => t), times.map((t) => (t ? t.toFixed(0) : 'DNF')).join(' '));
+  }
+}
+
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ ...devices['iPhone 13'] });
@@ -86,12 +111,13 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   // real-street routes (only when a rome.js is served)
   if (process.env.ROME_JS) {
     const cityIdx = await p.evaluate(() => [...Array(20).keys()].filter((i) => window.GL.TRACKS[i] && window.GL.TRACKS[i].city));
-    check('4 Rome routes registered', cityIdx.length === 4, JSON.stringify(cityIdx));
+    check('5 Rome routes registered', cityIdx.length === 5, JSON.stringify(cityIdx));
     for (const i of cityIdx) {
       await p.evaluate((k) => window.__ghostlap.startRace(k), i);
       await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
       await p.waitForTimeout(1200);
       const nav = await p.$eval('#navSt', (e) => e.textContent);
+      const signs = await p.evaluate(() => window.__ghostlap.signs);
       const navOn = await p.$eval('#nav', (e) => getComputedStyle(e).display !== 'none');
       const banners = [];
       const poll = setInterval(async () => { try { const b = await p.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b && !banners.includes(b)) banners.push(b); } catch (e) {} }, 150);
@@ -99,8 +125,8 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
       clearInterval(poll);
       const via = await p.$eval('.via', (e) => e.textContent).catch(() => '');
       const id = await p.evaluate((k) => window.GL.TRACKS[k].id, i);
-      check(id + ' completes, shows street + stops + route list', done && navOn && nav.length > 2 && via.includes('MIN ON FOOT') && banners.length >= 2,
-        `nav="${nav}" banners=${JSON.stringify(banners)} via=${via.slice(0, 60)}`);
+      check(id + ' completes, shows street + stops + signs + route list', done && navOn && nav.length > 2 && signs >= 1 && via.includes('MIN ON FOOT') && banners.length >= 2,
+        `nav="${nav}" signs=${signs} banners=${JSON.stringify(banners)}`);
       if (i === cityIdx[0]) await p.screenshot({ path: SHOTS + '/30-city-finish.png' });
       await p.click('#menuBtn');
     }
@@ -164,7 +190,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p3.waitForTimeout(800);
   const menuOn = await p3.$eval('#menu', (e) => e.classList.contains('on')).catch(() => false);
   const cards = await p3.$$eval('.card', (e) => e.length).catch(() => 0);
-  check('loads in airplane mode', ok === true && menuOn && cards === (process.env.ROME_JS ? 8 : 4), `ok=${ok} cards=${cards}`);
+  check('loads in airplane mode', ok === true && menuOn && cards === (process.env.ROME_JS ? 9 : 4), `ok=${ok} cards=${cards}`);
   await p3.screenshot({ path: SHOTS + '/10-offline.png' });
   check('no JS errors', errs.length === 0, errs.slice(0, 5).join(' | '));
   await b.close(); srv.close();

@@ -132,10 +132,32 @@
       minY = Math.min(minY, ys[i]); maxY = Math.max(maxY, ys[i]);
     }
     const hw = def.w / 2;
+    // Turning circles where a real-street route doubles back on itself (a dead-end visit such as
+    // the Vatican Museums gate): inside one there are no walls, and turning round counts.
+    const zones = [];
+    if (def.names) {
+      const K = Math.max(8, Math.round(170 / (L / N)));
+      for (let i = 0; i < N; i++) {
+        const j = (i + K) % N;
+        if (tx[i] * tx[j] + ty[i] * ty[j] > -0.75 || Math.hypot(xs[i] - xs[j], ys[i] - ys[j]) > hw * 2.4) continue;
+        const mx = (xs[i] + xs[j]) / 2, my = (ys[i] + ys[j]) / 2;
+        let a = i, ad = -1;
+        for (let k = 0; k <= K; k++) { const q = (i + k) % N, d = Math.hypot(xs[q] - mx, ys[q] - my); if (d > ad) { ad = d; a = q; } }
+        const r = Math.max(hw * 2.6, ad + hw);
+        const z = { x: xs[a], y: ys[a], r, apex: a };
+        if (zones.some((o) => Math.hypot(o.x - z.x, o.y - z.y) < o.r)) continue;
+        const inside = (q) => Math.hypot(xs[q] - z.x, ys[q] - z.y) < r;
+        let b = a, e = a;
+        for (let n = 0; n < N / 4 && inside((b - 1 + N) % N); n++) b = (b - 1 + N) % N;
+        for (let n = 0; n < N / 4 && inside((e + 1) % N); n++) e = (e + 1) % N;
+        z.iIn = b; z.iOut = (e + 1) % N;
+        zones.push(z);
+      }
+    }
     return {
       def, id: def.id, name: def.name, N, L, ds: L / N, xs, ys, tx, ty, curv, hw,
       wall: def.wall != null ? def.wall : CAR.wall, laps: def.laps || LAPS, sectors: def.sectors || SECTORS,
-      street, streetNames,
+      street, streetNames, zones,
       bounds: { minX: minX - hw - 400, minY: minY - hw - 400, maxX: maxX + hw + 400, maxY: maxY + hw + 400 },
     };
   }
@@ -243,7 +265,7 @@
       const both = input.left && input.right, any = input.left || input.right;
       c.hold = both ? (c.hold || 0) + dt : 0;
       if (!any) c.rev = false;
-      else if (both && c.hold > 0.45 && Math.abs(vF) < 25) c.rev = true;
+      else if (both && c.hold > 0.35 && Math.abs(vF) < 30) c.rev = true;
       target = both ? 0 : (input.right ? 1 : 0) - (input.left ? 1 : 0);
       braking = both && !c.rev;
     }
@@ -272,24 +294,63 @@
     c.x += c.vx * dt;
     c.y += c.vy * dt;
 
-    const near = nearest(T, c.x, c.y, c.idx);
-    c.idx = near.i;
+    let near = nearest(T, c.x, c.y, c.idx);
     const prevS = c.s;
+    c.zone = null;
+    let ring = null; // a turning circle whose edge acts as the wall (car in the hairpin but outside the circle)
+    for (const z of T.zones || []) {
+      const d = Math.hypot(c.x - z.x, c.y - z.y);
+      const at = (near.i - z.iIn + T.N) % T.N, span = (z.iOut - z.iIn + T.N) % T.N;
+      if (c.zdone === z) {
+        // already turned round here: never slide back into the hairpin, no edge wall on the way out
+        if (d > z.r + T.hw * 3) c.zdone = null;
+        else if (at < span) near = refine(T, c.x, c.y, z.iOut);
+        if (d < z.r) c.zone = z;
+        continue;
+      }
+      if (d < z.r) {
+        c.zone = z;
+        // turned round inside the circle: carry on from where the route leaves it
+        if (at < span && c.vx * T.tx[z.iOut] + c.vy * T.ty[z.iOut] > 15) { near = refine(T, c.x, c.y, z.iOut); c.zdone = z; }
+        continue;
+      }
+      if (at > 0 && at < span && d < z.r + T.hw * 3) ring = { z, d };
+    }
+    c.idx = near.i;
     c.s = near.s;
     c.off = near.off;
     const edge = Math.abs(near.off);
-    c.onRoad = edge <= T.hw + 4;
+    c.onRoad = edge <= T.hw + 4 || !!c.zone;
     const limit = T.hw + T.wall;
     c.bump = Math.max(0, c.bump - dt);
-    if (edge > limit) {
-      // Barrier: put the car back inside and bleed speed.
-      const k = (edge - limit) * Math.sign(near.off);
-      const nx = -T.ty[near.i], ny = T.tx[near.i];
-      c.x -= nx * k; c.y -= ny * k;
+    if (ring && !c.zone) {
+      // round soft wall at the edge of the turning circle
+      const { z, d } = ring, nx = (c.x - z.x) / (d || 1), ny = (c.y - z.y) / (d || 1);
+      c.x -= nx * (d - z.r + 1); c.y -= ny * (d - z.r + 1);
       const vn = c.vx * nx + c.vy * ny;
-      if (vn * Math.sign(near.off) > 0) { c.vx -= nx * vn * 1.4; c.vy -= ny * vn * 1.4; }
-      c.vx *= 0.82; c.vy *= 0.82;
+      if (vn > 0) { c.vx -= nx * vn * 1.05; c.vy -= ny * vn * 1.05; }
+      const f = c.bump <= 0 ? 0.78 : Math.exp(-1.2 * dt);
+      c.vx *= f; c.vy *= f;
       if (c.bump <= 0) c.bump = 0.35;
+      c.onRoad = true;
+    } else if (edge > limit && !c.zone) {
+      // Soft wall: put the car back, stop it going further out (no bounce), one knock on contact,
+      // then a gentle scrape. The nose eases along the wall so you slide off instead of pinning.
+      const sg = Math.sign(near.off), nx = -T.ty[near.i] * sg, ny = T.tx[near.i] * sg;
+      c.x -= nx * (edge - limit); c.y -= ny * (edge - limit);
+      const vn = c.vx * nx + c.vy * ny;
+      if (vn > 0) { c.vx -= nx * vn * 1.05; c.vy -= ny * vn * 1.05; }
+      const f = c.bump <= 0 ? 0.78 : Math.exp(-1.2 * dt);
+      c.vx *= f; c.vy *= f;
+      if (c.bump <= 0) c.bump = 0.35;
+      if (!c.rev) {
+        const tx = T.tx[near.i], ty = T.ty[near.i];
+        const along = Math.sign(Math.cos(c.a) * tx + Math.sin(c.a) * ty) || 1;
+        let da = Math.atan2(ty * along, tx * along) - c.a;
+        while (da > Math.PI) da -= TAU;
+        while (da < -Math.PI) da += TAU;
+        c.a += Math.max(-1, Math.min(1, da)) * 2.2 * (1 - 0.7 * Math.abs(c.steer)) * dt;
+      }
     }
     c.speed = Math.hypot(c.vx, c.vy);
     c.slip = Math.abs(vR) / (Math.abs(vF) + 60);
@@ -334,7 +395,7 @@
     }
     // wrong way detector
     const dot = c.vx * T.tx[c.idx] + c.vy * T.ty[c.idx];
-    R.wrong = dot < -40 && !c.rev ? R.wrong + DT : 0;
+    R.wrong = dot < -40 && !c.rev && !c.zone ? R.wrong + DT : 0;
     // ghost sampling
     R.recAcc += DT;
     if (R.recAcc >= 1 / GHOST_HZ - 1e-9) {

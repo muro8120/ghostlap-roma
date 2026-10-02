@@ -1,6 +1,6 @@
 // Ghostlap Roma service worker: cache everything on install, serve from cache first,
 // so the game opens in airplane mode once it has been opened online one time.
-const CACHE = 'ghostlap-roma-v3';
+const CACHE = 'ghostlap-roma-v4';
 const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 const OPTIONAL = ['rome.js']; // the real-street map; the game still works without it
 

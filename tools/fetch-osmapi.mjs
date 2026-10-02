@@ -53,6 +53,9 @@ function fetchBox(s, w, n, e, depth = 0) {
 const S = 41.8945, W = 12.4480, N = 41.9160, E = 12.4890, NY = 4, NX = 4;
 for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++)
   fetchBox(S + ((N - S) * j) / NY, W + ((E - W) * i) / NX, S + ((N - S) * (j + 1)) / NY, W + ((E - W) * (i + 1)) / NX);
+// strip south to Campo de' Fiori / Via dei Giubbonari, and a patch of Testaccio (Andiamo picks)
+for (let i = 0; i < NX; i++) fetchBox(41.8905, W + ((E - W) * i) / NX, S, W + ((E - W) * (i + 1)) / NX);
+fetchBox(41.8740, 12.4700, 41.8800, 12.4800);
 // to Overpass-style JSON
 const asWay = (w) => {
   const geometry = w.nodes.map((id) => nodes.get(id)).filter(Boolean).map(([lat, lon]) => ({ lat, lon }));

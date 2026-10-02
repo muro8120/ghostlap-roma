@@ -19,6 +19,22 @@
 4. `ROME_JS=$PWD/rome.js node tools/e2e.js`. Every line should PASS.
 5. Bump `CACHE` in `sw.js`, commit `rome.js`, push `main`. Then open the app online once and reopen it.
 
+## Jesse's places (Andiamo)
+
+`PICKS` in `build-rome.mjs` holds the eight places from his "Rome from the NYX" page in the Andiamo trip
+project: Sant'Eustachio, Forno Campo de' Fiori, Roscioli, Cul de Sac, Gelateria del Teatro, Enoteca
+Costantini, Da Oio, and Trapizzino Testaccio. Each is matched by name (and house number where needed)
+in the OSM data. They show as gold stars on the map, and the nearest two get direction signs at the
+screen edge, next to the hotel's and the next stop's. The `r-picks` route visits the five in the
+centre. The fetch includes a strip south to Via dei Giubbonari and a patch of Testaccio for these.
+
+## Turning circles
+
+Where a route doubles back (the Vatican Museums gate, Piazza di Sant'Eustachio, Campo de' Fiori),
+`core.js` puts a turning circle on the track. Inside it there are no walls; its edge is a soft round
+wall; and turning round inside it counts, so the route carries on from the way out. Everywhere else
+the walls are soft too: no bounce, one knock, then you slide along.
+
 ## How routes are made
 
 Stops are found in the data by name, never by typed coordinates:

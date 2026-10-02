@@ -32,11 +32,29 @@ const STOPS = {
   lepanto: { label: 'Lepanto metro', pool: 'places', match: (t) => /^Lepanto$/i.test(t.name || '') && (t.station === 'subway' || t.railway === 'station') },
   ottaviano: { label: 'Ottaviano metro', pool: 'places', match: (t) => /^Ottaviano/i.test(t.name || '') && (t.station === 'subway' || t.railway === 'station') },
   cavour: { label: 'Piazza Cavour', pool: 'places', match: (t) => /^Piazza Cavour$/i.test(t.name || ''), street: 'Piazza Cavour', roadOnly: true },
+  // the places Jesse picked (his "Rome from the NYX" page, Andiamo trip project)
+  teatro: { label: 'Gelateria del Teatro', pool: 'pois', match: (t) => t.name === 'Gelateria del Teatro' },
+  culdesac: { label: 'Cul de Sac', pool: 'pois', match: (t) => t.name === 'Cul de Sac' && t['addr:street'] === 'Piazza di Pasquino' },
+  eustachio: { label: "Caff\u00e8 Sant'Eustachio", pool: 'pois', match: (t) => t.name === "Sant'Eustachio" && t['addr:housenumber'] === '82' },
+  forno: { label: "Forno Campo de' Fiori", pool: 'pois', match: (t) => t.name === 'Forno Campo de Fiori' },
+  roscioli: { label: 'Roscioli Salumeria', pool: 'pois', match: (t) => t.name === 'Salumeria Roscioli' },
 };
+// Jesse's list, shown as gold pins and direction signs; sun: closed on Sundays (his Rome Sundays are Oct 4 and 11)
+const PICKS = [
+  { key: 'eustachio', note: "say \u201camaro\u201d for it unsweetened" },
+  { key: 'forno', note: 'pizza bianca', sun: true },
+  { key: 'roscioli', note: 'book ahead' },
+  { key: 'culdesac', note: 'wine bar, open Sundays' },
+  { key: 'teatro', note: 'gelato, open late' },
+  { label: 'Enoteca Costantini', match: (t) => t.name === 'Enoteca Costantini' && t['addr:housenumber'] === '16', note: 'wine shop', sun: true },
+  { label: 'Da Oio a Casa Mia', match: (t) => t.name === 'Da Oio a Casa Mia', note: 'Testaccio \u00b7 taxi', sun: true },
+  { label: 'Trapizzino Testaccio', match: (t) => t.name === 'Trapizzino Testaccio', note: 'Testaccio \u00b7 open Sundays' },
+];
 const ROUTES = [
   { id: 'r-vaticano', name: 'NYX → San Pietro', blurb: "Past Ottaviano metro to the Vatican Museums, then St Peter's Square.", laps: 1, sectors: 6, stops: ['hotel', 'ottaviano', 'musei', 'sanpietro', 'hotel'] },
   { id: 'r-popolo', name: 'NYX → Popolo → Spagna', blurb: 'Over the Tiber to Piazza del Popolo, down to the Spanish Steps.', laps: 1, sectors: 6, stops: ['hotel', 'popolo', 'spagna', 'hotel'] },
   { id: 'r-pantheon', name: 'NYX → Pantheon → Trevi', blurb: 'Into the old centre: the Pantheon, then the Trevi Fountain.', laps: 1, sectors: 6, stops: ['hotel', 'pantheon', 'trevi', 'hotel'] },
+  { id: 'r-picks', name: 'NYX \u2192 your picks', blurb: "Your Andiamo list: Gelateria del Teatro, Cul de Sac, Sant'Eustachio, Campo de' Fiori, Roscioli.", laps: 1, sectors: 6, stops: ['hotel', 'teatro', 'culdesac', 'eustachio', 'forno', 'roscioli', 'hotel'] },
   { id: 'r-prati', name: 'Prati loop', blurb: 'Your neighbourhood: Lepanto metro, round to Piazza Cavour.', laps: 2, sectors: 4, stops: ['hotel', 'lepanto', 'cavour', 'hotel'] },
 ];
 // labels drawn on the map (beyond the route stops)
@@ -121,6 +139,7 @@ const onStreet = (name) => (id) => adj.get(id).some((e) => ways[e.way].name === 
 const squares = fs.existsSync(path.join(OSM, 'squares.json')) ? load('squares') : [];
 const pool = [...places, ...squares.map((w) => ({ ...w, center: w.geometry ? { lat: w.geometry.reduce((a, g) => a + g.lat, 0) / w.geometry.length, lon: w.geometry.reduce((a, g) => a + g.lon, 0) / w.geometry.length } : null }))];
 const POOLS = { places, squares, streets, buildings: fs.existsSync(path.join(OSM, 'buildings.json')) ? load('buildings') : [] };
+POOLS.pois = fs.existsSync(path.join(OSM, 'pois.json')) ? load('pois') : [];
 { const seen = new Set(); POOLS.any = [...places, ...POOLS.buildings, ...squares].filter((e) => !seen.has(e.type + e.id) && seen.add(e.type + e.id)); }
 // centre of everything that matched (e.g. all the little ways that make up one piazza)
 const centroid = (els) => {
@@ -456,8 +475,23 @@ for (const s of outStreets) {
 }
 
 if (problems.length) log('!! routes with overlaps:', problems.join(', '));
+// picks: resolved by name in the map data (never typed coordinates)
+const outPicks = [];
+for (const pk of PICKS) {
+  const st = pk.key ? stopAt[pk.key] : null;
+  let x, y, label = pk.label;
+  if (st) { x = st.x; y = st.y; label = st.label; }
+  else {
+    const hit = POOLS.pois.find((e) => e.tags && pk.match(e.tags));
+    const c = hit && centroid([hit]);
+    if (!c) { log('!! pick not found:', pk.label); continue; }
+    [x, y] = P(c[0], c[1]);
+  }
+  outPicks.push({ n: label, note: pk.note, sun: !!pk.sun, x: toU(x), y: toU(y) });
+}
+log('picks: ' + outPicks.map((p) => p.n).join(', '));
 const ROME = { synthetic: OSM.endsWith('osm-test'), S, origin: [LAT0, LON0], names, streets: outStreets, buildings: outBuildings, river: outRiver, places: outPlaces, anchors, routes: outRoutes,
-  poiKinds: POI_RULES.map(([k]) => k), poiLabels, pois: outPois,
+  poiKinds: POI_RULES.map(([k]) => k), poiLabels, pois: outPois, picks: outPicks,
   credit: '© OpenStreetMap contributors (ODbL)' };
 const js = '// Generated by tools/build-rome.mjs from OpenStreetMap data, © OpenStreetMap contributors, ODbL.\nwindow.ROME = ' + JSON.stringify(ROME) + ';\n';
 fs.writeFileSync(OUT, js);

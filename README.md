@@ -5,9 +5,10 @@ A small top-down night racer set in Rome. Race three laps, and your best run com
 - **Circuits:** Circo Massimo, Colosseo, Lungotevere, Via Appia Antica. A bronze unlocks the next one.
 - **Rome from the NYX** (`rome.js`, see `tools/ROME-ROUTES.md`): real-street round trips from the hotel on Via Cicerone to the
   Vatican, Piazza del Popolo and the Spanish Steps, the Pantheon and Trevi, plus a Prati loop. The street you're on shows at the top,
-  with a minimap, landmark labels, and the list of streets you drove at the finish. Map data © OpenStreetMap contributors (ODbL).
+  with a minimap, landmark labels, and the list of streets you drove at the finish. Direction signs at the screen edge point
+  to the hotel, the next stop and the nearest of your Andiamo places (gold stars). Map data © OpenStreetMap contributors (ODbL).
 - **Garage:** Cinquecento, Maranello 12, Modena GT, San Cesario, Sant'Agata. These are homages named after towns, not brands.
-- **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake.
+- **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake; keep holding to reverse.
 - **Offline:** a service worker caches everything, so after one online visit it runs in airplane mode.
 
 ## Install on iPhone

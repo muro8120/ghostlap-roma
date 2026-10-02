@@ -219,8 +219,106 @@
       g.font = (p.k === 'sight' ? 'italic 600 ' : '800 ') + (p.k === 'hotel' || p.k === 'stop' ? '13px' : '11px') + ' -apple-system, system-ui, sans-serif';
       g.lineWidth = 4; g.strokeText(p.n, sx, sy - 15); g.fillStyle = col; g.fillText(p.n, sx, sy - 15);
     }
+    drawPicks(ox, oy, z, free);
     drawLandmarks(ox, oy, z, free);
+    if (state !== 'menu' && race && race.T.def.city) drawSigns(ox, oy, z, hud);
   }
+
+  // Jesse's places (from his Andiamo trip page): gold stars with a short note
+  function star(x, y, r) {
+    g.beginPath();
+    for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + (k * Math.PI) / 5, rr2 = k % 2 ? r * 0.45 : r; g.lineTo(x + Math.cos(a) * rr2, y + Math.sin(a) * rr2); }
+    g.closePath();
+  }
+  const GOLD = '#ffd166';
+  function drawPicks(ox, oy, z, free) {
+    for (const p of ROME.picks || []) {
+      const sx = p.x * z + ox, sy = p.y * z + oy;
+      if (sx < -60 || sx > vw + 60 || sy < -30 || sy > vh + 30) continue;
+      g.font = '800 12px -apple-system, system-ui, sans-serif';
+      const w = g.measureText(p.n).width;
+      free(sx - 10, sy - 10, sx + w + 16, sy + 22);
+      g.save(); g.shadowColor = GOLD; g.shadowBlur = 10; g.fillStyle = GOLD; star(sx, sy, 8); g.fill(); g.restore();
+      g.strokeStyle = 'rgba(12,13,17,.95)'; g.lineWidth = 1.5; star(sx, sy, 8); g.stroke();
+      g.textAlign = 'left'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+      g.lineWidth = 4; g.strokeStyle = 'rgba(12,13,17,.92)'; g.strokeText(p.n, sx + 12, sy); g.fillStyle = GOLD; g.fillText(p.n, sx + 12, sy);
+      const note = p.note + (p.sun ? ' \u00b7 closed Sun' : '');
+      g.font = '600 10px -apple-system, system-ui, sans-serif';
+      g.lineWidth = 3; g.strokeText(note, sx + 12, sy + 13); g.fillStyle = 'rgba(255,209,102,.8)'; g.fillText(note, sx + 12, sy + 13);
+    }
+  }
+
+  // Direction signs at the screen edge: the hotel, the next stop, and the nearest of Jesse's places,
+  // each with its straight-line distance, so you learn which way things are from wherever you are.
+  let signCount = 0;
+  function drawSigns(ox, oy, z, hud) {
+    const T = race.T, c = race.car, S = ROME.S;
+    const cx = c.x * z + ox, cy = c.y * z + oy;
+    const targets = [];
+    const home = ROME.places.find((p) => p.k === 'hotel');
+    if (home) targets.push({ x: home.x, y: home.y, t: 'NYX Hotel', col: '#f2b24c', solid: true });
+    const marks = T.def.marks || [];
+    if (markIdx < marks.length) {
+      const m = marks[markIdx], i = Math.round(m.s / T.ds) % T.N;
+      targets.push({ x: T.xs[i], y: T.ys[i], t: m.name, col: '#ffffff' });
+    }
+    targets.push(...(ROME.picks || []).filter((p) => !targets.some((t) => t.t === p.n))
+      .map((p) => ({ x: p.x, y: p.y, t: p.n, col: GOLD, d: Math.hypot(p.x - c.x, p.y - c.y) }))
+      .sort((a, b) => a.d - b.d).slice(0, 2));
+    let top = 8;
+    for (const r of hud) if (r[1] < vh * 0.4) top = Math.max(top, r[3]);
+    const box = { l: 8, t: top + 4, r: vw - 8, b: vh - 14 }, h = 22;
+    g.font = '700 10.5px -apple-system, system-ui, sans-serif';
+    // 1) where each off-screen place's direction leaves the sign area
+    const chips = [];
+    for (const tg of targets) {
+      const sx = tg.x * z + ox, sy = tg.y * z + oy;
+      if (sx > box.l + 30 && sx < box.r - 30 && sy > box.t + 20 && sy < box.b - 20) continue; // visible already
+      const dx = sx - cx, dy = sy - cy, m = Math.hypot(dx, dy) / z / S;
+      const text = tg.t + ' \u00b7 ' + (m < 950 ? Math.round(m / 10) * 10 + ' m' : (m / 1000).toFixed(1) + ' km');
+      const w = g.measureText(text).width + 32;
+      const kx = dx > 0 ? (box.r - cx) / dx : dx < 0 ? (box.l - cx) / dx : Infinity;
+      const ky = dy > 0 ? (box.b - cy) / dy : dy < 0 ? (box.t - cy) / dy : Infinity;
+      const k = Math.min(kx, ky), edge = ky <= kx ? (dy < 0 ? 't' : 'b') : dx < 0 ? 'l' : 'r';
+      chips.push({ tg, text, w, ang: Math.atan2(dy, dx), edge, px: cx + dx * k, py: cy + dy * k });
+    }
+    // 2) stack the chips on each edge so none overlap (and keep them clear of the car)
+    for (const e of ['t', 'b', 'l', 'r']) {
+      const list = chips.filter((ch) => ch.edge === e);
+      const side = e === 'l' || e === 'r';
+      for (const ch of list) {
+        ch.px = Math.max(box.l + ch.w / 2, Math.min(box.r - ch.w / 2, side ? (e === 'l' ? box.l + ch.w / 2 : box.r - ch.w / 2) : ch.px));
+        ch.py = Math.max(box.t + h / 2, Math.min(box.b - h / 2, side ? ch.py : e === 't' ? box.t + h / 2 : box.b - h / 2));
+      }
+      if (side) {
+        list.sort((a, b) => a.py - b.py);
+        for (let i = 1; i < list.length; i++) list[i].py = Math.max(list[i].py, list[i - 1].py + h + 4);
+        const over = list.length ? list[list.length - 1].py - (box.b - h / 2) : 0;
+        if (over > 0) for (const ch of list) ch.py -= over;
+      } else {
+        // top/bottom: one row per chip so long names never collide
+        list.sort((a, b) => a.px - b.px);
+        list.forEach((ch, i) => { ch.py += (e === 't' ? 1 : -1) * i * (h + 4); });
+      }
+      for (const ch of list) { // nudge away from the car
+        if (Math.abs(ch.px - cx) < ch.w / 2 + 18 && Math.abs(ch.py - cy) < h / 2 + 18) ch.py += ch.py < cy ? -(h + 22) : h + 22;
+      }
+    }
+    // 3) draw
+    signCount = chips.length;
+    g.textBaseline = 'middle';
+    for (const ch of chips) {
+      const { px, py, w, tg } = ch;
+      const fg = tg.solid ? '#1a1205' : tg.col; // the hotel sign is solid amber: "home"
+      g.fillStyle = tg.solid ? tg.col : 'rgba(11,13,18,.8)'; rr(g, px - w / 2, py - h / 2, w, h, 11); g.fill();
+      g.strokeStyle = tg.col; g.lineWidth = 1.3; rr(g, px - w / 2, py - h / 2, w, h, 11); g.stroke();
+      g.save(); g.translate(px - w / 2 + 12, py); g.rotate(ch.ang);
+      g.fillStyle = fg; g.beginPath(); g.moveTo(6.5, 0); g.lineTo(-4.5, -5); g.lineTo(-2, 0); g.lineTo(-4.5, 5); g.closePath(); g.fill();
+      g.restore();
+      g.fillStyle = fg; g.textAlign = 'left'; g.fillText(ch.text, px - w / 2 + 23, py + 0.5);
+    }
+  }
+
 
   // shop fronts and street furniture you'd spot on foot: green pharmacy crosses, the tabacchi T,
   // churches, supermarkets, gelaterie, nasoni (drinking fountains), cash machines...
@@ -609,7 +707,11 @@
     for (const o of W.under) if (vis(o)) o.draw(g);
     g.lineJoin = 'round'; g.lineCap = 'butt';
     const wall = T.hw + T.wall;
-    if (W.city) { g.strokeStyle = '#3a3c42'; g.lineWidth = T.hw * 2 + 14; g.stroke(W.path); }
+    if (W.city) {
+      g.strokeStyle = 'rgba(70,72,80,.42)'; g.lineWidth = wall * 2; g.stroke(W.path);
+      g.strokeStyle = '#3a3c42'; g.lineWidth = T.hw * 2 + 14; g.stroke(W.path);
+      for (const zn of T.zones || []) { g.fillStyle = 'rgba(70,72,80,.42)'; g.beginPath(); g.arc(zn.x, zn.y, zn.r + 10, 0, 7); g.fill(); }
+    }
     else {
       g.strokeStyle = W.barrier; g.lineWidth = wall * 2 + 8; g.stroke(W.path);
       g.strokeStyle = W.runoff; g.lineWidth = wall * 2; g.stroke(W.path);
@@ -620,6 +722,13 @@
     g.strokeStyle = W.asphalt; g.lineWidth = T.hw * 2; g.stroke(W.path);
     g.strokeStyle = W.edge; g.lineWidth = T.hw * 2 - 8; g.stroke(W.path);
     g.strokeStyle = W.asphalt; g.lineWidth = T.hw * 2 - 13; g.stroke(W.path);
+    for (const zn of T.zones || []) { // turning circle: round piazza with a turn-round arrow
+      g.fillStyle = W.asphalt; g.beginPath(); g.arc(zn.x, zn.y, zn.r, 0, 7); g.fill();
+      g.strokeStyle = W.edge; g.lineWidth = 3; g.beginPath(); g.arc(zn.x, zn.y, zn.r - 6, 0, 7); g.stroke();
+      g.strokeStyle = 'rgba(242,178,76,.55)'; g.lineWidth = 7; g.beginPath(); g.arc(zn.x, zn.y, zn.r * 0.5, 0.6, 5.4); g.stroke();
+      const ax = zn.x + Math.cos(5.4) * zn.r * 0.5, ay = zn.y + Math.sin(5.4) * zn.r * 0.5;
+      g.fillStyle = 'rgba(242,178,76,.55)'; g.beginPath(); g.moveTo(ax + 14, ay + 6); g.lineTo(ax - 10, ay + 12); g.lineTo(ax + 2, ay - 14); g.fill();
+    }
     g.setLineDash([36, 48]); g.strokeStyle = 'rgba(255,255,255,.14)'; g.lineWidth = 3; g.stroke(W.path); g.setLineDash([]);
     // start / finish chequers
     g.save(); g.translate(T.xs[0], T.ys[0]); g.rotate(Math.atan2(T.ty[0], T.tx[0]));
@@ -767,7 +876,7 @@
   let pausedFrom = null;
   let cur = 0, race = null, W = null, ghostRec = null, ghostSpec = null, ghostBest = null;
   let cd = 0, acc = 0, finishWait = 0, helpT = 0, bannerT = 0, deltaT = 0;
-  let markIdx = 0, navStreet = null;
+  let markIdx = 0, navStreet = null, lastZoneCue = null;
 
   // where you are and where you're heading (real-street routes)
   function updateNav(c) {
@@ -872,7 +981,7 @@
     skids = []; lastRear = null; touches.clear(); acc = 0; cd = 0; finishWait = 0; deltaT = 0; bannerT = 0;
     $('delta').className = 'num'; $('banner').className = '';
     $('lapV').textContent = '1/' + T.laps; $('timeV').textContent = fmt(0);
-    markIdx = 0; navStreet = null; hud.classList.toggle('city', !!T.def.city); prepMini(T); $('gear').classList.remove('on'); hudCache = null;
+    markIdx = 0; navStreet = null; lastZoneCue = null; hud.classList.toggle('city', !!T.def.city); prepMini(T); $('gear').classList.remove('on'); hudCache = null;
     if (T.def.city) updateNav(race.car);
     snapCamera(race.car);
     sheet('pause', false); sheet('finish', false);
@@ -1017,6 +1126,8 @@
       }
       addSkids(c);
       if (race.T.def.city) updateNav(c);
+      if (c.zone && c.zdone !== c.zone && c.zone !== lastZoneCue) { banner('\u21ba TURN ROUND', false, 1.8); lastZoneCue = c.zone; }
+      if (!c.zone && c.zdone == null) lastZoneCue = null;
       $('lapV').textContent = Math.min(race.lap + 1, race.T.laps) + '/' + race.T.laps;
       $('timeV').textContent = fmt(race.t);
       if (race.wrong > 1.2) banner('WRONG WAY', true, 0.3);
@@ -1169,7 +1280,7 @@
   }
 
   // test hook (read-only peek for the headless tests)
-  window.__ghostlap = { get state() { return state; }, get race() { return race; }, get save() { return save; }, startRace, toMenu };
+  window.__ghostlap = { get state() { return state; }, get race() { return race; }, get save() { return save; }, get signs() { return signCount; }, startRace, toMenu };
 
   resize();
   buildMenu();
