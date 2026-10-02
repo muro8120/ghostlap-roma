@@ -92,9 +92,23 @@
   #pauseBtn { pointer-events: auto; width: 46px; height: 46px; border-radius: 12px; background: rgba(11,13,18,.62);
     border: 1px solid rgba(255,255,255,.08); display: grid; place-items: center; }
   #pauseBtn::before { content: ""; width: 12px; height: 16px; border-left: 4px solid var(--text); border-right: 4px solid var(--text); box-sizing: border-box; }
+  .note { color: var(--dim); font-size: 13px; margin: -2px 0 10px; }
+  #nav { position: absolute; left: calc(var(--sl) + 130px); right: calc(var(--sr) + 12px); top: calc(var(--st) + 76px); display: none; text-align: center;
+    background: rgba(11,13,18,.7); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 5px 10px 6px; }
+  #hud.city #nav { display: block; }
+  #navSt { display: block; font-weight: 800; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #navSt.pop { animation: pop .5s ease-out; }
+  @keyframes pop { 0% { color: var(--amber); transform: scale(1.12); } 100% { color: var(--text); transform: scale(1); } }
+  #navTo { display: block; font-size: 11px; color: var(--amber); font-weight: 700; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #mini { position: absolute; left: calc(var(--sl) + 12px); top: calc(var(--st) + 76px); width: 108px; height: 108px; display: none; }
+  .via { margin-top: 10px; text-align: left; font-size: 12px; line-height: 1.55; color: var(--text); max-height: 128px; overflow-y: auto;
+    background: var(--panel2); border-radius: 10px; padding: 8px 10px; -webkit-overflow-scrolling: touch; }
+  .via small { display: block; color: var(--dim); font-size: 10px; letter-spacing: .12em; margin-bottom: 4px; }
+  .via span { white-space: nowrap; }
   #delta { position: absolute; left: 50%; top: calc(var(--st) + 86px); transform: translateX(-50%); font-weight: 800; font-size: 22px;
     padding: 4px 12px; border-radius: 10px; background: rgba(11,13,18,.7); opacity: 0; transition: opacity .25s; }
   #delta.show { opacity: 1; }
+  #hud.city #delta { top: calc(var(--st) + 140px); }
   #delta.fast { color: var(--green); } #delta.slow { color: var(--red); }
   #banner { position: absolute; left: 0; right: 0; top: 38%; text-align: center; font-weight: 900; font-size: 30px; letter-spacing: .12em;
     text-shadow: 0 2px 12px rgba(0,0,0,.8); opacity: 0; transition: opacity .2s; }
@@ -161,7 +175,13 @@
       <div class="stats" id="carStats"></div>
     </div>
 
-    <h2>Tracks</h2>
+    <div id="romeSec" hidden>
+      <h2>Rome from your hotel</h2>
+      <p class="note" id="romeNote"></p>
+      <div class="tracks" id="romeList"></div>
+    </div>
+
+    <h2>Circuits</h2>
     <div class="tracks" id="trackList"></div>
 
     <div class="foot">
@@ -169,7 +189,8 @@
       <span class="pill" id="offline">Checking offline&hellip;</span>
     </div>
     <p class="how"><b>Hold left</b> or <b>right</b> half of the screen to steer. Gas is automatic.
-      <b>Both thumbs</b> = brake. Three laps; your best run becomes the ghost. Bronze unlocks the next track.</p>
+      <b>Both thumbs</b> = brake. Your best run becomes the ghost. Bronze unlocks the next circuit.</p>
+    <p class="how" id="osmCredit" hidden>Map data &copy; OpenStreetMap contributors (ODbL). Routes follow streets you can walk; they are not driving directions.</p>
   </div>
 </section>
 
@@ -179,6 +200,8 @@
     <div class="box" id="clock"><small>TIME</small><span class="v num" id="timeV">0:00.00</span><span id="ghostT" class="num"></span></div>
     <button id="pauseBtn" aria-label="Pause"></button>
   </div>
+  <div id="nav"><span id="navSt"></span><small id="navTo"></small></div>
+  <canvas id="mini" width="108" height="108"></canvas>
   <div id="delta" class="num"></div>
   <div id="banner"></div>
   <div id="lights"><i></i><i></i><i></i></div>
@@ -217,6 +240,7 @@
 </div>
 
 <script src="core.js"></script>
+<script src="rome.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

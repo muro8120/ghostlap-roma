@@ -26,6 +26,14 @@
   const MEDAL = ['', 'BRONZE', 'SILVER', 'GOLD'];
 
   // ---------- tracks & worlds ----------------------------------------------
+  // ---------- real-street routes from the NYX (rome.js, built from OpenStreetMap) -------
+  const ROME = window.ROME || null;
+  if (ROME) for (const r of ROME.routes) {
+    const pts = [];
+    for (let i = 0; i < r.pts.length; i += 2) pts.push([r.pts[i], r.pts[i + 1]]);
+    GL.TRACKS.push({ id: r.id, name: r.name, blurb: r.blurb, w: r.w, wall: r.wall, laps: r.laps, sectors: r.sectors,
+      medals: r.medals, pts, names: r.names, city: true, marks: r.marks, via: r.via, km: r.km });
+  }
   const BUILT = GL.TRACKS.map(GL.buildTrack);
   const worlds = [];
   const world = (i) => worlds[i] || (worlds[i] = buildWorld(BUILT[i]));
@@ -41,7 +49,7 @@
   // true when a circle of radius r at (x, y) stays clear of the road and its run-off
   function clearOf(T, x, y, r) {
     const n = GL.nearest(T, x, y);
-    return Math.hypot(n.px - x, n.py - y) > T.hw + GL.CAR.wall + r;
+    return Math.hypot(n.px - x, n.py - y) > T.hw + T.wall + r;
   }
 
   function pathOf(T, from, to) {
@@ -102,7 +110,97 @@
     });
   }
 
+  // ---------- the real map round the hotel --------------------------------------------
+  const VIEW = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  const CELL = 900, CELL_PAD = 800;
+  let CITY = null; // shared map layers, built once
+  function cityLayers() {
+    if (CITY) return CITY;
+    const cells = new Map();
+    const cell = (x, y) => {
+      const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL), k = cx + ',' + cy;
+      if (!cells.has(k)) cells.set(k, { x: cx * CELL, y: cy * CELL, b: new Path2D(), lm: new Path2D(), st: [new Path2D(), new Path2D(), new Path2D()], br: new Path2D() });
+      return cells.get(k);
+    };
+    for (const b of ROME.buildings) {
+      const c = cell(b[1], b[2]), p = b[0] ? c.lm : c.b;
+      p.moveTo(b[1], b[2]);
+      for (let i = 3; i < b.length; i += 2) p.lineTo(b[i], b[i + 1]);
+      p.closePath();
+    }
+    for (const s of ROME.streets) {
+      const kind = s[0] & 3, bridge = s[0] & 4;
+      for (let i = 4; i < s.length; i += 2) {
+        const c = cell((s[i - 2] + s[i]) / 2, (s[i - 1] + s[i + 1]) / 2), p = bridge ? c.br : c.st[kind];
+        p.moveTo(s[i - 2], s[i - 1]); p.lineTo(s[i], s[i + 1]);
+      }
+    }
+    const river = new Path2D();
+    for (const r of ROME.river) { river.moveTo(r[0], r[1]); for (let i = 2; i < r.length; i += 2) river.lineTo(r[i], r[i + 1]); }
+    CITY = { cells: [...cells.values()], river };
+    return CITY;
+  }
+  function buildCityWorld(T) {
+    const L = cityLayers(), S = ROME.S;
+    const W = {
+      T, city: true, ground: '#0d0f12', asphalt: '#2e3036', edge: '#6a6c70',
+      under: [], over: [], lamps: [], floods: [], extra: null, path: pathOf(T), curbs: new Path2D(),
+    };
+    const SW = [16 * S, 11 * S, 6 * S], SC = ['#25272d', '#212328', '#2a2721'];
+    W.under.push(item(0, 0, 1e9, (g) => {
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      g.strokeStyle = '#0c1b28'; g.lineWidth = 92 * S; g.stroke(L.river);
+      g.strokeStyle = '#2b2a27'; g.lineWidth = 3 * S; g.setLineDash([]);
+      const vis = L.cells.filter((c) => c.x + CELL + CELL_PAD > VIEW.x0 && c.x - CELL_PAD < VIEW.x1 && c.y + CELL + CELL_PAD > VIEW.y0 && c.y - CELL_PAD < VIEW.y1);
+      for (const c of vis) { g.strokeStyle = '#8a8478'; g.lineWidth = 15 * S; g.stroke(c.br); g.strokeStyle = '#4b4740'; g.lineWidth = 12 * S; g.stroke(c.br); }
+      for (let k = 0; k < 3; k++) { g.strokeStyle = SC[k]; g.lineWidth = SW[k]; for (const c of vis) g.stroke(c.st[k]); }
+      g.lineWidth = 2;
+      g.fillStyle = '#1e2128'; g.strokeStyle = '#2c3038';
+      for (const c of vis) { g.fill(c.b); g.stroke(c.b); }
+      g.fillStyle = '#332d24'; g.strokeStyle = '#66583f';
+      for (const c of vis) { g.fill(c.lm); g.stroke(c.lm); }
+      g.lineCap = 'butt';
+    }));
+    for (let i = 0; i < T.N; i += 14) {
+      const side = (i / 14) % 2 ? 1 : -1, d = T.hw + 14;
+      W.lamps.push({ x: T.xs[i] - T.ty[i] * d * side, y: T.ys[i] + T.tx[i] * d * side, c: 'warm' });
+    }
+    for (const p of ROME.places) {
+      if (p.k === 'hotel') W.floods.push({ x: p.x, y: p.y, r: 320, c: 'warm', a: 0.45 });
+      else if (p.k === 'stop' || p.k === 'sight') W.floods.push({ x: p.x, y: p.y, r: 420, c: p.k === 'stop' ? 'warm' : 'cool', a: 0.22 });
+    }
+    W.labels = () => drawCityLabels();
+    return W;
+  }
+  // street names and places, drawn crisp in screen space
+  function drawCityLabels() {
+    const z = cam.z, ox = vw / 2 - cam.x * z, oy = vh / 2 - cam.y * z;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+    g.font = '600 11px -apple-system, system-ui, sans-serif';
+    for (const a of ROME.anchors) {
+      const sx = a[0] * z + ox, sy = a[1] * z + oy;
+      if (sx < -90 || sx > vw + 90 || sy < -20 || sy > vh + 20) continue;
+      const t = ROME.names[a[3]];
+      g.save(); g.translate(sx, sy); g.rotate(a[2] / 100);
+      g.lineWidth = 3; g.strokeStyle = 'rgba(12,13,17,.9)'; g.strokeText(t, 0, 0);
+      g.fillStyle = 'rgba(200,206,216,.62)'; g.fillText(t, 0, 0);
+      g.restore();
+    }
+    for (const p of ROME.places) {
+      const sx = p.x * z + ox, sy = p.y * z + oy;
+      if (sx < -120 || sx > vw + 120 || sy < -30 || sy > vh + 30) continue;
+      const col = p.k === 'hotel' ? '#f2b24c' : p.k === 'metro' ? '#ff5a5f' : p.k === 'stop' ? '#ffffff' : '#a9d2ff';
+      g.fillStyle = col; g.strokeStyle = 'rgba(12,13,17,.9)'; g.lineWidth = 2;
+      g.beginPath(); g.arc(sx, sy, p.k === 'hotel' ? 7 : 5, 0, 7); g.fill(); g.stroke();
+      if (p.k === 'metro') { g.fillStyle = '#fff'; g.font = '800 8px -apple-system, system-ui, sans-serif'; g.fillText('M', sx, sy + 0.5); }
+      g.font = (p.k === 'sight' ? 'italic 600 ' : '800 ') + (p.k === 'hotel' || p.k === 'stop' ? '13px' : '11px') + ' -apple-system, system-ui, sans-serif';
+      g.lineWidth = 4; g.strokeText(p.n, sx, sy - 15); g.fillStyle = col; g.fillText(p.n, sx, sy - 15);
+    }
+  }
+
   function buildWorld(T) {
+    if (T.def.city) return buildCityWorld(T);
     const def = T.def, R = rng(def.id.length * 977 + 13);
     const W = {
       T, ground: '#11141a', runoff: '#1d1e20', barrier: '#3d3830', asphalt: '#2a2c31', edge: '#6b6c6c',
@@ -111,7 +209,7 @@
       curbs: pathOf(T, runs(T, (i) => Math.abs(T.curv[i]) > 1 / 700)),
     };
     const out = outwardSign(T);
-    const wall = T.hw + GL.CAR.wall;
+    const wall = T.hw + T.wall;
     const lamp = (i, side, col) => {
       const d = wall + 16;
       W.lamps.push({ x: T.xs[i] - T.ty[i] * d * side, y: T.ys[i] + T.tx[i] * d * side, c: col || 'warm' });
@@ -433,15 +531,19 @@
     g.save();
     g.translate(vw / 2, vh / 2); g.scale(z, z); g.translate(-cam.x, -cam.y);
     const hx = vw / 2 / z + 60, hy = vh / 2 / z + 60;
+    VIEW.x0 = cam.x - hx; VIEW.x1 = cam.x + hx; VIEW.y0 = cam.y - hy; VIEW.y1 = cam.y + hy;
     const vis = (o) => o.x + o.r > cam.x - hx && o.x - o.r < cam.x + hx && o.y + o.r > cam.y - hy && o.y - o.r < cam.y + hy;
     for (const o of W.under) if (vis(o)) o.draw(g);
     g.lineJoin = 'round'; g.lineCap = 'butt';
-    const wall = T.hw + GL.CAR.wall;
-    g.strokeStyle = W.barrier; g.lineWidth = wall * 2 + 8; g.stroke(W.path);
-    g.strokeStyle = W.runoff; g.lineWidth = wall * 2; g.stroke(W.path);
-    if (W.extra) W.extra(g);
-    g.strokeStyle = '#d9d6cf'; g.lineWidth = T.hw * 2 + 16; g.stroke(W.curbs);
-    g.setLineDash([22, 22]); g.strokeStyle = '#b3262c'; g.stroke(W.curbs); g.setLineDash([]);
+    const wall = T.hw + T.wall;
+    if (W.city) { g.strokeStyle = '#3a3c42'; g.lineWidth = T.hw * 2 + 14; g.stroke(W.path); }
+    else {
+      g.strokeStyle = W.barrier; g.lineWidth = wall * 2 + 8; g.stroke(W.path);
+      g.strokeStyle = W.runoff; g.lineWidth = wall * 2; g.stroke(W.path);
+      if (W.extra) W.extra(g);
+      g.strokeStyle = '#d9d6cf'; g.lineWidth = T.hw * 2 + 16; g.stroke(W.curbs);
+      g.setLineDash([22, 22]); g.strokeStyle = '#b3262c'; g.stroke(W.curbs); g.setLineDash([]);
+    }
     g.strokeStyle = W.asphalt; g.lineWidth = T.hw * 2; g.stroke(W.path);
     g.strokeStyle = W.edge; g.lineWidth = T.hw * 2 - 8; g.stroke(W.path);
     g.strokeStyle = W.asphalt; g.lineWidth = T.hw * 2 - 13; g.stroke(W.path);
@@ -482,6 +584,7 @@
     const vg = g.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.32, vw / 2, vh / 2, Math.max(vw, vh) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)');
     g.fillStyle = vg; g.fillRect(0, 0, vw, vh);
+    if (W.labels) W.labels();
   }
 
   function snapCamera(car) { cam.x = car.x; cam.y = car.y; cam.z = baseZoom(); }
@@ -591,11 +694,80 @@
   let pausedFrom = null;
   let cur = 0, race = null, W = null, ghostRec = null, ghostSpec = null, ghostBest = null;
   let cd = 0, acc = 0, finishWait = 0, helpT = 0, bannerT = 0, deltaT = 0;
+  let markIdx = 0, navStreet = null;
+
+  // where you are and where you're heading (real-street routes)
+  function updateNav(c) {
+    const T = race.T, marks = T.def.marks || [];
+    const st = (T.streetNames[T.street[c.idx]] || '').trim() || 'Piazza / passage';
+    if (st !== navStreet) {
+      navStreet = st; const el = $('navSt'); el.textContent = st;
+      el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+    }
+    const to = markIdx < marks.length ? marks[markIdx].name : 'NYX Hotel';
+    if ($('navTo').dataset.to !== to) { $('navTo').dataset.to = to; $('navTo').textContent = '\u2192 ' + to; }
+  }
+  function checkMark(s0, s1) {
+    const T = race.T, marks = T.def.marks;
+    if (!marks || markIdx >= marks.length) return;
+    let d = s1 - s0;
+    if (d < -T.L / 2) d += T.L;
+    if (d <= 0 || d > T.L / 2) return;
+    const m = marks[markIdx].s, a = s0, b = s0 + d;
+    if ((a < m && b >= m) || (a < m + T.L && b >= m + T.L)) {
+      banner(marks[markIdx].name.toUpperCase(), false, 1.8);
+      Snd.beep(784, 0.12); setTimeout(() => Snd.beep(1046, 0.2), 120);
+      markIdx++;
+    }
+  }
+
+  // minimap for the city routes: whole route, hotel, you and the ghost
+  let miniBg = null, miniF = null;
+  function prepMini(T) {
+    const el = $('mini');
+    if (!T.def.city) { el.style.display = 'none'; miniBg = null; return; }
+    el.style.display = 'block';
+    const d = Math.min(2, window.devicePixelRatio || 1), w = 108, h = 108;
+    el.width = w * d; el.height = h * d;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < T.N; i++) { minX = Math.min(minX, T.xs[i]); maxX = Math.max(maxX, T.xs[i]); minY = Math.min(minY, T.ys[i]); maxY = Math.max(maxY, T.ys[i]); }
+    const k = Math.min((w - 16) / (maxX - minX), (h - 16) / (maxY - minY));
+    const ox = (w - (maxX - minX) * k) / 2 - minX * k, oy = (h - (maxY - minY) * k) / 2 - minY * k;
+    miniF = (x, y) => [x * k + ox, y * k + oy];
+    miniBg = sprite(w * d, h * d, (c) => {
+      c.scale(d, d);
+      c.fillStyle = 'rgba(11,13,18,.72)'; rr(c, 0, 0, w, h, 12); c.fill();
+      if (ROME) {
+        c.strokeStyle = 'rgba(40,80,110,.9)'; c.lineWidth = 92 * ROME.S * k; c.lineCap = 'round';
+        for (const r of ROME.river) { c.beginPath(); for (let i = 0; i < r.length; i += 2) c.lineTo(...miniF(r[i], r[i + 1])); c.stroke(); }
+      }
+      c.strokeStyle = '#8b93a1'; c.lineWidth = 2.2; c.lineJoin = 'round'; c.beginPath();
+      for (let i = 0; i < T.N; i += 2) c.lineTo(...miniF(T.xs[i], T.ys[i]));
+      c.closePath(); c.stroke();
+      c.fillStyle = '#fff';
+      for (const m of T.def.marks || []) { const i = Math.round(m.s / T.ds) % T.N; c.beginPath(); c.arc(...miniF(T.xs[i], T.ys[i]), 2.6, 0, 7); c.fill(); }
+      c.fillStyle = '#f2b24c'; c.beginPath(); c.arc(...miniF(T.xs[0], T.ys[0]), 3.6, 0, 7); c.fill();
+    });
+  }
+  function drawMini(car, ghost) {
+    if (!miniBg) return;
+    const el = $('mini'), c = el.getContext('2d'), d = el.width / 108;
+    c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, el.width, el.height); c.drawImage(miniBg, 0, 0);
+    c.setTransform(d, 0, 0, d, 0, 0);
+    if (ghost) { c.fillStyle = '#a9d2ff'; c.beginPath(); c.arc(...miniF(ghost.x, ghost.y), 2.6, 0, 7); c.fill(); }
+    c.fillStyle = '#ff5a5f'; c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.beginPath(); c.arc(...miniF(car.x, car.y), 3.4, 0, 7); c.fill(); c.stroke();
+  }
   const running = () => state === 'count' || state === 'race' || state === 'finishing';
   let carIdx = Math.max(0, GL.CARS.findIndex((c) => c.id === save.car));
   const spec = () => GL.CARS[carIdx];
   const tsave = (i) => save.tracks[GL.TRACKS[i].id];
-  const unlocked = (i) => i === 0 || (tsave(i - 1) && medalOf(GL.TRACKS[i - 1], tsave(i - 1).best) >= 1);
+  const CIRC = GL.TRACKS.map((_, i) => i).filter((i) => !GL.TRACKS[i].city);
+  const prevCirc = (i) => CIRC[CIRC.indexOf(i) - 1];
+  const unlocked = (i) => {
+    if (GL.TRACKS[i].city || CIRC.indexOf(i) <= 0) return true;
+    const p = prevCirc(i);
+    return !!(tsave(p) && medalOf(GL.TRACKS[p], tsave(p).best) >= 1);
+  };
 
   function showScreen(id) {
     for (const s of ['menu', 'hud']) $(s).classList.toggle('on', s === id);
@@ -626,7 +798,9 @@
     $('ghostT').textContent = rec ? 'ghost ' + fmt(rec.best) : '';
     skids = []; lastRear = null; touches.clear(); acc = 0; cd = 0; finishWait = 0; deltaT = 0; bannerT = 0;
     $('delta').className = 'num'; $('banner').className = '';
-    $('lapV').textContent = '1/' + GL.LAPS; $('timeV').textContent = fmt(0);
+    $('lapV').textContent = '1/' + T.laps; $('timeV').textContent = fmt(0);
+    markIdx = 0; navStreet = null; hud.classList.toggle('city', !!T.def.city); prepMini(T);
+    if (T.def.city) updateNav(race.car);
     snapCamera(race.car);
     sheet('pause', false); sheet('finish', false);
     showScreen('hud');
@@ -643,7 +817,8 @@
     if (ev === 'split') showDelta();
     if (ev === 'lap') {
       showDelta();
-      banner(race.lap === GL.LAPS - 1 ? 'FINAL LAP' : 'LAP ' + (race.lap + 1));
+      banner(race.lap === race.T.laps - 1 ? 'FINAL LAP' : 'LAP ' + (race.lap + 1));
+      markIdx = 0;
       Snd.beep(880, 0.18);
     }
     if (ev === 'finish') {
@@ -681,6 +856,11 @@
     if (bm < 3) msg += '<br>' + MEDAL[bm + 1][0] + MEDAL[bm + 1].slice(1).toLowerCase() + ' at ' + fmt(def.medals[2 - bm]) + ' (' + (best - def.medals[2 - bm]).toFixed(2) + 's to find).';
     else msg += '<br>Gold. Imperatore.';
     if (r.newly >= 0) msg += '<br><span style="color:var(--amber)">' + GL.TRACKS[r.newly].name + ' unlocked.</span>';
+    if (def.city) {
+      const mins = Math.round((def.km / 4.8) * 60);
+      msg += '<div class="via"><small>YOUR ROUTE \u00b7 ' + def.km.toFixed(1) + ' KM \u00b7 ABOUT ' + mins + ' MIN ON FOOT</small>' +
+        def.via.map((n) => '<span>' + n + '</span>').join(' \u2192 ') + '</div>';
+    }
     $('finMsg').innerHTML = msg;
     const bl = Math.min(...race.laps);
     $('finLaps').innerHTML = race.laps.map((t, k) => '<div class="' + (t === bl ? 'best' : '') + '"><small>LAP ' + (k + 1) + '</small>' + fmt(t) + '</div>').join('');
@@ -731,6 +911,7 @@
       if (p) { p.spec = ghostSpec; gpose = p; }
     }
     render(W, race.car, gpose);
+    drawMini(race.car, gpose);
   }
 
   function update(dt) {
@@ -756,18 +937,21 @@
         acc -= GL.DT;
         const inp = readInput();
         c.braking = !!(inp.left && inp.right) || !!inp.brake;
+        const s0 = c.s;
         const ev = GL.stepRace(race, inp);
+        if (race.T.def.city) checkMark(s0, c.s);
         if (ev) onEvent(ev);
       }
       addSkids(c);
-      $('lapV').textContent = Math.min(race.lap + 1, GL.LAPS) + '/' + GL.LAPS;
+      if (race.T.def.city) updateNav(c);
+      $('lapV').textContent = Math.min(race.lap + 1, race.T.laps) + '/' + race.T.laps;
       $('timeV').textContent = fmt(race.t);
       if (race.wrong > 1.2) banner('WRONG WAY', true, 0.3);
     } else if (state === 'finishing') {
       const k = Math.exp(-2.2 * dt);
       c.vx *= k; c.vy *= k; c.x += c.vx * dt; c.y += c.vy * dt; c.speed = Math.hypot(c.vx, c.vy); c.slip = 0; c.braking = true;
       $('timeV').textContent = fmt(race.finishT);
-      $('lapV').textContent = GL.LAPS + '/' + GL.LAPS;
+      $('lapV').textContent = race.T.laps + '/' + race.T.laps;
       finishWait -= dt * FAST;
       if (finishWait <= 0) {
         state = 'done'; Snd.hush(); wake(false); stopLoop(); showFinish();
@@ -783,8 +967,9 @@
   // still frame behind the menu
   function drawStill() {
     if (!vw) return;
-    const i = Math.max(0, GL.TRACKS.findIndex((_, k) => !unlocked(k + 1)));
-    const idx = Math.min(i, GL.TRACKS.length - 1);
+    const i = Math.max(0, CIRC.findIndex((k, n) => n + 1 >= CIRC.length || !unlocked(CIRC[n + 1])));
+    const firstCity = GL.TRACKS.findIndex((t) => t.city);
+    const idx = firstCity >= 0 ? firstCity : CIRC[Math.min(i, CIRC.length - 1)];
     const Wd = world(idx);
     const c = GL.newCar(BUILT[idx], spec());
     snapCamera(c); cam.z = baseZoom() * 1.1;
@@ -845,24 +1030,31 @@
   }
 
   function buildMenu() {
-    const list = $('trackList');
-    list.innerHTML = '';
+    const list = $('trackList'), rl = $('romeList');
+    list.innerHTML = ''; rl.innerHTML = '';
+    $('romeSec').hidden = !ROME;
+    if (ROME) {
+      $('romeNote').innerHTML = ROME.synthetic ? '<b style="color:var(--red)">TEST MAP: not real streets.</b>' :
+        'Real streets round the NYX. The street you\u2019re on shows at the top.';
+      $('osmCredit').hidden = false;
+    }
     GL.TRACKS.forEach((def, i) => {
       const rec = save.tracks[def.id], open = unlocked(i), m = rec ? medalOf(def, rec.best) : 0;
       const b = document.createElement('button');
       b.className = 'card' + (open ? '' : ' locked');
       let line;
-      if (!open) line = 'Bronze on ' + GL.TRACKS[i - 1].name + ' unlocks';
+      if (!open) line = 'Bronze on ' + GL.TRACKS[prevCirc(i)].name + ' unlocks';
       else if (!rec) line = 'No time yet<br><span style="color:var(--dim)">Bronze ' + fmt(def.medals[2]) + '</span>';
       else {
         line = 'Best <b class="num">' + fmt(rec.best) + '</b><br><span class="gh">' + GL.carById(rec.car).name + '</span>';
         if (m < 3) line += '<span style="color:var(--dim)"> &middot; ' + MEDAL[m + 1][0] + MEDAL[m + 1].slice(1).toLowerCase() + ' ' + fmt(def.medals[2 - m]) + '</span>';
       }
-      b.innerHTML = '<canvas></canvas><div><div class="t">' + def.name + '</div><div class="b">' + def.blurb + '</div><div class="best">' + line + '</div></div>' +
+      const blurb = def.city ? def.blurb + '<br>' + def.km.toFixed(1) + ' km round trip \u00b7 about ' + Math.round((def.km / 4.8) * 60) + ' min on foot' : def.blurb;
+      b.innerHTML = '<canvas></canvas><div><div class="t">' + def.name + '</div><div class="b">' + blurb + '</div><div class="best">' + line + '</div></div>' +
         '<div style="display:grid;gap:8px;justify-items:end"><div class="medals"><i class="medal b' + (m >= 1 ? ' on' : '') + '"></i><i class="medal s' + (m >= 2 ? ' on' : '') + '"></i><i class="medal g' + (m >= 3 ? ' on' : '') + '"></i></div><span class="go">' + (open ? '&#8250;' : '&#128274;') + '</span></div>';
       miniMap(b.querySelector('canvas'), BUILT[i]);
       b.onclick = () => { if (open) startRace(i); };
-      list.appendChild(b);
+      (def.city ? rl : list).appendChild(b);
     });
     drawGarage();
     syncSoundButtons();
@@ -883,7 +1075,7 @@
   window.addEventListener('resize', () => { resize(); if (state === 'menu') drawGarage(); });
 
   // ---------- offline ------------------------------------------------------------------
-  const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+  const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'].concat(ROME ? ['rome.js'] : []);
   async function offline() {
     const el = $('offline');
     if (!('serviceWorker' in navigator) || !window.caches || !window.isSecureContext) {

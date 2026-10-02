@@ -82,12 +82,12 @@
   // Build an arc-length resampled polyline with tangents, normals and curvature.
   function buildTrack(def) {
     const P = def.pts, n = P.length;
-    const dense = [];
+    const dense = [], denseSeg = [];
     for (let i = 0; i < n; i++) {
       const p0 = P[(i - 1 + n) % n], p1 = P[i], p2 = P[(i + 1) % n], p3 = P[(i + 2) % n];
       const seg = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
-      const steps = Math.max(8, Math.ceil(seg / 4));
-      for (let s = 0; s < steps; s++) dense.push(catmull(p0, p1, p2, p3, s / steps));
+      const steps = Math.max(def.names ? 2 : 8, Math.ceil(seg / 4));
+      for (let s = 0; s < steps; s++) { dense.push(catmull(p0, p1, p2, p3, s / steps)); denseSeg.push(i); }
     }
     // cumulative length
     const cum = [0];
@@ -99,10 +99,14 @@
     const STEP = 10;
     const N = Math.round(L / STEP);
     const xs = new Float32Array(N), ys = new Float32Array(N);
+    // street name per sample (real-street routes only)
+    const streetNames = def.names ? [...new Set(def.names)] : null;
+    const street = streetNames ? new Uint16Array(N) : null;
     let j = 0;
     for (let i = 0; i < N; i++) {
       const s = (i / N) * L;
       while (cum[j + 1] < s) j++;
+      if (street) street[i] = streetNames.indexOf(def.names[denseSeg[j]]);
       const a = dense[j], b = dense[(j + 1) % dense.length];
       const k = (s - cum[j]) / (cum[j + 1] - cum[j] || 1);
       xs[i] = a[0] + (b[0] - a[0]) * k;
@@ -130,6 +134,8 @@
     const hw = def.w / 2;
     return {
       def, id: def.id, name: def.name, N, L, ds: L / N, xs, ys, tx, ty, curv, hw,
+      wall: def.wall != null ? def.wall : CAR.wall, laps: def.laps || LAPS, sectors: def.sectors || SECTORS,
+      street, streetNames,
       bounds: { minX: minX - hw - 400, minY: minY - hw - 400, maxX: maxX + hw + 400, maxY: maxY + hw + 400 },
     };
   }
@@ -261,7 +267,7 @@
     c.off = near.off;
     const edge = Math.abs(near.off);
     c.onRoad = edge <= T.hw + 4;
-    const limit = T.hw + CAR.wall;
+    const limit = T.hw + T.wall;
     c.bump = Math.max(0, c.bump - dt);
     if (edge > limit) {
       // Barrier: put the car back inside and bleed speed.
@@ -295,7 +301,7 @@
     R.t += DT;
     let ev = null;
     // forward crossing of the expected checkpoint
-    const cp = (R.next % SECTORS) * T.L / SECTORS;
+    const cp = (R.next % T.sectors) * T.L / T.sectors;
     let d = c.s - prevS;
     if (d < -T.L / 2) d += T.L;
     if (d > T.L / 2) d -= T.L;
@@ -304,11 +310,11 @@
       const crossed = (from < cp && to >= cp) || (from < cp + T.L && to >= cp + T.L);
       if (crossed) {
         R.splits.push(R.t);
-        if (R.next % SECTORS === 0) {
+        if (R.next % T.sectors === 0) {
           R.laps.push(R.t - R.lapStart);
           R.lapStart = R.t;
           R.lap++;
-          ev = R.lap >= LAPS ? 'finish' : 'lap';
+          ev = R.lap >= T.laps ? 'finish' : 'lap';
           if (ev === 'finish') { R.done = true; R.finishT = R.t; }
         } else ev = 'split';
         R.next++;

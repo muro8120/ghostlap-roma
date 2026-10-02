@@ -1,0 +1,154 @@
+const { chromium, devices } = require('/opt/node-tools/node_modules/playwright');
+const http = require('http'), fs = require('fs'), path = require('path');
+const ROOT = path.join(__dirname, '..');
+const SHOTS = process.env.SHOTS || '/tmp/ghostlap-shots'; fs.mkdirSync(SHOTS, { recursive: true });
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const srv = http.createServer((q, r) => {
+  let p = decodeURIComponent(new URL(q.url, 'http://x').pathname); if (p.endsWith('/')) p += 'index.html';
+  if (p === '/rome.js' && process.env.ROME_JS) { r.writeHead(200, { 'content-type': 'text/javascript' }); return fs.createReadStream(process.env.ROME_JS).pipe(r); }
+  const f = path.join(ROOT, p);
+  if (false && !f.startsWith(ROOT) || !fs.existsSync(f)) { r.writeHead(404); return r.end('nf'); }
+  r.writeHead(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r);
+}).listen(8765);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const results = [];
+const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, extra || '']); };
+(async () => {
+  const b = await chromium.launch();
+  const ctx = await b.newContext({ ...devices['iPhone 13'] });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+  p.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+  const base = 'http://localhost:8765/';
+  await p.goto(base + '?bot=1&fast=6');
+  await p.waitForTimeout(800);
+  await p.screenshot({ path: SHOTS + '/01-menu.png' });
+  await p.waitForFunction(() => document.getElementById('offline').textContent.includes('Ready offline'), null, { timeout: 15000 }).then(() => check('offline badge says ready', true)).catch(() => check('offline badge says ready', false, document.getElementById));
+  await p.evaluate(() => document.getElementById('menu').scrollTo(0, 1400));
+  await p.waitForTimeout(200);
+  await p.screenshot({ path: SHOTS + '/02-menu-scrolled.png' });
+  // locked cards
+  const locked = await p.$$eval('#trackList .card.locked', (e) => e.length);
+  check('3 tracks locked at start', locked === 3, 'locked=' + locked);
+  // sound on (exercises the Web Audio path), race circo with bot
+  await p.click('#soundBtn');
+  check('sound toggles on', (await p.$eval('#soundBtn', (e) => e.textContent)) === 'Sound: on');
+  await p.click('#trackList .card >> nth=0');
+  await p.waitForTimeout(600);
+  await p.screenshot({ path: SHOTS + '/03-countdown.png' });
+  await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
+  await p.waitForTimeout(1500);
+  await p.screenshot({ path: SHOTS + '/04-race.png' });
+  await p.waitForSelector('#finish.on', { timeout: 60000 });
+  await p.waitForTimeout(300);
+  await p.screenshot({ path: SHOTS + '/05-finish.png' });
+  const s1 = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-roma-v1')));
+  check('circo best saved', !!(s1 && s1.tracks.circo && s1.tracks.circo.best > 30), s1 && s1.tracks.circo && s1.tracks.circo.best.toFixed(2));
+  check('ghost recorded', s1.tracks.circo.rec.length > 1000, 'samples=' + s1.tracks.circo.rec.length / 3);
+  // race again: ghost visible
+  await p.click('#againBtn');
+  await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
+  await p.waitForTimeout(2500);
+  await p.screenshot({ path: SHOTS + '/06-race-ghost.png' });
+  const delta = await p.waitForFunction(() => document.getElementById('delta').textContent.length > 0, null, { timeout: 30000 }).then(() => true).catch(() => false);
+  check('delta vs ghost shown', delta, await p.$eval('#delta', (e) => e.textContent));
+  // pause / resume
+  await p.click('#pauseBtn');
+  await p.waitForTimeout(200);
+  const ps = await p.evaluate(() => window.__ghostlap.state);
+  check('pause works', ps === 'paused', ps);
+  await p.screenshot({ path: SHOTS + '/07-paused.png' });
+  const t0 = await p.evaluate(() => window.__ghostlap.race.t); await p.waitForTimeout(500);
+  const t1 = await p.evaluate(() => window.__ghostlap.race.t);
+  check('clock frozen while paused', t0 === t1);
+  await p.click('#quitBtn');
+  await p.waitForTimeout(300);
+  const locked2 = await p.$$eval('#trackList .card.locked', (e) => e.length);
+  check('colosseo unlocked after bronze', locked2 === 2, 'locked=' + locked2);
+  // every track completes with the bot; grab a mid-race shot each
+  for (const [i, id] of [[1, 'colosseo'], [2, 'tevere'], [3, 'appia']]) {
+    await p.evaluate((k) => { const s = window.__ghostlap.save; }, i);
+    await p.evaluate((k) => window.__ghostlap.startRace(k), i);
+    await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
+    await p.waitForTimeout(2200);
+    await p.screenshot({ path: SHOTS + `/1${i}-${id}.png` });
+    const done = await p.waitForSelector('#finish.on', { timeout: 90000 }).then(() => true).catch(() => false);
+    const t = await p.evaluate((k) => { const s = JSON.parse(localStorage.getItem('ghostlap-roma-v1')); return s.tracks[k] && s.tracks[k].best; }, id);
+    check(id + ' completes', done && t > 0, t && t.toFixed(2));
+    await p.click('#menuBtn');
+  }
+  // real-street routes (only when a rome.js is served)
+  if (process.env.ROME_JS) {
+    const cityIdx = await p.evaluate(() => [...Array(20).keys()].filter((i) => window.GL.TRACKS[i] && window.GL.TRACKS[i].city));
+    check('4 Rome routes registered', cityIdx.length === 4, JSON.stringify(cityIdx));
+    for (const i of cityIdx) {
+      await p.evaluate((k) => window.__ghostlap.startRace(k), i);
+      await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
+      await p.waitForTimeout(1200);
+      const nav = await p.$eval('#navSt', (e) => e.textContent);
+      const navOn = await p.$eval('#nav', (e) => getComputedStyle(e).display !== 'none');
+      const banners = [];
+      const poll = setInterval(async () => { try { const b = await p.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b && !banners.includes(b)) banners.push(b); } catch (e) {} }, 150);
+      const done = await p.waitForSelector('#finish.on', { timeout: 120000 }).then(() => true).catch(() => false);
+      clearInterval(poll);
+      const via = await p.$eval('.via', (e) => e.textContent).catch(() => '');
+      const id = await p.evaluate((k) => window.GL.TRACKS[k].id, i);
+      check(id + ' completes, shows street + stops + route list', done && navOn && nav.length > 2 && via.includes('MIN ON FOOT') && banners.length >= 2,
+        `nav="${nav}" banners=${JSON.stringify(banners)} via=${via.slice(0, 60)}`);
+      if (i === cityIdx[0]) await p.screenshot({ path: SHOTS + '/30-city-finish.png' });
+      await p.click('#menuBtn');
+    }
+    await p.evaluate(() => document.getElementById('menu').scrollTo(0, 560));
+    await p.screenshot({ path: SHOTS + '/31-menu-rome.png' });
+  }
+  // car picker cycles and persists
+  await p.click('#carNext'); await p.waitForTimeout(100);
+  const car = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-roma-v1')).car);
+  check('car choice persists', car === 'modena', car);
+  for (let k = 0; k < 5; k++) { await p.screenshot({ path: SHOTS + `/2${k}-car.png`, clip: { x: 0, y: 100, width: 390, height: 330 } }); await p.click('#carNext'); await p.waitForTimeout(80); }
+  await p.evaluate(() => document.getElementById('menu').scrollTo(0, 0));
+  await p.screenshot({ path: SHOTS + '/08-menu-after.png', fullPage: false });
+  await p.evaluate(() => document.getElementById('menu').scrollTo(0, 600));
+  await p.screenshot({ path: SHOTS + '/09-menu-after-scrolled.png', fullPage: false });
+
+  // manual touch steering without the bot
+  const p2 = await ctx.newPage();
+  p2.on('pageerror', (e) => errs.push('p2 pageerror: ' + e.message));
+  await p2.goto(base);
+  await p2.waitForTimeout(500);
+  await p2.evaluate(() => window.__ghostlap.startRace(0));
+  await p2.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 6000 });
+  const a0 = await p2.evaluate(() => window.__ghostlap.race.car.a);
+  await p2.evaluate(() => { const c = document.getElementById('view'); c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 7, clientX: 60, clientY: 700, bubbles: true, pointerType: 'touch' })); });
+  await p2.waitForTimeout(700);
+  const a1 = await p2.evaluate(() => window.__ghostlap.race.car.a);
+  await p2.evaluate(() => { window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 7, bubbles: true, pointerType: 'touch' })); });
+  check('holding left half turns car left', a1 < a0 - 0.2, `a0=${a0.toFixed(2)} a1=${a1.toFixed(2)}`);
+  // both halves = brake
+  const v0 = await p2.evaluate(() => window.__ghostlap.race.car.speed);
+  await p2.evaluate(() => { const c = document.getElementById('view');
+    c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 8, clientX: 60, clientY: 700, bubbles: true, pointerType: 'touch' }));
+    c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 9, clientX: 330, clientY: 700, bubbles: true, pointerType: 'touch' })); });
+  await p2.waitForTimeout(400);
+  const v1 = await p2.evaluate(() => window.__ghostlap.race.car.speed);
+  check('both thumbs brake', v1 < v0 - 50, `v0=${v0.toFixed(0)} v1=${v1.toFixed(0)}`);
+  // hidden page pauses
+  await p2.evaluate(() => { Object.defineProperty(document, 'hidden', { value: true, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
+  check('backgrounding pauses', (await p2.evaluate(() => window.__ghostlap.state)) === 'paused');
+  await p2.close();
+
+  // offline reload
+  await ctx.setOffline(true);
+  const p3 = await ctx.newPage();
+  p3.on('pageerror', (e) => errs.push('p3 pageerror: ' + e.message));
+  const ok = await p3.goto(base).then((r) => r && r.ok()).catch((e) => 'ERR ' + e.message);
+  await p3.waitForTimeout(800);
+  const menuOn = await p3.$eval('#menu', (e) => e.classList.contains('on')).catch(() => false);
+  const cards = await p3.$$eval('.card', (e) => e.length).catch(() => 0);
+  check('loads in airplane mode', ok === true && menuOn && cards === (process.env.ROME_JS ? 8 : 4), `ok=${ok} cards=${cards}`);
+  await p3.screenshot({ path: SHOTS + '/10-offline.png' });
+  check('no JS errors', errs.length === 0, errs.slice(0, 5).join(' | '));
+  await b.close(); srv.close();
+  for (const r of results) console.log(r.join('  '));
+})().catch((e) => { console.error(e); srv.close(); process.exit(1); });
