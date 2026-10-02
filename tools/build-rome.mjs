@@ -48,7 +48,8 @@ const PICKS = [
   { key: 'teatro', note: 'gelato, open late' },
   { label: 'Enoteca Costantini', match: (t) => t.name === 'Enoteca Costantini' && t['addr:housenumber'] === '16', note: 'wine shop', sun: true },
   { label: 'Da Oio a Casa Mia', match: (t) => t.name === 'Da Oio a Casa Mia', note: 'Testaccio \u00b7 taxi', sun: true },
-  { label: 'Trapizzino Testaccio', match: (t) => t.name === 'Trapizzino Testaccio', note: 'Testaccio \u00b7 open Sundays' },
+  { label: 'Trapizzino Testaccio', match: (t) => t.name === 'Trapizzino Testaccio', note: 'Testaccio \u00b7 check Sun hours' },
+  { label: 'Trapizzino Risorgimento', match: (t) => t.name === 'Trapizzino Piazza Risorgimento', note: 'open daily till late' },
 ];
 const ROUTES = [
   { id: 'r-vaticano', name: 'NYX → San Pietro', blurb: "Past Ottaviano metro to the Vatican Museums, then St Peter's Square.", laps: 1, sectors: 6, stops: ['hotel', 'ottaviano', 'musei', 'sanpietro', 'hotel'] },
