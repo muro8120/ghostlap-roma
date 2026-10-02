@@ -3,7 +3,7 @@
 A small top-down night racer set in Rome. Race three laps, and your best run comes back as a ghost to beat.
 
 - **Circuits:** Circo Massimo, Colosseo, Lungotevere, Via Appia Antica. A bronze unlocks the next one.
-- **Rome from the NYX** (needs `rome.js`, see `tools/ROME-ROUTES.md`): real-street round trips from the hotel on Via Cicerone to the
+- **Rome from the NYX** (`rome.js`, see `tools/ROME-ROUTES.md`): real-street round trips from the hotel on Via Cicerone to the
   Vatican, Piazza del Popolo and the Spanish Steps, the Pantheon and Trevi, plus a Prati loop. The street you're on shows at the top,
   with a minimap, landmark labels, and the list of streets you drove at the finish. Map data © OpenStreetMap contributors (ODbL).
 - **Garage:** Cinquecento, Maranello 12, Modena GT, San Cesario, Sant'Agata. These are homages named after towns, not brands.

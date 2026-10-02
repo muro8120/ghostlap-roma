@@ -144,11 +144,14 @@
   function nearest(T, x, y, hint) {
     let best = -1, bd = Infinity;
     if (hint != null && hint >= 0) {
-      const W = 60;
+      // Prefer samples close to the last one along the track, so where a route doubles back
+      // on itself (round an obelisk, out and back on one street) the car stays on its own side.
+      const W = 60, P = (T.ds * 0.35) ** 2;
+      let bs = Infinity;
       for (let k = -W; k <= W; k++) {
         const i = (hint + k + T.N) % T.N;
-        const dx = x - T.xs[i], dy = y - T.ys[i], d = dx * dx + dy * dy;
-        if (d < bd) { bd = d; best = i; }
+        const dx = x - T.xs[i], dy = y - T.ys[i], d = dx * dx + dy * dy, sc = d + k * k * P;
+        if (sc < bs) { bs = sc; bd = d; best = i; }
       }
       // Local result is trustworthy if we are close to the road.
       if (bd < (T.hw * 3) * (T.hw * 3)) return refine(T, x, y, best);

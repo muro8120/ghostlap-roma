@@ -1,35 +1,44 @@
-# Rome routes from the NYX: how to finish
+# Rome routes from the NYX
 
-The game side and the map pipeline are done and tested on a synthetic street grid. What's missing is
-the real OpenStreetMap data. The session that built this couldn't reach `overpass-api.de`, which was
-blocked by the environment's network policy.
+`rome.js` holds the real-street routes and the surrounding map. It's built from OpenStreetMap data
+(© OpenStreetMap contributors, ODbL); the credit is shown in the menu.
 
-## Finish it (about 10 minutes, needs network access to overpass-api.de)
+## Rebuild or refresh
 
-1. `bash tools/fetch-osm.sh`. This writes raw Overpass JSON to `tools/osm/` (git-ignored).
+1. Download the raw data into `tools/osm/` (git-ignored, about 60 MB):
+   - `node tools/fetch-osmapi.mjs`: main OSM API, 16 tiles, about a minute. Needs `api.openstreetmap.org`. This is what's used now.
+   - or `bash tools/fetch-osm.sh` / `node tools/fetch-osm-tiles.mjs`: Overpass. These were too overloaded to use on 2 Oct 2026.
 2. `node tools/build-rome.mjs`. This writes `rome.js` and prints a report per route. Check that:
-   - every `stop ... -> node` line snapped within about 60 m of the named place
-     (Musei Vaticani, Piazza San Pietro, Piazza del Popolo, Piazza di Spagna, Pantheon, Fontana di Trevi,
-     Lepanto, Piazza Cavour, plus the NYX hotel itself);
-   - no route prints `SIDE-BY-SIDE OVERLAP` (crossings are fine, since they're real intersections);
-   - `max smoothing drift` stays under about 12 m and the km figures are plausible
-     (Vatican ~3–4, Popolo/Spagna ~4–5, Pantheon/Trevi ~5–6 round trip, Prati loop ~1.5–2.5).
-   If a stop fails to match, the script lists what it did find, so adjust the matcher in `STOPS`.
-3. `ROME_JS=$PWD/rome.js node tools/e2e.js`. Every line should PASS. Screenshots go to `/tmp/ghostlap-shots`.
-   Look at a mid-route screenshot: the streets should be Prati's real grid, with labels.
-4. Make sure `rome.js` does **not** say `"synthetic":true`. Bump `CACHE` in `sw.js`, commit `rome.js`, merge to `main`.
-   GitHub Pages redeploys. On the phone, open the app once online, then reopen it to pick up the update.
-
-## Testing without network
-
-`node tools/make-test-osm.mjs && OSM_DIR=tools/osm-test node tools/build-rome.mjs --out /tmp/rome-test.js`
-then `ROME_JS=/tmp/rome-test.js node tools/e2e.js`. The synthetic map shows a red **TEST MAP** warning
-in the menu. Never commit its output as `rome.js`.
+   - every `stop ... -> node` line snapped within about 40 m, and there are no `!! route passes N m from` lines;
+   - `max smoothing drift` stays under about 12 m.
+   `HAIRPIN OVERLAP` lines are expected where a route doubles back (up to the Vatican Museums gate and
+   back, round the obelisk in Piazza del Popolo). The game's track-follower stays on the right side
+   of those (see `nearest()` in `core.js`).
+3. `node /path/to/preview` isn't in the repo. To eyeball routes, run the game, or render `rome.js` routes
+   over `ROME.streets` with a canvas.
+4. `ROME_JS=$PWD/rome.js node tools/e2e.js`. Every line should PASS.
+5. Bump `CACHE` in `sw.js`, commit `rome.js`, push `main`. Then open the app online once and reopen it.
 
 ## How routes are made
 
-Each route is a list of stops. Each leg is the shortest walking path on OSM's street network
-(sidewalk-only and private ways are dropped). Later legs are pushed off streets already used, so
-the way back is different. Corners are smoothed (gaussian, 18 m) so they're drivable. Each route is
-checked for side-by-side overlaps. Medal times come from the same test drivers as the circuits.
-These are walking routes, not driving directions.
+Stops are found in the data by name, never by typed coordinates:
+- NYX Hotel: the `tourism=hotel` node
+- Vatican Museums: Porta Musei Vaticani
+- St Peter's Square: Obelisco Vaticano
+- Piazza del Popolo: Obelisco Flaminio
+- Spanish Steps: Fontana della Barcaccia
+- Pantheon: Obelisco Macuteo in Piazza della Rotonda
+- Trevi: Piazza di Trevi
+- metro stations and Piazza Cavour: by name
+
+Each leg is the shortest walk on the street network. Sidewalk-only and private ways are dropped, and
+unnamed paths cost extra so routes stay on streets with names. Streets already walked cost more, and
+the last leg home keeps a little distance from the way out, so you learn a second way back. Passing
+within about 25 m of a landmark counts as visiting it. Corners are smoothed (gaussian, 18 m), so the
+route drifts at most about 7 m off the real street. These are walking routes, not driving directions.
+
+## Testing without network
+
+`node tools/make-test-osm.mjs && OSM_DIR=tools/osm-test node tools/build-rome.mjs --out /tmp/rome-test.js`,
+then `ROME_JS=/tmp/rome-test.js node tools/e2e.js`. The synthetic map shows a red TEST MAP warning in
+the menu. Never commit it as `rome.js`.

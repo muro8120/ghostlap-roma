@@ -14,25 +14,27 @@ const OSM = process.env.OSM_DIR ? path.resolve(process.env.OSM_DIR) : path.join(
 const OUT = process.argv.includes('--out') ? process.argv[process.argv.indexOf('--out') + 1] : path.join(HERE, '..', 'rome.js');
 const S = 4.5;            // game units per metre
 const SMOOTH = 18;        // metres: corner smoothing (gaussian sigma)
+const REUSE = +(process.env.REUSE || 2.2), NEARBY = +(process.env.NEARBY || 1.25); // between-stop legs: mild push onto fresh streets
 const W = 100, WALL = 45; // route asphalt width / run-off (game units)
 const log = (...a) => console.log(...a);
 const load = (n) => JSON.parse(fs.readFileSync(path.join(OSM, n + '.json'), 'utf8')).elements;
 
 // ---------- stops & routes --------------------------------------------------------
+// Each stop is found in the map data by name (pool: which OSM file), never by hand-typed coordinates.
 const STOPS = {
-  hotel: { label: 'NYX Hotel', match: (t) => t.tourism === 'hotel' && /\bnyx\b/i.test(t.name || '') },
-  musei: { label: 'Vatican Museums', match: (t) => /^Musei Vaticani$/i.test(t.name || ''), street: 'Viale Vaticano', preferNode: true },
-  sanpietro: { label: "St Peter's Square", match: (t) => /^Piazza San Pietro$/i.test(t.name || '') },
-  popolo: { label: 'Piazza del Popolo', match: (t) => /^Piazza del Popolo$/i.test(t.name || '') },
-  spagna: { label: 'Spanish Steps', match: (t) => /^Piazza di Spagna$/i.test(t.name || '') },
-  pantheon: { label: 'Pantheon', match: (t) => /^Pantheon$/i.test(t.name || ''), street: 'Piazza della Rotonda' },
-  trevi: { label: 'Trevi Fountain', match: (t) => /^Fontana di Trevi$/i.test(t.name || ''), street: 'Piazza di Trevi' },
-  lepanto: { label: 'Lepanto metro', match: (t) => /^Lepanto$/i.test(t.name || '') && (t.station === 'subway' || t.railway === 'station') },
-  ottaviano: { label: 'Ottaviano metro', match: (t) => /^Ottaviano/i.test(t.name || '') && (t.station === 'subway' || t.railway === 'station') },
-  cavour: { label: 'Piazza Cavour', match: (t) => /^Piazza Cavour$/i.test(t.name || '') },
+  hotel: { label: 'NYX Hotel', pool: 'places', match: (t) => t.tourism === 'hotel' && /\bnyx\b/i.test(t.name || '') },
+  musei: { label: 'Vatican Museums', pool: 'places', match: (t) => t.name === 'Porta Musei Vaticani', street: 'Viale Vaticano' },
+  sanpietro: { label: "St Peter's Square", pool: 'any', match: (t) => t.name === 'Obelisco Vaticano' },
+  popolo: { label: 'Piazza del Popolo', pool: 'any', match: (t) => t.name === 'Obelisco Flaminio' },
+  spagna: { label: 'Spanish Steps', pool: 'any', match: (t) => t.name === 'Fontana della Barcaccia' },
+  pantheon: { label: 'Pantheon', pool: 'any', match: (t) => t.name === 'Obelisco Macuteo' },
+  trevi: { label: 'Trevi Fountain', pool: 'streets', match: (t) => t.name === 'Piazza di Trevi' },
+  lepanto: { label: 'Lepanto metro', pool: 'places', match: (t) => /^Lepanto$/i.test(t.name || '') && (t.station === 'subway' || t.railway === 'station') },
+  ottaviano: { label: 'Ottaviano metro', pool: 'places', match: (t) => /^Ottaviano/i.test(t.name || '') && (t.station === 'subway' || t.railway === 'station') },
+  cavour: { label: 'Piazza Cavour', pool: 'places', match: (t) => /^Piazza Cavour$/i.test(t.name || ''), street: 'Piazza Cavour', roadOnly: true },
 };
 const ROUTES = [
-  { id: 'r-vaticano', name: 'NYX → San Pietro', blurb: "Vatican Museums entrance, then St Peter's Square.", laps: 1, sectors: 6, stops: ['hotel', 'musei', 'sanpietro', 'hotel'] },
+  { id: 'r-vaticano', name: 'NYX → San Pietro', blurb: "Past Ottaviano metro to the Vatican Museums, then St Peter's Square.", laps: 1, sectors: 6, stops: ['hotel', 'ottaviano', 'musei', 'sanpietro', 'hotel'] },
   { id: 'r-popolo', name: 'NYX → Popolo → Spagna', blurb: 'Over the Tiber to Piazza del Popolo, down to the Spanish Steps.', laps: 1, sectors: 6, stops: ['hotel', 'popolo', 'spagna', 'hotel'] },
   { id: 'r-pantheon', name: 'NYX → Pantheon → Trevi', blurb: 'Into the old centre: the Pantheon, then the Trevi Fountain.', laps: 1, sectors: 6, stops: ['hotel', 'pantheon', 'trevi', 'hotel'] },
   { id: 'r-prati', name: 'Prati loop', blurb: 'Your neighbourhood: Lepanto metro, round to Piazza Cavour.', laps: 2, sectors: 4, stops: ['hotel', 'lepanto', 'cavour', 'hotel'] },
@@ -118,37 +120,49 @@ const onStreet = (name) => (id) => adj.get(id).some((e) => ways[e.way].name === 
 // resolve stops to graph nodes
 const squares = fs.existsSync(path.join(OSM, 'squares.json')) ? load('squares') : [];
 const pool = [...places, ...squares.map((w) => ({ ...w, center: w.geometry ? { lat: w.geometry.reduce((a, g) => a + g.lat, 0) / w.geometry.length, lon: w.geometry.reduce((a, g) => a + g.lon, 0) / w.geometry.length } : null }))];
+const POOLS = { places, squares, streets, buildings: fs.existsSync(path.join(OSM, 'buildings.json')) ? load('buildings') : [] };
+{ const seen = new Set(); POOLS.any = [...places, ...POOLS.buildings, ...squares].filter((e) => !seen.has(e.type + e.id) && seen.add(e.type + e.id)); }
+// centre of everything that matched (e.g. all the little ways that make up one piazza)
+const centroid = (els) => {
+  const pts = els.flatMap((e) => (e.type === 'node' ? [[e.lat, e.lon]] : (e.geometry || []).map((g) => [g.lat, g.lon])).concat(e.center && !e.geometry ? [[e.center.lat, e.center.lon]] : []));
+  return pts.length ? [pts.reduce((a, p) => a + p[0], 0) / pts.length, pts.reduce((a, p) => a + p[1], 0) / pts.length] : null;
+};
 const stopAt = {};
 for (const [key, st] of Object.entries(STOPS)) {
-  let cands = pool.filter((e) => e.tags && st.match(e.tags) && center(e));
-  if (key === 'hotel') cands = [hotelEl];
-  if (st.preferNode && cands.some((e) => e.type === 'node')) cands = cands.filter((e) => e.type === 'node');
-  if (!cands.length) { log('!! stop not found:', key); continue; }
-  const [lat, lon] = center(cands[0]);
+  const cands = key === 'hotel' ? [hotelEl] : POOLS[st.pool].filter((e) => e.tags && st.match(e.tags));
+  const c = cands.length ? centroid(cands) : null;
+  if (!c) { log('!! stop not found:', key); continue; }
+  cands[0] = { ...cands[0], tags: { ...cands[0].tags } };
+  const [lat, lon] = c;
   const [x, y] = P(lat, lon);
-  let node = st.street ? nearestNode(x, y, onStreet(st.street)) : null;
+  const roadOnly = (id) => adj.get(id).some((e) => !/^(footway|path|steps)$/.test(ways[e.way].hw) && (!st.street || ways[e.way].name === st.street));
+  let node = st.street ? nearestNode(x, y, st.roadOnly ? roadOnly : onStreet(st.street)) : null;
   if (!node) node = nearestNode(x, y);
-  const np = nodes.get(node);
-  stopAt[key] = { node, x, y, label: st.label, snap: Math.hypot(np[0] - x, np[1] - y) };
+  const np = nodes.get(node), snap = Math.hypot(np[0] - x, np[1] - y);
+  // passing within ~40 m of a landmark counts as visiting it, so routes sweep past instead of poking in and back out
+  const near = new Set([node]);
+  if (key !== 'hotel') for (const [id, p] of nodes) if (inMain(id) && Math.hypot(p[0] - x, p[1] - y) < Math.max(st.passBy || 25, snap + 8) && (!st.street || onStreet(st.street)(id) || st.roadOnly)) near.add(id);
+  stopAt[key] = { node, near, x, y, label: st.label, snap };
   log(`stop ${key.padEnd(9)} -> node ${node} (${stopAt[key].snap.toFixed(0)} m from ${cands[0].tags.name})`);
 }
 
 // ---------- routing -------------------------------------------------------------------
-function dijkstra(src, dst, cost) {
+function dijkstra(src, dstSet, cost) {
+  let dst = null;
   const dist = new Map([[src, 0]]), prev = new Map();
   const heap = [[0, src]];
   const push = (it) => { heap.push(it); let i = heap.length - 1; while (i) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
   const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
   while (heap.length) {
     const [d, u] = pop();
-    if (u === dst) break;
+    if (dstSet.has(u) && u !== src) { dst = u; break; }
     if (d > dist.get(u)) continue;
     for (const e of adj.get(u)) {
       const nd = d + cost(u, e);
       if (nd < (dist.has(e.to) ? dist.get(e.to) : Infinity)) { dist.set(e.to, nd); prev.set(e.to, [u, e]); push([nd, e.to]); }
     }
   }
-  if (!prev.has(dst) && src !== dst) return null;
+  if (dst == null) return null;
   const out = []; let v = dst;
   while (v !== src) { const [u, e] = prev.get(v); out.push({ from: u, to: v, way: e.way, len: e.len }); v = u; }
   return out.reverse();
@@ -165,20 +179,27 @@ function buildRoute(spec, sep = 45) {
     return false;
   };
   const legs = [];
+  let from = null;
   for (let k = 1; k < spec.stops.length; k++) {
     const a = stopAt[spec.stops[k - 1]], b = stopAt[spec.stops[k]];
     if (!a || !b) throw new Error('missing stop for ' + spec.id);
-    const leg = dijkstra(a.node, b.node, (u, e) => {
-      let m = ways[e.way].name ? 1 : 1.2;
-      if (ways[e.way].hw === 'steps') m *= 1.1;
-      if (usedEdge.has(key(u, e.to))) m *= 12;
+    const src = from != null ? from : a.node, dsts = b.near;
+    // Every leg is the real shortest walk, except that streets already used cost more, and the
+    // last leg home also keeps a little distance from the way out, so you learn a second way back.
+    const lastLeg = k === spec.stops.length - 1;
+    const leg = dijkstra(src, dsts, (u, e) => {
+      const wy = ways[e.way];
+      let m = wy.name ? 1 : /^(footway|path)$/.test(wy.hw) ? 2 : 1.25;
+      if (wy.hw === 'steps') m *= 1.1;
+      if (usedEdge.has(key(u, e.to))) m *= lastLeg ? 4 : REUSE;
       else {
         const pu = nodes.get(u), pv = nodes.get(e.to);
-        if (near((pu[0] + pv[0]) / 2, (pu[1] + pv[1]) / 2, sep)) m *= 3.5;
+        if (near((pu[0] + pv[0]) / 2, (pu[1] + pv[1]) / 2, sep)) m *= lastLeg ? 1.8 : NEARBY;
       }
       return e.len * m;
     });
     if (!leg) throw new Error('no path ' + spec.stops[k - 1] + ' -> ' + spec.stops[k]);
+    from = leg[leg.length - 1].to;
     for (const s of leg) {
       usedEdge.add(key(s.from, s.to));
       const pa = nodes.get(s.from), pb = nodes.get(s.to), n = Math.ceil(s.len / 8);
@@ -189,9 +210,16 @@ function buildRoute(spec, sep = 45) {
   // node sequence with the way used to reach each node; collapse out-and-back spikes (a b a)
   let seq = [{ id: legs[0][0].from, way: legs[0][0].way }];
   for (const leg of legs) for (const s of leg) seq.push({ id: s.to, way: s.way });
+  // trim tiny out-and-back blips (a b a) but keep real dead-end visits, like up to the Museums gate
+  const segLen = (a, b) => { const p = nodes.get(a), q = nodes.get(b); return Math.hypot(p[0] - q[0], p[1] - q[1]); };
   for (let changed = true; changed;) {
     changed = false;
-    for (let i = 1; i + 1 < seq.length; i++) if (seq[i - 1].id === seq[i + 1].id) { seq.splice(i, 2); changed = true; break; }
+    for (let i = 1; i + 1 < seq.length; i++) {
+      if (seq[i - 1].id !== seq[i + 1].id) continue;
+      let k = 1, len = segLen(seq[i - 1].id, seq[i].id);
+      while (i - k - 1 >= 0 && i + k + 1 < seq.length && seq[i - k - 1].id === seq[i + k + 1].id) { len += segLen(seq[i - k - 1].id, seq[i - k].id); k++; }
+      if (len < 25) { seq.splice(i, 2); changed = true; break; }
+    }
   }
   seq.pop(); // last == first (closed loop)
   return { legs, seq };
@@ -246,7 +274,7 @@ const flat = (pts) => pts.flatMap(([x, y]) => [toU(x), toU(y)]);
 
 // ---------- build routes -------------------------------------------------------------
 const outRoutes = [], routePts = [], problems = [];
-for (const spec of ROUTES) for (const sep of [45, 70, 100]) {
+for (const spec of ROUTES) for (const sep of [30, 50, 80]) {
   const { seq } = buildRoute(spec, sep);
   const raw = seq.map((s) => nodes.get(s.id));
   const rawNames = seq.map((s) => ways[s.way].name);
@@ -262,13 +290,14 @@ for (const spec of ROUTES) for (const sep of [45, 70, 100]) {
   for (let i = 0; i < T.N; i++) { const r = 1 / Math.abs(T.curv[i] || 1e-9); if (r < minR) { minR = r; minRi = i; } }
   const gap = Math.round((150 * S) / T.ds), need = 2 * (T.hw + T.wall) + 20;
   const nm = (i) => (T.street ? T.streetNames[T.street[i]] : '');
-  const crossings = [], overlaps = [];
+  const crossings = [], overlaps = [], parallels = [];
   for (let i = 0; i < T.N; i += 2) for (let j = i + gap; j < T.N; j += 2) {
     if (T.N - (j - i) < gap) continue;
     const d = Math.hypot(T.xs[i] - T.xs[j], T.ys[i] - T.ys[j]);
     if (d >= need) continue;
     const dot = Math.abs(T.tx[i] * T.tx[j] + T.ty[i] * T.ty[j]);
-    const list = dot < 0.6 && d < need ? crossings : overlaps;
+    const along = Math.min(j - i, T.N - (j - i)) * T.ds / S; // metres apart along the route
+    const list = dot < 0.6 ? crossings : along < 400 ? overlaps : parallels;
     if (!list.some(([a, b]) => Math.abs(a - i) < gap && Math.abs(b - j) < gap)) list.push([i, j]);
   }
   let dev = 0; // how far smoothing pulled the line off the real street (point-to-segment)
@@ -282,8 +311,8 @@ for (const spec of ROUTES) for (const sep of [45, 70, 100]) {
     dev = Math.max(dev, b);
   }
   log(`${spec.id}: ${(sm.L / 1000).toFixed(2)} km, min corner radius ${(minR / S).toFixed(0)} m @ ${nm(minRi) || '?'}, max smoothing drift ${dev.toFixed(0)} m, ` +
-    `${crossings.length} crossing(s)` + (overlaps.length ? `  !! ${overlaps.length} SIDE-BY-SIDE OVERLAP(S): ` + overlaps.map(([a, b]) => `${nm(a) || '?'} / ${nm(b) || '?'}`).join('; ') : ''));
-  if (overlaps.length && sep < 100) { log('   retrying with wider separation'); continue; }
+    `${crossings.length} crossing(s), ${parallels.length} parallel stretch(es)` + (overlaps.length ? `  !! ${overlaps.length} HAIRPIN OVERLAP(S): ` + overlaps.map(([a, b]) => `${nm(a) || '?'} / ${nm(b) || '?'}`).join('; ') : ''));
+  if (overlaps.length && sep < 80) { log('   retrying with wider separation'); continue; }
   if (overlaps.length) problems.push(spec.id);
   // marks: where the route passes each stop (first pass), in order
   const marks = [];
@@ -293,10 +322,16 @@ for (const spec of ROUTES) for (const sep of [45, 70, 100]) {
     for (let i = 0; i < T.N; i++) { const d = (T.xs[i] - ux) ** 2 + (T.ys[i] - uy) ** 2; if (d < bd) { bd = d; bi = i; } }
     marks.push({ s: Math.round(bi * T.ds), name: st.label });
   }
+  for (const key of spec.stops) {
+    const st = stopAt[key]; let bd = Infinity;
+    for (let i = 0; i < T.N; i++) bd = Math.min(bd, Math.hypot(T.xs[i] - st.x * S, T.ys[i] - st.y * S) / S);
+    if (bd > 45) { log(`   !! route passes ${bd.toFixed(0)} m from ${st.label}`); problems.push(spec.id + ':' + key); }
+  }
   // medal times from the test drivers (same rule as the circuits)
   const an = GL.CARS.map((c) => Math.min(GL.simulate(T, { line: 0.8, look: 150 }, 600, c).time || 999, GL.simulate(T, {}, 600, c).time || 999));
   const dg = GL.CARS.map((c) => GL.simulate(T, { digital: true, line: 0.7 }, 600, c)).map((r) => r.time || 999).sort((a, b) => a - b);
-  def.medals = [Math.ceil(Math.min(...an) * 2) / 2, Math.ceil(dg[2] * 1.04 * 2) / 2, Math.ceil(dg[2] * 1.15)];
+  const gold = Math.ceil(Math.min(...an, dg[0]) * 2) / 2;
+  def.medals = [gold, Math.max(gold + 2, Math.ceil(dg[2] * 1.04 * 2) / 2), Math.max(gold + 5, Math.ceil(dg[2] * 1.15))];
   log(`   medals ${JSON.stringify(def.medals)}  digital-bot median ${dg[2].toFixed(1)}s`);
   // ordered list of streets taken (for the finish screen)
   const via = [];
