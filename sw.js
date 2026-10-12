@@ -1,7 +1,8 @@
 // Ghostlap Roma service worker: cache everything on install, serve from cache first,
 // so the game opens in airplane mode once it has been opened online one time.
-const CACHE = 'ghostlap-roma-v5';
-const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'ghostlap-roma-v6';
+const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'hub.js', 'engine.js', 'coach.js', 'vendor/chess.js',
+  'vendor/stockfish-19-lite-single.js', 'vendor/stockfish-19-lite-single.wasm', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 const OPTIONAL = ['rome.js']; // the real-street map; the game still works without it
 
 self.addEventListener('install', (e) => {

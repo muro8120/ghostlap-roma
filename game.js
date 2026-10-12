@@ -1260,7 +1260,8 @@
   window.addEventListener('resize', () => { resize(); if (state === 'menu') drawGarage(); });
 
   // ---------- offline ------------------------------------------------------------------
-  const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'].concat(ROME ? ['rome.js'] : []);
+  const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'hub.js', 'engine.js', 'coach.js', 'vendor/chess.js', 'vendor/stockfish-19-lite-single.js',
+    'vendor/stockfish-19-lite-single.wasm', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'].concat(ROME ? ['rome.js'] : []);
   async function offline() {
     const el = $('offline');
     if (!('serviceWorker' in navigator) || !window.caches || !window.isSecureContext) {

@@ -1,6 +1,9 @@
 # Ghostlap Roma
 
-A small top-down night racer set in Rome. Race three laps, and your best run comes back as a ghost to beat.
+Two games in one offline iPhone app. Pick one on the launcher:
+
+- **Drive:** a small top-down night racer set in Rome. Race three laps, and your best run comes back as a ghost to beat.
+- **Chess:** play Stockfish with a coach who rates every move you make and then takes the whole game apart.
 
 - **Circuits:** Circo Massimo, Colosseo, Lungotevere, Via Appia Antica. A bronze unlocks the next one.
 - **Rome from the NYX** (`rome.js`, see `tools/ROME-ROUTES.md`): real-street round trips from the hotel on Via Cicerone to the
@@ -10,6 +13,19 @@ A small top-down night racer set in Rome. Race three laps, and your best run com
 - **Garage:** Cinquecento, Maranello 12, Modena GT, San Cesario, Sant'Agata. These are homages named after towns, not brands.
 - **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake; keep holding to reverse.
 - **Offline:** a service worker caches everything, so after one online visit it runs in airplane mode.
+
+## Chess coach
+
+- **Opponent:** Stockfish 19 Lite (WASM, single thread) running in a Web Worker, so it works in airplane mode. Strength is
+  adjustable from 800 to 2850; the coach always analyses at full strength whatever you play against.
+- **Every move gets a verdict.** After each of your moves the strip under the board shows the label (best, great, good,
+  inaccuracy, mistake, blunder), how many pawns it cost against the engine's best line, and one line from the coach.
+  The eval bar next to the board tracks who is winning.
+- **Postgame analysis:** accuracy for both sides, counts of blunders, mistakes and inaccuracies, an eval graph you can
+  scrub, a replay board with the engine's best move drawn as an arrow, the three worst moments, and a lesson for next game.
+- **History:** your last 20 games and their reports are kept on the phone. Promotion is always to a queen.
+- Credits: [Stockfish](https://stockfishchess.org) (GPL-3.0, `vendor/STOCKFISH-LICENSE.txt`) via
+  [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause).
 
 ## Install on iPhone
 
@@ -22,9 +38,13 @@ Your times and ghosts are stored on the phone (localStorage). Nothing is sent an
 
 ## Files
 
-- `index.html`: layout and styles
+- `index.html`: layout and styles (launcher, drive menu, race HUD, chess, review)
+- `hub.js`: the launcher (Drive or Chess)
+- `engine.js`: Stockfish worker wrapper, move rating, coach lines, postgame analysis (runs under node too: `node tools/engine-test.js`)
+- `coach.js`: chess board, live rating strip, end sheet, review screen, game history
+- `vendor/`: chess.js and the Stockfish lite WASM engine
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
 - `game.js`: rendering, input, menus, sound, saving, offline status
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
-- `sw.js`: offline cache. Bump `CACHE` when you change any file.
+- `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `tools/`: OSM fetch and build scripts, synthetic test map, headless test (`tools/e2e.js`)

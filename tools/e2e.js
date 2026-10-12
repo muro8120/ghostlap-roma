@@ -48,10 +48,10 @@ if (process.env.ROME_JS) {
   const base = 'http://localhost:8765/';
   await ctx.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1');
     localStorage.setItem('ghostlap-roma-v1', JSON.stringify({ car: 'cinque', sound: false, tracks: { circo: { best: 40 } } })); } });
-  await p.goto(base + '?bot=1&fast=6');
+  await p.goto(base + '?bot=1&fast=6&game=drive');
   await p.waitForTimeout(800);
   await p.screenshot({ path: SHOTS + '/01-menu.png' });
-  await p.waitForFunction(() => document.getElementById('offline').textContent.includes('Ready offline'), null, { timeout: 15000 }).then(() => check('offline badge says ready', true)).catch(() => check('offline badge says ready', false, document.getElementById));
+  await p.waitForFunction(() => document.getElementById('offline').textContent.includes('Ready offline'), null, { timeout: 15000 }).then(() => check('offline badge says ready', true)).catch(async () => check('offline badge says ready', false, await p.$eval('#offline', (e) => e.textContent)));
   await p.evaluate(() => document.getElementById('menu').scrollTo(0, 1400));
   await p.waitForTimeout(200);
   await p.screenshot({ path: SHOTS + '/02-menu-scrolled.png' });
