@@ -173,6 +173,104 @@
   @media (orientation: landscape) and (max-height: 500px) {
     .big { font-size: 34px; } .panel { padding: 14px; } .laps { margin: 6px 0 10px; } .btn { height: 46px; }
   }
+
+  /* ---------- chess ---------- */
+  #chess, #review { overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; background: var(--bg); overflow-x: hidden;
+    padding: calc(var(--st) + 10px) calc(var(--sr) + 16px) calc(var(--sb) + 28px) calc(var(--sl) + 16px); --sq: calc(min(100vw - 52px, 60vh) / 8); }
+  #chess [hidden], #review [hidden] { display: none !important; }
+  .cbar { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
+  .cbar h1 { margin: 0; font-size: 20px; letter-spacing: .22em; font-weight: 800; }
+  .back { width: 44px; height: 44px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--line); font-size: 24px; color: var(--dim); flex: none; }
+  .cset { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px; display: grid; gap: 12px; }
+  .srow { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; }
+  .srow .k { color: var(--dim); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; }
+  .step { display: flex; align-items: center; gap: 6px; }
+  .step button { width: 44px; height: 44px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--line); font-size: 24px; color: var(--text); }
+  .step button:disabled { opacity: .35; }
+  .step .v { min-width: 64px; text-align: center; font-weight: 800; font-size: 22px; }
+  .chint { color: var(--dim); font-size: 13px; margin: -2px 0 0; line-height: 1.45; }
+  .hcard { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 10px 10px 10px 12px; margin-bottom: 8px; }
+  .hcard small { display: block; color: var(--dim); font-size: 11px; margin-top: 1px; }
+  .hcard .res { font-weight: 800; letter-spacing: .12em; font-size: 13px; }
+  .hcard .num { text-align: center; }
+  .hcard .num span { font-weight: 700; font-size: 15px; }
+  .hcard .rv { color: var(--amber); border-color: rgba(242,178,76,.5); padding: 8px 12px; }
+  .res.win { color: var(--green); } .res.loss { color: var(--red); } .res.draw { color: var(--dim); }
+  /* board row: eval bar + 8x8 grid */
+  .prow { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--dim); padding: 2px 0 6px 20px; min-height: 26px; }
+  .prow b { color: var(--text); font-weight: 700; }
+  #thinking { color: var(--amber); font-weight: 600; }
+  #thinking.on { animation: cpulse .9s ease-in-out infinite alternate; }
+  @keyframes cpulse { from { opacity: .3; } to { opacity: 1; } }
+  .brow { display: flex; gap: 6px; align-items: flex-start; }
+  .ecol { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 14px; flex: none; }
+  .ebar { width: 14px; height: calc(var(--sq) * 8); border-radius: 7px; background: #1a1d24; border: 1px solid var(--line); position: relative; overflow: hidden; }
+  .ebar b { position: absolute; left: 0; right: 0; bottom: 0; height: 50%; background: #f4f1ea; transition: height .6s ease; }
+  .ebar.flip b { bottom: auto; top: 0; }
+  .ev { font-size: 9px; color: var(--dim); font-weight: 700; white-space: nowrap; }
+  .board { position: relative; width: calc(var(--sq) * 8); height: calc(var(--sq) * 8); display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+    border-radius: 8px; overflow: hidden; touch-action: none; flex: none; }
+  .board.busy { pointer-events: none; }
+  .sq { position: relative; display: grid; place-items: center; font-size: calc(var(--sq) * .78); line-height: 1; }
+  .sq.l { background: #9aa7b8; } .sq.d { background: #4a5568; }
+  .sq::before { content: ""; position: absolute; inset: 0; pointer-events: none; }
+  .sq.last::before { background: rgba(242,178,76,.42); }
+  .sq.chk::before { background: rgba(255,90,95,.6); }
+  .sq.sel::before { box-shadow: inset 0 0 0 3px var(--amber); }
+  .sq.tgt::after, .sq.cap::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 30%; height: 30%; border-radius: 50%;
+    background: rgba(11,13,18,.32); pointer-events: none; z-index: 2; }
+  .sq.cap::after { width: 88%; height: 88%; background: none; border: 4px solid rgba(11,13,18,.32); }
+  .pc { position: relative; z-index: 1; font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif; }
+  .pc.w { color: #f4f1ea; text-shadow: 0 1px 1px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.8); }
+  .pc.b { color: #1a1d24; text-shadow: 0 0 2px rgba(255,255,255,.55), 0 1px 1px rgba(255,255,255,.25); }
+  .sq .cr, .sq .cf { position: absolute; font-size: 9px; font-weight: 700; opacity: .55; pointer-events: none; }
+  .sq .cr { left: 2px; top: 1px; } .sq .cf { right: 3px; bottom: 1px; }
+  .sq.l .cr, .sq.l .cf { color: #2b3340; } .sq.d .cr, .sq.d .cf { color: #c7d0dc; }
+  .board .arrow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+  .board .arrow line { stroke: rgba(242,178,76,.9); stroke-width: .22; stroke-linecap: round; }
+  .board .arrow polygon { fill: rgba(242,178,76,.9); }
+  /* label colours, shared by the rating strip, the move lists and the review panels */
+  [data-label=best], [data-label=great], .l-best, .l-great { --lc: var(--green); }
+  [data-label=good], .l-good { --lc: var(--ghost); }
+  [data-label=inaccuracy], .l-inaccuracy { --lc: var(--amber); }
+  [data-label=mistake], .l-mistake { --lc: #ff8c42; }
+  [data-label=blunder], .l-blunder { --lc: var(--red); }
+  [data-label=forced], .l-forced { --lc: var(--dim); }
+  #rate, #rMove { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--lc, var(--line)); border-radius: 14px; padding: 10px 12px 11px; min-height: 92px; }
+  #rate.in { animation: rin .35s ease-out; }
+  @keyframes rin { 0% { transform: translateY(6px) scale(.985); opacity: .2; } 100% { transform: none; opacity: 1; } }
+  #rate .rh { display: flex; align-items: baseline; gap: 10px; }
+  #rateLabel, #rMoveHead { font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; color: var(--lc, var(--dim)); }
+  #rateLoss { color: var(--dim); font-size: 13px; font-weight: 700; }
+  #rateJab, #rMoveJab { font-size: 17px; line-height: 1.35; margin-top: 5px; font-weight: 500; color: var(--text); }
+  .moves { display: flex; flex-wrap: wrap; gap: 1px 5px; font-size: 13px; line-height: 1.5; margin-top: 10px; color: var(--text); }
+  .moves.cap { max-height: 6.2em; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .moves .n { color: var(--dim); }
+  .moves .m { padding: 0 4px; border-radius: 4px; color: var(--lc, var(--text)); font-weight: 600; }
+  .moves .m.cur { background: var(--amber); color: #1a1205; }
+  .endT { font-size: 30px; font-weight: 800; margin: 6px 0 2px; line-height: 1.15; }
+  /* review */
+  .rprog { color: var(--amber); font-weight: 700; text-align: center; margin: 40px 0; animation: cpulse .9s ease-in-out infinite alternate; }
+  #rSummary { font-weight: 800; font-size: 20px; line-height: 1.25; white-space: pre-line; margin-bottom: 12px; }
+  .rstats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px; }
+  .rstats div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 7px 2px 6px; text-align: center; min-width: 0; }
+  .rstats b { display: block; font-size: 17px; font-weight: 800; }
+  .rstats div:nth-child(3) b { color: var(--red); } .rstats div:nth-child(4) b { color: #ff8c42; } .rstats div:nth-child(5) b { color: var(--amber); }
+  .rstats small { font-size: 9px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; font-weight: 700; }
+  #evalGraph { width: 100%; height: 110px; display: block; border-radius: 10px; border: 1px solid var(--line); touch-action: none; margin-bottom: 10px; }
+  .rstep { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 8px; align-items: center; margin-top: 10px; }
+  .rstep .btn { height: 44px; font-size: 15px; }
+  .rstep .btn:disabled { opacity: .35; }
+  .rpos { text-align: center; font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #rMoveHead { text-transform: none; letter-spacing: 0; font-size: 14px; }
+  .worst button { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; width: 100%; text-align: left; background: var(--panel);
+    border: 1px solid var(--line); border-left: 4px solid var(--lc, var(--line)); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+  .worst button:active { background: var(--panel2); }
+  .worst b { font-weight: 800; color: var(--lc, var(--text)); white-space: nowrap; }
+  .worst span { color: var(--dim); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .worst i { font-style: normal; font-weight: 700; color: var(--lc, var(--text)); }
+  #rLesson { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 12px; padding: 12px 14px; font-size: 15px; line-height: 1.5; margin: 0; }
 </style>
 </head>
 <body>
@@ -275,9 +373,78 @@
   </div>
 </div>
 
+<section id="chess" class="screen">
+  <div class="wrap">
+    <div class="cbar"><button class="back" id="chessBack" aria-label="Back">&#8249;</button><h1>COACH</h1></div>
+    <div id="chessHome">
+      <div class="cset">
+        <div class="srow"><span class="k">Engine strength</span>
+          <div class="step"><button id="eloMinus" aria-label="Weaker">&minus;</button><span class="v num" id="eloV">1600</span><button id="eloPlus" aria-label="Stronger">+</button></div></div>
+        <div class="srow"><span class="k">You play</span><button class="pill on" id="colorBtn">White</button></div>
+        <p class="chint">Promotion is always a queen. The coach rates every move you make, out loud.</p>
+        <button class="btn primary" id="newGame">New game</button>
+      </div>
+      <h2>Last games</h2>
+      <div id="chessHist"></div>
+    </div>
+    <div id="chessGame" hidden>
+      <div class="prow"><b id="oppName">Engine</b><span id="thinking"></span></div>
+      <div class="brow">
+        <div class="ecol"><div class="ebar" id="evalBar"><b></b></div><span class="ev num" id="evalTxt"></span></div>
+        <div class="board" id="board"></div>
+      </div>
+      <div class="prow"><b id="youName">You</b><span id="turnTxt"></span></div>
+      <div id="rate" data-label=""><div class="rh"><span id="rateLabel"></span><span id="rateLoss" class="num"></span></div><div id="rateJab"></div></div>
+      <div class="moves cap" id="moveList"></div>
+      <div class="btns" style="margin-top:12px"><button class="btn" id="resignBtn">Resign</button><button class="btn primary" id="analyzeBtn" hidden>Analyze</button></div>
+    </div>
+  </div>
+</section>
+
+<section id="review" class="screen">
+  <div class="wrap">
+    <div class="cbar"><button class="back" id="reviewBack" aria-label="Back">&#8249;</button><h1>REVIEW</h1></div>
+    <p class="rprog" id="rProgress">Analysing&hellip;</p>
+    <div id="rBody" hidden>
+      <div id="rSummary"></div>
+      <div class="rstats" id="rStats"></div>
+      <canvas id="evalGraph"></canvas>
+      <div class="brow">
+        <div class="ecol"><div class="ebar" id="rEvalBar"><b></b></div><span class="ev num" id="rEvalTxt"></span></div>
+        <div class="board" id="rBoard"></div>
+      </div>
+      <div class="rstep"><button class="btn" id="rPrev">&#8249; Prev</button><span class="rpos" id="rPos"></span><button class="btn" id="rNext">Next &#8250;</button></div>
+      <div id="rMove" data-label=""><div id="rMoveHead"></div><div id="rMoveJab"></div></div>
+      <div class="moves" id="rMoveList"></div>
+      <h2>Worst moments</h2>
+      <div class="worst" id="rWorst"></div>
+      <h2>The lesson</h2>
+      <p id="rLesson"></p>
+    </div>
+  </div>
+</section>
+
+<div class="sheet" id="chessEnd">
+  <div class="panel">
+    <h3>GAME OVER</h3>
+    <div class="endT" id="endTitle">Resigned.</div>
+    <div class="msg" id="endMsg"></div>
+    <div class="btns">
+      <button class="btn primary" id="endAnalyze">Analyze</button>
+      <div class="row2">
+        <button class="btn" id="endNew">New game</button>
+        <button class="btn" id="endHome">Home</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/chess.js"></script>
 <script src="core.js"></script>
 <script src="rome.js"></script>
 <script src="game.js"></script>
+<script src="engine.js"></script>
+<script src="coach.js"></script>
 <script src="hub.js"></script>
 </body>
 </html>
