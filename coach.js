@@ -366,7 +366,7 @@
       const acc = g.report && g.report.accuracy ? g.report.accuracy[g.you] + '%' : '—';
       d.innerHTML = '<div><b class="res"></b><small></small></div><div class="num"><span></span><small>elo</small></div><div class="num"><span></span><small>acc</small></div><button class="pill rv">Review</button>';
       const b = d.querySelector('.res'); b.textContent = RES[g.result] || '?'; b.classList.add(g.result);
-      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you] + ' · ' + g.reason + (g.hints ? ' · assisted ×' + g.hints : '');
+      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '');
       d.children[1].firstChild.textContent = g.elo; d.children[2].firstChild.textContent = acc;
       d.querySelector('.rv').onclick = () => openReview(g);
       el.appendChild(d);
