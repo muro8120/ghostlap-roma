@@ -191,7 +191,8 @@
   .chint { color: var(--dim); font-size: 13px; margin: -2px 0 0; line-height: 1.45; }
   .hcard { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center; background: var(--panel); border: 1px solid var(--line);
     border-radius: 14px; padding: 10px 10px 10px 12px; margin-bottom: 8px; }
-  .hcard small { display: block; color: var(--dim); font-size: 11px; margin-top: 1px; }
+  .hcard > div:first-child { min-width: 0; }
+  .hcard small { display: block; color: var(--dim); font-size: 11px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hcard .res { font-weight: 800; letter-spacing: .12em; font-size: 13px; }
   .hcard .num { text-align: center; }
   .hcard .num span { font-weight: 700; font-size: 15px; }
@@ -213,7 +214,18 @@
     border-radius: 8px; overflow: hidden; touch-action: none; flex: none; }
   .board.busy { pointer-events: none; }
   .sq { position: relative; display: grid; place-items: center; font-size: calc(var(--sq) * .78); line-height: 1; }
-  .sq.l { background: #9aa7b8; } .sq.d { background: #4a5568; }
+  #chess, #review { --sqL: #9aa7b8; --sqD: #4a5568; --crL: #2b3340; --crD: #c7d0dc; }
+  [data-theme="wood"] #chess, [data-theme="wood"] #review { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; }
+  [data-theme="modern"] #chess, [data-theme="modern"] #review { --sqL: #eeeed2; --sqD: #769656; --crL: #6b7a4a; --crD: #eeeed2; }
+  [data-theme="mono"] #chess, [data-theme="mono"] #review { --sqL: #d5d8de; --sqD: #6e7480; --crL: #4a505c; --crD: #e4e7ec; }
+  .sq.l { background: var(--sqL); } .sq.d { background: var(--sqD); }
+  .themes { display: flex; gap: 8px; }
+  .themes button { width: 40px; height: 40px; border-radius: 10px; border: 2px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; overflow: hidden; padding: 0; }
+  .themes button.on { border-color: var(--amber); }
+  .themes button i { display: block; }
+  .opening { color: var(--dim); font-size: 12px; margin: -2px 0 6px; min-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .opening b { color: var(--text); font-weight: 600; }
+  #rOpening { margin: 4px 0 8px; }
   .sq::before { content: ""; position: absolute; inset: 0; pointer-events: none; }
   .sq.last::before { background: rgba(242,178,76,.42); }
   .sq.chk::before { background: rgba(255,90,95,.6); }
@@ -224,9 +236,14 @@
   .pc { position: relative; z-index: 1; font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif; }
   .pc.w { color: #f4f1ea; text-shadow: 0 1px 1px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.8); }
   .pc.b { color: #1a1d24; text-shadow: 0 0 2px rgba(255,255,255,.55), 0 1px 1px rgba(255,255,255,.25); }
+  .pc.svg { display: block; width: 88%; height: 88%; background: no-repeat center / contain; text-indent: -9999px; overflow: hidden; text-shadow: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,.45)); }
+  .pc.svg.cw.tk { background-image: url(vendor/pieces/wK.svg); } .pc.svg.cw.tq { background-image: url(vendor/pieces/wQ.svg); } .pc.svg.cw.tr { background-image: url(vendor/pieces/wR.svg); }
+  .pc.svg.cw.tb { background-image: url(vendor/pieces/wB.svg); } .pc.svg.cw.tn { background-image: url(vendor/pieces/wN.svg); } .pc.svg.cw.tp { background-image: url(vendor/pieces/wP.svg); }
+  .pc.svg.cb.tk { background-image: url(vendor/pieces/bK.svg); } .pc.svg.cb.tq { background-image: url(vendor/pieces/bQ.svg); } .pc.svg.cb.tr { background-image: url(vendor/pieces/bR.svg); }
+  .pc.svg.cb.tb { background-image: url(vendor/pieces/bB.svg); } .pc.svg.cb.tn { background-image: url(vendor/pieces/bN.svg); } .pc.svg.cb.tp { background-image: url(vendor/pieces/bP.svg); }
   .sq .cr, .sq .cf { position: absolute; font-size: 9px; font-weight: 700; opacity: .55; pointer-events: none; }
   .sq .cr { left: 2px; top: 1px; } .sq .cf { right: 3px; bottom: 1px; }
-  .sq.l .cr, .sq.l .cf { color: #2b3340; } .sq.d .cr, .sq.d .cf { color: #c7d0dc; }
+  .sq.l .cr, .sq.l .cf { color: var(--crL); } .sq.d .cr, .sq.d .cf { color: var(--crD); }
   .board .arrow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
   .board .arrow line { stroke: rgba(242,178,76,.9); stroke-width: .22; stroke-linecap: round; }
   .board .arrow polygon { fill: rgba(242,178,76,.9); }
@@ -381,7 +398,8 @@
         <div class="srow"><span class="k">Engine strength</span>
           <div class="step"><button id="eloMinus" aria-label="Weaker">&minus;</button><span class="v num" id="eloV">1600</span><button id="eloPlus" aria-label="Stronger">+</button></div></div>
         <div class="srow"><span class="k">You play</span><button class="pill on" id="colorBtn">White</button></div>
-        <p class="chint">Promotion is always a queen. The coach rates every move you make, out loud.</p>
+        <div class="srow"><span class="k">Board</span><div class="themes" id="themeRow"></div></div>
+        <p class="chint">Promotion is always a queen. The coach rates every move you make, out loud. Hints are allowed, and held against you.</p>
         <button class="btn primary" id="newGame">New game</button>
       </div>
       <h2>Last games</h2>
@@ -389,6 +407,7 @@
     </div>
     <div id="chessGame" hidden>
       <div class="prow"><b id="oppName">Engine</b><span id="thinking"></span></div>
+      <div class="opening" id="opening"></div>
       <div class="brow">
         <div class="ecol"><div class="ebar" id="evalBar"><b></b></div><span class="ev num" id="evalTxt"></span></div>
         <div class="board" id="board"></div>
@@ -396,7 +415,7 @@
       <div class="prow"><b id="youName">You</b><span id="turnTxt"></span></div>
       <div id="rate" data-label=""><div class="rh"><span id="rateLabel"></span><span id="rateLoss" class="num"></span></div><div id="rateJab"></div></div>
       <div class="moves cap" id="moveList"></div>
-      <div class="btns" style="margin-top:12px"><button class="btn" id="resignBtn">Resign</button><button class="btn primary" id="analyzeBtn" hidden>Analyze</button></div>
+      <div class="btns" style="margin-top:12px"><div class="row2"><button class="btn" id="hintBtn">Hint</button><button class="btn" id="resignBtn">Resign</button></div><button class="btn primary" id="analyzeBtn" hidden>Analyze</button></div>
     </div>
   </div>
 </section>
@@ -407,6 +426,7 @@
     <p class="rprog" id="rProgress">Analysing&hellip;</p>
     <div id="rBody" hidden>
       <div id="rSummary"></div>
+      <div class="opening" id="rOpening"></div>
       <div class="rstats" id="rStats"></div>
       <canvas id="evalGraph"></canvas>
       <div class="brow">
@@ -444,6 +464,7 @@
 <script src="rome.js"></script>
 <script src="game.js"></script>
 <script src="engine.js"></script>
+<script src="openings.js"></script>
 <script src="coach.js"></script>
 <script src="hub.js"></script>
 </body>

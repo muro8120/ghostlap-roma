@@ -6,7 +6,7 @@
 
   // ---------- saving --------------------------------------------------------
   const KEY = 'ghostlap-chess-v1';
-  let save = { elo: 1600, color: 'w', games: [] };
+  let save = { elo: 1600, color: 'w', theme: 'night', games: [] };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) save = Object.assign(save, JSON.parse(raw));
@@ -15,6 +15,10 @@
   if (!'wbr'.includes(save.color) || save.color.length !== 1) save.color = 'w';
   const clampElo = (e) => Math.max(800, Math.min(2850, Math.round((+e || 1600) / 50) * 50));
   save.elo = clampElo(save.elo);
+  const THEMES = { night: ['#9aa7b8', '#4a5568'], wood: ['#f0d9b5', '#b58863'], modern: ['#eeeed2', '#769656'], mono: ['#d5d8de', '#6e7480'] };
+  if (!THEMES[save.theme]) save.theme = 'night';
+  function applyTheme() { document.documentElement.dataset.theme = save.theme; }
+  applyTheme();
   function persist() { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (e) {} }
 
   // ---------- helpers -------------------------------------------------------
@@ -34,6 +38,19 @@
   function sanOf(fen, uci) { try { const c = new Chess(fen); const m = c.move(mv(uci)); return m ? m.san : uci; } catch (e) { return uci; } }
   function fmtDate(iso) { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch (e) { return ''; } }
   function sheet(id, on) { $(id).classList.toggle('on', on); }
+  // opening name: the longest prefix of the SAN list that the table knows (window.OPENINGS, from lichess, CC0)
+  function openingOf(sans) {
+    const T = window.OPENINGS; if (!T) return null;
+    for (let n = Math.min(sans.length, 14); n >= 1; n--) { const hit = T[sans.slice(0, n).join(' ')]; if (hit) return { eco: hit[0], name: hit[1], plies: n }; }
+    return null;
+  }
+  function showOpening(el, sans) {
+    const o = openingOf(sans);
+    el.innerHTML = ''; if (!o) { el.textContent = sans.length ? '' : ''; return o; }
+    const b = document.createElement('b'); b.textContent = o.name; el.appendChild(b);
+    el.appendChild(document.createTextNode(' · ' + o.eco + (o.plies < sans.length ? ' · out of book' : '')));
+    return o;
+  }
 
   // ---------- board (one renderer for the game board and the replay board) ----
   // opts: { flip, sel, targets:[{to,capture}], last:{from,to}, check, arrow:{from,to}, onTap(sq) }
@@ -73,7 +90,7 @@
       d.dataset.sq = sq;
       const p = chess.get(sq), pc = d.firstChild;
       pc.textContent = p ? GLYPH[p.type] : '';
-      pc.className = 'pc' + (p ? ' ' + p.color : '');
+      pc.className = 'pc' + (p ? ' svg c' + p.color + ' t' + p.type : '');   // c = colour, t = type ('b' alone would mean both black and bishop)
       d.children[1].textContent = col === 0 ? r + 1 : '';
       d.children[2].textContent = row === 7 ? FILES[f] : '';
       d.className = 'sq ' + ((r + f) % 2 ? 'l' : 'd') + (o.sel === sq ? ' sel' : '') + (tg[sq] ? ' ' + tg[sq] : '')
@@ -140,7 +157,8 @@
   function drawGame() {
     if (!game) return;
     const c = game.chess, last = game.moves.length ? game.moves[game.moves.length - 1] : null;
-    renderBoard(board, c, { flip: game.you === 'b', sel, targets, last: last && mv(last.uci), check: c.in_check(), onTap: tap, busy: state !== 'playing' });
+    renderBoard(board, c, { flip: game.you === 'b', sel, targets, last: last && mv(last.uci), check: c.in_check(), onTap: tap, busy: state !== 'playing',
+      arrow: game.hint && game.hint.ply === game.moves.length ? mv(game.hint.uci) : null });
     $('turnTxt').textContent = state === 'playing' ? (c.in_check() ? 'check: your move' : 'your move') : state === 'over' ? 'game over' : '';
   }
   function tap(sq) {
@@ -176,7 +194,7 @@
     cancelAnalysis(); gen++;
     const col = opts.color || save.color, you = col === 'r' ? (Math.random() < .5 ? 'w' : 'b') : col;
     game = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: new Date().toISOString(), elo: clampElo(opts.elo || save.elo), you,
-      chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null };
+      chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null };
     lastRating = null; sel = null; targets = []; review = null;
     sheet('chessEnd', false); $('review').classList.remove('on'); $('chess').classList.add('on');
     $('chessHome').hidden = true; $('chessGame').hidden = false;
@@ -185,7 +203,7 @@
     $('youName').textContent = 'You · ' + COLN[you];
     rateIdle(you === 'w' ? 'Your move. I’m watching.' : 'Black. The engine opens; try to keep up.');
     thinking(false); setEvalBar(evalBar, { cp: 0 }, you === 'b');
-    renderMoves(); setState(you === 'w' ? 'playing' : 'thinking'); drawGame();
+    renderMoves(); setState(you === 'w' ? 'playing' : 'thinking'); drawGame(); showOpening($('opening'), []); $('hintBtn').hidden = false;
     $('chess').scrollTo(0, 0);
     const myGen = gen, e = engine();
     if (!e) { thinking('engine unavailable'); return game; }
@@ -212,7 +230,8 @@
     const m = c.move(mv(uci));
     if (!m) return false;
     const played = uciOf(m), rec = { uci: played, san: m.san, label: null, loss: null, jab: null };
-    g.moves.push(rec); sel = null; targets = [];
+    g.moves.push(rec); sel = null; targets = []; showOpening($('opening'), g.moves.map((x) => x.san));
+    const usedHint = g.hint && g.hint.ply === g.moves.length - 1 && g.hint.uci === played; g.hint = null;
     setState('thinking'); thinking(c.game_over() ? false : 'rating…'); drawGame(); renderMoves();
     const fenAfter = c.fen();
     try {
@@ -233,6 +252,7 @@
       g.streak = GOOD[rating.label] ? 0 : g.streak + 1;
       rec.label = rating.label; rec.loss = rating.loss; rec.best = before ? before.best : null; rec.bestSan = bestSan;
       rec.jab = window.ChessEngine ? ChessEngine.jab(rating.label, { san: m.san, bestSan, loss: rating.loss, ply: g.moves.length, streak: g.streak, cpAfter: clampCp(after), color: g.you }) : '';
+      if (usedHint) { rec.hinted = true; rec.jab = HINTED[g.moves.length % HINTED.length]; }
       lastRating = { uci: played, san: m.san, label: rating.label, loss: rating.loss, jab: rec.jab, bestSan, ply: g.moves.length };
       showRate(lastRating); renderMoves();
       if (c.game_over()) { thinking(false); gameOver(); return lastRating; }
@@ -256,7 +276,7 @@
     if (!m) { const ms = c.moves({ verbose: true }); if (ms.length) m = c.move(ms[Math.floor(Math.random() * ms.length)]); }
     if (!m) return;
     g.moves.push({ uci: uciOf(m), san: m.san, label: null, loss: null });
-    thinking(false);
+    thinking(false); showOpening($('opening'), g.moves.map((x) => x.san));
     if (c.game_over()) { setState('over'); drawGame(); renderMoves(); gameOver(); return; }
     setState('playing'); drawGame(); renderMoves();
     preEval(myGen);
@@ -286,10 +306,10 @@
     g.result = result; g.reason = reason;
     setState('over'); drawGame();
     if (g.moves.length >= 2) {
-      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), report: null };
+      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, report: null };
       save.games.unshift(g.entry); save.games = save.games.slice(0, 20); persist();
     }
-    $('analyzeBtn').hidden = !g.entry; $('resignBtn').hidden = true;
+    $('analyzeBtn').hidden = !g.entry; $('resignBtn').hidden = true; $('hintBtn').hidden = true;
     renderHist();
     if (showSheet) {
       const k = reason === 'checkmate' ? (result === 'win' ? 'checkmateWin' : 'checkmateLoss') : reason;
@@ -298,6 +318,40 @@
       $('endAnalyze').hidden = !g.entry;
       sheet('chessEnd', true);
     }
+  }
+  const HINT_LINES = [
+    'Fine. %s. I’ll remember that you asked.',
+    '%s. You could have found that. We both know it.',
+    'The move is %s. That one goes in your file.',
+    '%s. Don’t make a habit of this.',
+    'Try %s. And try thinking next time, it’s free.',
+    '%s, obviously. Shall I move it for you as well?',
+  ];
+  const HINTED = [
+    'Yes, that was the move. It was also my move. You get half credit, rounded down.',
+    'Played as told. Obedience is not the same as understanding.',
+    'Correct, and you know why it’s correct? Neither do I, I only told you what.',
+    'That’s the one I gave you. I’ll score it. I won’t respect it.',
+  ];
+  // the coach shows the best move, then holds it against you (the game is marked assisted)
+  async function hint() {
+    if (state !== 'playing' || !game) return null;
+    const g = game, myGen = gen, e = engine();
+    if (!e) return null;
+    if (g.hint && g.hint.ply === g.moves.length) return g.hint;
+    thinking('asking…');
+    try {
+      let ev = await (g.before || Promise.resolve(null));
+      if (myGen !== gen || state !== 'playing') return null;
+      if (!ev || !ev.best) { ev = await e.evaluate(g.chess.fen(), { depth: 12 }); if (myGen !== gen || state !== 'playing') return null; }
+      if (!ev || !ev.best) return null;
+      g.hints++; g.hint = { ply: g.moves.length, uci: ev.best, san: sanOf(g.chess.fen(), ev.best) };
+      const el = $('rate'); el.dataset.label = 'forced'; el.classList.remove('in');
+      $('rateLabel').textContent = 'Hint ' + g.hints; $('rateLoss').textContent = '';
+      $('rateJab').textContent = HINT_LINES[g.hints % HINT_LINES.length].replace('%s', g.hint.san);
+      thinking(false); drawGame();
+      return g.hint;
+    } catch (err) { thinking(false); return null; }
   }
   function resign() {
     if (game && (state === 'playing' || state === 'thinking')) endGame('loss', 'resign', true);
@@ -312,13 +366,21 @@
       const acc = g.report && g.report.accuracy ? g.report.accuracy[g.you] + '%' : '—';
       d.innerHTML = '<div><b class="res"></b><small></small></div><div class="num"><span></span><small>elo</small></div><div class="num"><span></span><small>acc</small></div><button class="pill rv">Review</button>';
       const b = d.querySelector('.res'); b.textContent = RES[g.result] || '?'; b.classList.add(g.result);
-      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you] + ' · ' + g.reason;
+      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you] + ' · ' + g.reason + (g.hints ? ' · assisted ×' + g.hints : '');
       d.children[1].firstChild.textContent = g.elo; d.children[2].firstChild.textContent = acc;
       d.querySelector('.rv').onclick = () => openReview(g);
       el.appendChild(d);
     }
   }
   function renderSettings() {
+    const tr = $('themeRow');
+    if (!tr.children.length) for (const k of Object.keys(THEMES)) {
+      const b = document.createElement('button'); b.dataset.theme = k; b.setAttribute('aria-label', k + ' board');
+      const [l, d] = THEMES[k]; b.innerHTML = '<i style="background:' + l + '"></i><i style="background:' + d + '"></i><i style="background:' + d + '"></i><i style="background:' + l + '"></i>';
+      b.onclick = () => { save.theme = k; persist(); applyTheme(); renderSettings(); };
+      tr.appendChild(b);
+    }
+    for (const b of tr.children) b.classList.toggle('on', b.dataset.theme === save.theme);
     $('eloV').textContent = save.elo;
     $('colorBtn').textContent = COLN[save.color];
     $('eloMinus').disabled = save.elo <= 800; $('eloPlus').disabled = save.elo >= 2850;
@@ -361,18 +423,20 @@
     const r = review, rep = r.report, you = r.you, op = you === 'w' ? 'b' : 'w';
     const c = new Chess(); r.fens = [c.fen()];
     for (const u of r.moves) { c.move(mv(u)); r.fens.push(c.fen()); }
-    $('rSummary').textContent = rep.summary || '';
+    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints ? '\nAssisted: you asked for ' + r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') + '. The accuracy knows.' : '');
+    showOpening($('rOpening'), r.entry.sans || []);
     const cy = rep.counts[you], st = $('rStats'); st.innerHTML = '';
     for (const [v, k] of [[rep.accuracy[you] + '%', 'you'], [rep.accuracy[op] + '%', 'engine'], [cy.blunder, 'blunders'], [cy.mistake, 'mistakes'], [cy.inaccuracy, 'inacc.']]) {
       const d = document.createElement('div'); d.innerHTML = '<b class="num"></b><small></small>'; d.firstChild.textContent = v; d.lastChild.textContent = k; st.appendChild(d);
     }
     const w = $('rWorst'); w.innerHTML = '';
-    if (!rep.worst.length) { const p = document.createElement('p'); p.className = 'chint'; p.textContent = 'Nothing worth shouting about. Suspicious.'; w.appendChild(p); }
-    for (const m of rep.worst) {
+    const worst = (rep.worst || []).filter((m) => !GOOD[m.label]);   // only moments worth shouting about
+    if (!worst.length) { const p = document.createElement('p'); p.className = 'chint'; p.textContent = 'Nothing worth shouting about. Suspicious.'; w.appendChild(p); }
+    for (const m of worst) {
       const b = document.createElement('button'); b.className = 'wm l-' + m.label;
       b.innerHTML = '<b></b><span></span><i class="num"></i>';
       b.children[0].textContent = moveNo(m.ply) + m.san + (SUFFIX[m.label] || '');
-      b.children[1].textContent = cap(m.label) + (m.bestSan ? ' · best ' + m.bestSan : '');
+      b.children[1].textContent = cap(m.label) + (m.bestSan && m.best !== m.uci ? ' · best ' + m.bestSan : '');
       b.children[2].textContent = lossTxt(m.loss);
       b.onclick = () => seek(m.ply);
       w.appendChild(b);
@@ -396,7 +460,7 @@
     if (m) {
       const mine = m.color === r.you;
       $('rMoveHead').textContent = moveNo(r.ply) + m.san + (SUFFIX[m.label] || '') + ' · ' + cap(m.label)
-        + (m.label !== 'forced' && m.loss >= 5 ? ' (' + lossTxt(m.loss) + ')' : '') + (m.best && m.best !== m.uci && m.bestSan ? '. Best was ' + m.bestSan + '.' : '');
+        + (m.label !== 'forced' && m.loss >= 5 ? ' (' + lossTxt(m.loss) + ')' : '') + (m.best && m.best !== m.uci && m.bestSan && m.label !== 'best' && m.label !== 'forced' ? '. Best was ' + m.bestSan + '.' : '');
       $('rMoveJab').textContent = mine ? (m.jab || '') : (m.label === 'blunder' || m.label === 'mistake' ? 'The engine slipped. Did you notice?' : '');
     } else { $('rMoveHead').textContent = 'Start position'; $('rMoveJab').textContent = 'Step through with Next, tap a move, or drag on the graph.'; }
     renderMoveList($('rMoveList'), rep.moves, r.ply, seek);
@@ -463,6 +527,7 @@
   $('eloPlus').onclick = () => { save.elo = clampElo(save.elo + 50); persist(); renderSettings(); };
   $('colorBtn').onclick = () => { save.color = { w: 'b', b: 'r', r: 'w' }[save.color]; persist(); renderSettings(); };
   $('resignBtn').onclick = resign;
+  $('hintBtn').onclick = hint;
   $('analyzeBtn').onclick = analyze;
   $('endAnalyze').onclick = analyze;
   $('endNew').onclick = () => newGame();
@@ -479,7 +544,7 @@
 
   // test hook
   window.__coach = {
-    open, close, newGame, move: humanMove, resign, analyze,
+    open, close, newGame, move: humanMove, resign, analyze, hint, openingOf, get theme() { return save.theme; },
     get game() { return game; }, get state() { return state; }, get lastRating() { return lastRating; }, get history() { return save.games; },
   };
 })();

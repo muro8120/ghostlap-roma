@@ -4,7 +4,7 @@ const { chromium, devices } = require('/opt/node-tools/node_modules/playwright')
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const SHOTS = process.env.SHOTS || '/tmp/ghostlap-shots'; fs.mkdirSync(SHOTS, { recursive: true });
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.wasm': 'application/wasm', '.webmanifest': 'application/manifest+json' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
 const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(new URL(q.url, 'http://x').pathname); if (p.endsWith('/')) p += 'index.html';
   const f = path.join(ROOT, p);
@@ -45,15 +45,21 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await tap('e2'); await p.screenshot({ path: SHOTS + '/c3-selected.png' }); await tap('e4');
   const rated = await p.waitForFunction(() => (document.getElementById('rateLabel').textContent || '').trim().length > 0, null, { timeout: 30000 }).then(() => true).catch(() => false);
   check('human move gets a rating', rated, rated ? await p.$eval('#rate', (e) => e.innerText.replace(/\s+/g, ' ').slice(0, 120)) : '');
-  const replied = await p.waitForFunction(() => window.__coach.game && window.__coach.game.history().length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 }).then(() => true).catch(() => false);
-  check('engine replies', replied, replied ? await p.evaluate(() => window.__coach.game.history().join(' ')) : '');
+  const replied = await p.waitForFunction(() => window.__coach.game && window.__coach.game.moves.length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 }).then(() => true).catch(() => false);
+  check('engine replies', replied, replied ? await p.evaluate(() => window.__coach.game.moves.map((m) => m.san).join(' ')) : '');
   await p.screenshot({ path: SHOTS + '/c4-after-reply.png' });
   // a deliberate blunder: hang the queen if possible via hook moves, else just play a few moves
   for (const m of ['d1h5', 'h5f7']) { const ok = await p.evaluate((u) => window.__coach.move(u), m); if (!ok) break;
     await p.waitForFunction(() => window.__coach.state !== 'thinking', null, { timeout: 30000 }).catch(() => {}); await p.waitForTimeout(200); }
-  const hist = await p.evaluate(() => window.__coach.game.history().join(' '));
+  const hist = await p.evaluate(() => window.__coach.game.moves.map((m) => m.san).join(' '));
   check('several moves played', hist.split(' ').length >= 4, hist);
   await p.screenshot({ path: SHOTS + '/c5-mid.png' });
+  check('opening name shown', (await p.$eval('#opening', (e) => e.textContent)).length > 3, await p.$eval('#opening', (e) => e.textContent));
+  check('svg pieces rendered', (await p.$$eval('#board .pc.svg', (e) => e.length)) >= 20);
+  const hint = await p.evaluate(() => window.__coach.hint());
+  check('hint returns the best move', !!(hint && hint.uci && hint.san), JSON.stringify(hint));
+  check('hint arrow drawn', (await p.$$eval('#board .arrow line', (e) => e.length)) === 1);
+  await p.screenshot({ path: SHOTS + '/c5b-hint.png' });
   await p.evaluate(() => window.__coach.resign());
   await p.waitForSelector('#chessEnd.on', { timeout: 5000 }).then(() => check('resign shows the end sheet', true)).catch(() => check('resign shows the end sheet', false));
   await p.screenshot({ path: SHOTS + '/c6-end.png' });
@@ -65,11 +71,17 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.click('#rNext'); await p.click('#rNext'); await p.waitForTimeout(200);
   await p.screenshot({ path: SHOTS + '/c8-review-step.png' });
   const h = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-chess-v1')));
+  check('hint counted in history', !!(h && h.games[0] && h.games[0].hints === 1), h && h.games[0] && 'hints=' + h.games[0].hints);
   check('history saved with report', !!(h && h.games && h.games.length === 1 && h.games[0].report && h.games[0].report.moves.length >= 4),
     h && h.games && h.games[0] && h.games[0].report ? 'accuracy ' + JSON.stringify(h.games[0].report.accuracy) : JSON.stringify(h).slice(0, 100));
   await p.click('#reviewBack'); await p.waitForTimeout(200);
   check('history list shows the game', (await p.$$eval('#chessHist button', (e) => e.length)) >= 1);
   await p.screenshot({ path: SHOTS + '/c9-home-history.png' });
+  await p.click('#themeRow button[data-theme="wood"]'); await p.waitForTimeout(100);
+  check('theme persists', (await p.evaluate(() => document.documentElement.dataset.theme + '/' + JSON.parse(localStorage.getItem('ghostlap-chess-v1')).theme)) === 'wood/wood');
+  await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1600 })); await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
+  await p.waitForTimeout(300); await p.screenshot({ path: SHOTS + '/c9b-wood.png' });
+  check('wood squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(181, 136, 99)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
   await p.click('#chessBack'); await p.waitForTimeout(200);
   check('back returns to hub', await p.$eval('#hub', (e) => e.classList.contains('on')));
   check('no page errors', errs.length === 0, errs.join(' | ').slice(0, 300));

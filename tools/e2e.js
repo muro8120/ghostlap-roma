@@ -2,7 +2,7 @@ const { chromium, devices } = require('/opt/node-tools/node_modules/playwright')
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const SHOTS = process.env.SHOTS || '/tmp/ghostlap-shots'; fs.mkdirSync(SHOTS, { recursive: true });
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.webmanifest': 'application/manifest+json' };
 const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(new URL(q.url, 'http://x').pathname); if (p.endsWith('/')) p += 'index.html';
   if (p === '/rome.js' && process.env.ROME_JS) { r.writeHead(200, { 'content-type': 'text/javascript' }); return fs.createReadStream(process.env.ROME_JS).pipe(r); }
@@ -188,9 +188,11 @@ if (process.env.ROME_JS) {
   p3.on('pageerror', (e) => errs.push('p3 pageerror: ' + e.message));
   const ok = await p3.goto(base).then((r) => r && r.ok()).catch((e) => 'ERR ' + e.message);
   await p3.waitForTimeout(800);
-  const menuOn = await p3.$eval('#menu', (e) => e.classList.contains('on')).catch(() => false);
-  const cards = await p3.$$eval('.card', (e) => e.length).catch(() => 0);
-  check('loads in airplane mode', ok === true && menuOn && cards === (process.env.ROME_JS ? 9 : 4), `ok=${ok} cards=${cards}`);
+  const hubOn = await p3.$eval('#hub', (e) => e.classList.contains('on')).catch(() => false);   // the launcher shows first
+  const cards = await p3.$$eval('.card', (e) => e.length).catch(() => 0);                          // 4 circuits, plus 5 routes when rome.js is present
+  check('loads in airplane mode', ok === true && hubOn && cards >= 4, `ok=${ok} hub=${hubOn} cards=${cards}`);
+  const chessOff = await p3.evaluate(() => Promise.all(['coach.js', 'engine.js', 'openings.js', 'vendor/stockfish-19-lite-single.wasm', 'vendor/pieces/wK.svg'].map((a) => caches.match(a).then((r) => !!r)))).catch(() => []);
+  check('chess files cached for offline', chessOff.length === 5 && chessOff.every(Boolean), JSON.stringify(chessOff));
   await p3.screenshot({ path: SHOTS + '/10-offline.png' });
   check('no JS errors', errs.length === 0, errs.slice(0, 5).join(' | '));
   await b.close(); srv.close();
