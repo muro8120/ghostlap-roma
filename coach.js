@@ -6,7 +6,7 @@
 
   // ---------- saving --------------------------------------------------------
   const KEY = 'ghostlap-chess-v1';
-  let save = { elo: 1600, color: 'w', theme: 'night', games: [] };
+  let save = { elo: 1600, color: 'w', theme: 'night', mode: 'play', games: [] };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) save = Object.assign(save, JSON.parse(raw));
@@ -17,6 +17,7 @@
   save.elo = clampElo(save.elo);
   const THEMES = { night: ['#9aa7b8', '#4a5568'], wood: ['#f0d9b5', '#b58863'], modern: ['#eeeed2', '#769656'], mono: ['#d5d8de', '#6e7480'] };
   if (!THEMES[save.theme]) save.theme = 'night';
+  if (save.mode !== 'tutor') save.mode = 'play';
   function applyTheme() { document.documentElement.dataset.theme = save.theme; }
   applyTheme();
   function persist() { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (e) {} }
@@ -53,7 +54,7 @@
   }
 
   // ---------- board (one renderer for the game board and the replay board) ----
-  // opts: { flip, sel, targets:[{to,capture}], last:{from,to}, check, arrow:{from,to}, onTap(sq) }
+  // opts: { flip, sel, targets:[{to,capture}], last:{from,to}, check, arrow:{from,to,cls?}, arrows:[...], onTap(sq) }
   function renderBoard(el, chess, o) {
     o = o || {};
     if (!el._built) {
@@ -96,15 +97,112 @@
       d.className = 'sq ' + ((r + f) % 2 ? 'l' : 'd') + (o.sel === sq ? ' sel' : '') + (tg[sq] ? ' ' + tg[sq] : '')
         + (o.last && (o.last.from === sq || o.last.to === sq) ? ' last' : '') + (chk === sq ? ' chk' : '');
     }
-    const svg = el._svg; svg.innerHTML = '';
-    if (o.arrow) {
+    const svg = el._svg; let html = '';
+    for (const a of (o.arrows || []).concat(o.arrow ? [o.arrow] : [])) {
       const pt = (s) => { const f = FILES.indexOf(s[0]), r = +s[1] - 1; return o.flip ? [7 - f + .5, r + .5] : [f + .5, 7 - r + .5]; };
-      const [x1, y1] = pt(o.arrow.from), [x2, y2] = pt(o.arrow.to);
+      const [x1, y1] = pt(a.from), [x2, y2] = pt(a.to);
       const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, px = -uy, py = ux;
-      const hl = .5, hw = .32, bx = x2 - ux * hl, by = y2 - uy * hl;
-      svg.innerHTML = '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + (bx + ux * .05) + '" y2="' + (by + uy * .05) + '"/>'
-        + '<polygon points="' + x2 + ',' + y2 + ' ' + (bx + px * hw) + ',' + (by + py * hw) + ' ' + (bx - px * hw) + ',' + (by - py * hw) + '"/>';
+      const hl = .5, hw = .32, bx = x2 - ux * hl, by = y2 - uy * hl, cls = a.cls ? ' class="' + a.cls + '"' : '';
+      html += '<line' + cls + ' x1="' + x1 + '" y1="' + y1 + '" x2="' + (bx + ux * .05) + '" y2="' + (by + uy * .05) + '"/>'
+        + '<polygon' + cls + ' points="' + x2 + ',' + y2 + ' ' + (bx + px * hw) + ',' + (by + py * hw) + ' ' + (bx - px * hw) + ',' + (by - py * hw) + '"/>';
     }
+    svg.innerHTML = html;
+  }
+  // ---------- tutor: plain-English reasons for a move, and the opponent's idea ----------
+  const PIECE = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+  const VAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  function attackedBy(c, sq, color) {   // does `color` attack square sq in position c? (via a scratch position with that side to move)
+    try {
+      const f = c.fen().split(' '); f[1] = color; f[3] = '-';
+      const t = new Chess(f.join(' '));
+      return t.moves({ verbose: true }).some((m) => m.to === sq);
+    } catch (e) { return false; }
+  }
+  // what a move does, in one short clause. c = position BEFORE the move (not mutated).
+  function explain(c, uci) {
+    const t = new Chess(c.fen()); const m = t.move(mv(uci)); if (!m) return '';
+    const notes = [];
+    if (t.in_checkmate()) return 'Checkmate.';
+    if (m.flags.includes('k') || m.flags.includes('q')) notes.push('Castles: king safe, rook in play.');
+    if (m.promotion) notes.push('Promotes.');
+    if (m.captured) {
+      const defended = attackedBy(t, m.to, t.turn());
+      const gain = VAL[m.captured] - (defended ? VAL[m.piece] : 0);
+      notes.push('Takes the ' + PIECE[m.captured] + ' on ' + m.to + (defended ? (gain > 0 ? ', wins material' : gain < 0 ? ', but it is defended' : ', a trade') : ' for free'));
+    }
+    if (t.in_check()) notes.push('Check.');
+    // threats created: what the moved piece can take next, and whether it is safe where it lands
+    const next = (function () { try { const f = t.fen().split(' '); f[1] = m.color; f[3] = '-'; return new Chess(f.join(' ')).moves({ square: m.to, verbose: true }).filter((x) => x.captured); } catch (e) { return []; } })();
+    const hanging = attackedBy(t, m.to, t.turn()) && !attackedBy(t, m.to, m.color);
+    const big = next.filter((x) => VAL[x.captured] > VAL[m.piece] || !attackedBy(t, x.to, t.turn())).sort((a, b) => VAL[b.captured] - VAL[a.captured]);
+    if (big.length >= 2 && !m.captured) notes.push('Forks the ' + PIECE[big[0].captured] + ' and the ' + PIECE[big[1].captured] + '.');
+    else if (big.length === 1 && !m.captured) notes.push('Attacks the ' + PIECE[big[0].captured] + ' on ' + big[0].to + '.');
+    if (hanging) notes.push('The ' + PIECE[m.piece] + ' can be taken there.');
+    if (!notes.length) {
+      const home = m.color === 'w' ? '1' : '8';
+      if ((m.piece === 'n' || m.piece === 'b') && m.from[1] === home) notes.push('Develops the ' + PIECE[m.piece] + '.');
+      else if (m.piece === 'p' && 'd4 e4 d5 e5'.includes(m.to)) notes.push('Takes space in the centre.');
+      else if (m.piece === 'p') notes.push('Pawn move. Pawns do not come back.');
+      else if (m.piece === 'k') notes.push('King move. Make sure it needs to.');
+      else if (m.piece === 'q' && m.from[1] === home) notes.push('Brings the queen out early. It will get chased.');
+      else notes.push('Improves the ' + PIECE[m.piece] + '.');
+    }
+    return notes.join(' ');
+  }
+  // the position with the other side to move: what would they do if you passed?
+  function passFen(c) {
+    if (c.in_check()) return null;
+    const f = c.fen().split(' '); f[1] = f[1] === 'w' ? 'b' : 'w'; f[3] = '-';
+    try { const t = new Chess(f.join(' ')); if (!t.moves().length) return null; return t.fen(); } catch (e) { return null; }
+  }
+  function renderTutor() {
+    const g = game, el = $('tutor');
+    if (!g || !g.tutor || state !== 'playing') { el.hidden = true; return; }
+    el.hidden = false;
+    const opts = $('tutorOpts'); opts.innerHTML = '';
+    const T = g.think;
+    $('tutorStat').textContent = !T ? 'looking…' : T.done ? (T.lines.length + ' options · tap one to see it') : 'looking…';
+    if (!T) { $('tutorThreat').hidden = true; return; }
+    const c = g.chess, cur = clampCp(T.ev);
+    T.lines.forEach((ln, i) => {
+      const b = document.createElement('button'); b.className = 'opt' + (i === 0 ? ' first' : '') + (g.pick === ln.uci ? ' on' : '');
+      const d = g.you === 'w' ? clampCp(ln) - cur : cur - clampCp(ln);
+      b.innerHTML = '<b></b><span></span><i class="num"></i>';
+      b.children[0].textContent = ln.san; b.children[1].textContent = ln.note;
+      b.children[2].textContent = ln.mate ? 'M' + Math.abs(ln.mate) : i === 0 ? 'best' : lossTxt(-d);
+      b.onclick = () => { g.pick = g.pick === ln.uci ? null : ln.uci; sel = g.pick ? ln.uci.slice(0, 2) : null;
+        targets = sel ? c.moves({ square: sel, verbose: true }).map((m) => ({ to: m.to, capture: !!m.captured, promotion: !!m.promotion })) : []; drawGame(); renderTutor(); };
+      opts.appendChild(b);
+    });
+    const th = $('tutorThreat');
+    if (T.threat) { th.hidden = false; th.className = 'threat' + (T.threat.cp === 0 ? ' calm' : ''); th.innerHTML = '<b></b><span></span>';
+      th.firstChild.textContent = T.threat.calm ? 'THEIR IDEA' : 'THEIR THREAT'; th.lastChild.textContent = T.threat.text; }
+    else th.hidden = true;
+  }
+  // tutor pre-think: three candidate moves with reasons, and the opponent's idea if you passed
+  async function think(myGen) {
+    const g = game, e = engine(), c = g.chess;
+    g.think = null; g.pick = null; renderTutor();
+    try {
+      const ev = await g.before;                                   // depth-12 single line (already running)
+      if (myGen !== gen || !ev) return;
+      const multi = await e.evaluate(c.fen(), { depth: 12, multipv: 3 });
+      if (myGen !== gen) return;
+      const lines = (multi.lines || []).filter((l) => l.pv && l.pv[0]).slice(0, 3).map((l) => ({ uci: l.pv[0], san: sanOf(c.fen(), l.pv[0]), cp: l.cp, mate: l.mate, note: explain(c, l.pv[0]) }));
+      g.think = { ev: multi, lines, threat: null, done: false }; renderTutor();
+      const pf = passFen(c);
+      if (pf) {
+        const tv = await e.evaluate(pf, { depth: 10 });
+        if (myGen !== gen || !g.think) return;
+        if (tv && tv.best) {
+          const opp = g.you === 'w' ? 'b' : 'w', swing = opp === 'w' ? clampCp(tv) - clampCp(multi) : clampCp(multi) - clampCp(tv);
+          const san = sanOf(pf, tv.best), why = explain(new Chess(pf), tv.best);
+          const calm = swing < 60 && !tv.mate;
+          g.think.threat = { uci: tv.best, san, calm, cp: swing, text: (calm ? 'Nothing sharp. Given a free move they would play ' + san + '. ' : 'If you pass, they play ' + san + '. ') + why };
+        }
+      } else g.think.threat = c.in_check() ? { uci: null, san: '', calm: false, cp: 999, text: 'You are in check. Everything else can wait.' } : null;
+      g.think.done = true; renderTutor(); drawGame();
+    } catch (err) { if (myGen === gen) { g.think = { ev: null, lines: [], threat: null, done: true }; renderTutor(); } }
   }
   // eval bar: white's share grows from the human's side (bottom), text beside it
   function setEvalBar(el, ev, flip) {
@@ -158,7 +256,9 @@
     if (!game) return;
     const c = game.chess, last = game.moves.length ? game.moves[game.moves.length - 1] : null;
     renderBoard(board, c, { flip: game.you === 'b', sel, targets, last: last && mv(last.uci), check: c.in_check(), onTap: tap, busy: state !== 'playing',
-      arrow: game.hint && game.hint.ply === game.moves.length ? mv(game.hint.uci) : null });
+      arrow: game.hint && game.hint.ply === game.moves.length ? mv(game.hint.uci) : null,
+      arrows: game.tutor && state === 'playing' && game.think ? [].concat(game.pick ? [Object.assign(mv(game.pick), { cls: 'ghost' })] : [],
+        game.think.threat && game.think.threat.uci && !game.think.threat.calm ? [Object.assign(mv(game.think.threat.uci), { cls: 'red' })] : []) : [] });
     $('turnTxt').textContent = state === 'playing' ? (c.in_check() ? 'check: your move' : 'your move') : state === 'over' ? 'game over' : '';
   }
   function tap(sq) {
@@ -194,14 +294,15 @@
     cancelAnalysis(); gen++;
     const col = opts.color || save.color, you = col === 'r' ? (Math.random() < .5 ? 'w' : 'b') : col;
     game = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: new Date().toISOString(), elo: clampElo(opts.elo || save.elo), you,
-      chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null };
+      chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null, tutor: (opts.tutor != null ? !!opts.tutor : save.mode === 'tutor'), think: null, pick: null, takebacks: 0 };
     lastRating = null; sel = null; targets = []; review = null;
     sheet('chessEnd', false); $('review').classList.remove('on'); $('chess').classList.add('on');
     $('chessHome').hidden = true; $('chessGame').hidden = false;
     $('analyzeBtn').hidden = true; $('resignBtn').hidden = false;
     $('oppName').textContent = 'Engine · ' + game.elo;
     $('youName').textContent = 'You · ' + COLN[you];
-    rateIdle(you === 'w' ? 'Your move. I’m watching.' : 'Black. The engine opens; try to keep up.');
+    rateIdle(game.tutor ? 'Tutor mode. I show you the options and what they are up to. You still have to choose.' : you === 'w' ? 'Your move. I’m watching.' : 'Black. The engine opens; try to keep up.');
+    $('takeRow').hidden = true; $('tutor').hidden = !game.tutor; renderTutor();
     thinking(false); setEvalBar(evalBar, { cp: 0 }, you === 'b');
     renderMoves(); setState(you === 'w' ? 'playing' : 'thinking'); drawGame(); showOpening($('opening'), []); $('hintBtn').hidden = false;
     $('chess').scrollTo(0, 0);
@@ -220,6 +321,7 @@
     const g = game, e = engine();
     if (!e) { g.before = Promise.resolve(null); return; }
     g.before = e.evaluate(g.chess.fen(), { depth: 12 }).then((ev) => { if (myGen === gen) setEvalBar(evalBar, ev, g.you === 'b'); return ev; }).catch(() => null);
+    if (g.tutor) think(myGen);
   }
   // the human's move: the same path for a board tap and for __coach.move(uci)
   async function humanMove(uci) {
@@ -232,7 +334,8 @@
     const played = uciOf(m), rec = { uci: played, san: m.san, label: null, loss: null, jab: null };
     g.moves.push(rec); sel = null; targets = []; showOpening($('opening'), g.moves.map((x) => x.san));
     const usedHint = g.hint && g.hint.ply === g.moves.length - 1 && g.hint.uci === played; g.hint = null;
-    setState('thinking'); thinking(c.game_over() ? false : 'rating…'); drawGame(); renderMoves();
+    const thought = g.think; g.think = null; g.pick = null; renderTutor();
+    setState('thinking'); thinking(c.game_over() ? false : 'rating…'); drawGame(); renderMoves(); renderTutor();
     const fenAfter = c.fen();
     try {
       const e = engine();
@@ -256,6 +359,22 @@
       lastRating = { uci: played, san: m.san, label: rating.label, loss: rating.loss, jab: rec.jab, bestSan, ply: g.moves.length };
       showRate(lastRating); renderMoves();
       if (c.game_over()) { thinking(false); gameOver(); return lastRating; }
+      if (g.tutor && (rating.label === 'mistake' || rating.label === 'blunder' || rating.label === 'inaccuracy')) {
+        // stop here: let them see it, and offer the take-back (which goes on the record)
+        thinking(false); $('takeRow').hidden = false; $('rateJab').textContent += ' ' + TAKE_OFFER[g.moves.length % TAKE_OFFER.length];
+        try { $('rate').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (x) {}
+        const choice = await new Promise((res) => { g.pending = res; });
+        $('takeRow').hidden = true;
+        if (myGen !== gen) return false;
+        if (choice === 'back') {
+          c.undo(); g.moves.pop(); g.takebacks++; g.streak = Math.max(0, g.streak - 1);
+          rec.label = null; lastRating = null;
+          renderMoves(); showOpening($('opening'), g.moves.map((x) => x.san));
+          rateIdle(TAKE_LINES[g.takebacks % TAKE_LINES.length].replace('%s', bestSan || 'something else').replace('%n', g.takebacks));
+          g.think = thought; g.pick = null; setState('playing'); renderTutor(); drawGame();
+          return lastRating;
+        }
+      }
       await engineMove(myGen);
       return lastRating;
     } catch (err) {
@@ -301,12 +420,13 @@
   };
   function endGame(result, reason, showSheet) {
     const g = game; gen++;
+    if (g.pending) { const r = g.pending; g.pending = null; r('live'); } $('takeRow').hidden = true; g.think = null; renderTutor();
     if (eng) eng.stop();
     thinking(false); sel = null; targets = [];
     g.result = result; g.reason = reason;
     setState('over'); drawGame();
     if (g.moves.length >= 2) {
-      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, report: null };
+      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, tutor: g.tutor, takebacks: g.takebacks, report: null };
       save.games.unshift(g.entry); save.games = save.games.slice(0, 20); persist();
     }
     $('analyzeBtn').hidden = !g.entry; $('resignBtn').hidden = true; $('hintBtn').hidden = true;
@@ -326,6 +446,13 @@
     '%s. Don’t make a habit of this.',
     'Try %s. And try thinking next time, it’s free.',
     '%s, obviously. Shall I move it for you as well?',
+  ];
+  const TAKE_OFFER = ['Take it back if you must. It counts.', 'You can undo that. I will remember.', 'Take-back is right there. So is your dignity.', 'Undo it, or own it.'];
+  const TAKE_LINES = [
+    'Taken back. Try %s this time, or at least something with a plan.',
+    'Fine. Again. %s was sitting there the whole time.',
+    'Take-back number %n. The engine is keeping count. So am I.',
+    'Undone. Look at their threat first, then at %s.',
   ];
   const HINTED = [
     'Yes, that was the move. It was also my move. You get half credit, rounded down.',
@@ -366,7 +493,7 @@
       const acc = g.report && g.report.accuracy ? g.report.accuracy[g.you] + '%' : '—';
       d.innerHTML = '<div><b class="res"></b><small></small></div><div class="num"><span></span><small>elo</small></div><div class="num"><span></span><small>acc</small></div><button class="pill rv">Review</button>';
       const b = d.querySelector('.res'); b.textContent = RES[g.result] || '?'; b.classList.add(g.result);
-      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '');
+      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.tutor ? ' · tutor' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '');
       d.children[1].firstChild.textContent = g.elo; d.children[2].firstChild.textContent = acc;
       d.querySelector('.rv').onclick = () => openReview(g);
       el.appendChild(d);
@@ -383,6 +510,8 @@
     for (const b of tr.children) b.classList.toggle('on', b.dataset.theme === save.theme);
     $('eloV').textContent = save.elo;
     $('colorBtn').textContent = COLN[save.color];
+    $('modeBtn').textContent = save.mode === 'tutor' ? 'Tutor' : 'Play';
+    $('modeHint').textContent = save.mode === 'tutor' ? 'Tutor: before each move you see your three best options with a reason, and what they would do if you passed. Bad moves can be taken back, and that goes on your record.' : 'Play: no help, every move rated, the coach says what it thinks.';
     $('eloMinus').disabled = save.elo <= 800; $('eloPlus').disabled = save.elo >= 2850;
   }
 
@@ -423,7 +552,7 @@
     const r = review, rep = r.report, you = r.you, op = you === 'w' ? 'b' : 'w';
     const c = new Chess(); r.fens = [c.fen()];
     for (const u of r.moves) { c.move(mv(u)); r.fens.push(c.fen()); }
-    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints ? '\nAssisted: you asked for ' + r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') + '. The accuracy knows.' : '');
+    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints ? '\nAssisted: you asked for ' + r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') + '. The accuracy knows.' : '') + (r.entry.tutor ? '\nTutor game' + (r.entry.takebacks ? ', ' + r.entry.takebacks + ' take-back' + (r.entry.takebacks > 1 ? 's' : '') : '') + '. The moves you kept are the ones being judged.' : '');
     showOpening($('rOpening'), r.entry.sans || []);
     const cy = rep.counts[you], st = $('rStats'); st.innerHTML = '';
     for (const [v, k] of [[rep.accuracy[you] + '%', 'you'], [rep.accuracy[op] + '%', 'engine'], [cy.blunder, 'blunders'], [cy.mistake, 'mistakes'], [cy.inaccuracy, 'inacc.']]) {
@@ -528,6 +657,9 @@
   $('colorBtn').onclick = () => { save.color = { w: 'b', b: 'r', r: 'w' }[save.color]; persist(); renderSettings(); };
   $('resignBtn').onclick = resign;
   $('hintBtn').onclick = hint;
+  $('modeBtn').onclick = () => { save.mode = save.mode === 'tutor' ? 'play' : 'tutor'; persist(); renderSettings(); };
+  $('takeBack').onclick = () => { if (game && game.pending) { const r = game.pending; game.pending = null; r('back'); } };
+  $('liveWith').onclick = () => { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); } };
   $('analyzeBtn').onclick = analyze;
   $('endAnalyze').onclick = analyze;
   $('endNew').onclick = () => newGame();
@@ -544,7 +676,10 @@
 
   // test hook
   window.__coach = {
-    open, close, newGame, move: humanMove, resign, analyze, hint, openingOf, get theme() { return save.theme; },
+    open, close, newGame, move: humanMove, resign, analyze, hint, openingOf, explain, get theme() { return save.theme; },
+    takeBack() { if (game && game.pending) { const r = game.pending; game.pending = null; r('back'); return true; } return false; },
+    liveWith() { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); return true; } return false; },
+    get think() { return game ? game.think : null; },
     get game() { return game; }, get state() { return state; }, get lastRating() { return lastRating; }, get history() { return save.games; },
   };
 })();

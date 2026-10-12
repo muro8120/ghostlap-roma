@@ -82,6 +82,32 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1600 })); await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
   await p.waitForTimeout(300); await p.screenshot({ path: SHOTS + '/c9b-wood.png' });
   check('wood squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(181, 136, 99)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
+  // tutor mode: options with reasons, the opponent's idea, take-back after a bad move
+  await p.evaluate(() => window.__coach.close()); await p.waitForTimeout(100); await p.evaluate(() => window.__coach.open());
+  await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1200, tutor: true }));
+  const thought = await p.waitForFunction(() => window.__coach.think && window.__coach.think.done, null, { timeout: 60000 }).then(() => true).catch(() => false);
+  check('tutor thinks ahead', thought);
+  const opts = await p.$$eval('#tutorOpts .opt', (e) => e.map((o) => o.innerText.replace(/\s+/g, ' ')));
+  check('three options with reasons', opts.length === 3 && opts.every((o) => o.length > 6), opts.join(' | '));
+  const threat = await p.$eval('#tutorThreat', (e) => e.hidden ? '' : e.innerText.replace(/\s+/g, ' '));
+  check('opponent idea shown', threat.length > 10, threat);
+  await p.click('#tutorOpts .opt >> nth=0'); await p.waitForTimeout(150);
+  check('option preview arrow', (await p.$$eval('#board .arrow line.ghost', (e) => e.length)) === 1);
+  await p.screenshot({ path: SHOTS + '/c10-tutor.png' });
+  await p.evaluate(() => { window.__coach.move('g2g4').catch(() => null); }); // the Grob: a mistake at any depth (not awaited: it resolves after the take-back choice)
+  const paused = await p.waitForFunction(() => !document.getElementById('takeRow').hidden, null, { timeout: 30000 }).then(() => true).catch(() => false);
+  check('bad move pauses for take-back', paused, await p.$eval('#rate', (e) => e.innerText.replace(/\s+/g, ' ').slice(0, 140)));
+  await p.screenshot({ path: SHOTS + '/c11-takeback.png' });
+  await p.click('#takeBack'); await p.waitForTimeout(300);
+  const undone = await p.evaluate(() => ({ n: window.__coach.game.moves.length, tb: window.__coach.game.takebacks, st: window.__coach.state }));
+  check('take-back undoes the move', undone.n === 0 && undone.tb === 1 && undone.st === 'playing', JSON.stringify(undone));
+  await p.evaluate(() => window.__coach.move('e2e4'));
+  const cont = await p.waitForFunction(() => window.__coach.game.moves.length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 }).then(() => true).catch(() => false);
+  check('game continues after take-back', cont, await p.evaluate(() => window.__coach.game.moves.map((m) => m.san).join(' ')));
+  await p.evaluate(() => window.__coach.resign()); await p.waitForTimeout(200);
+  const h2 = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-chess-v1')).games[0]);
+  check('tutor game tagged in history', h2.tutor === true && h2.takebacks === 1, JSON.stringify({ tutor: h2.tutor, takebacks: h2.takebacks }));
+  await p.click('#endHome'); await p.waitForTimeout(200);
   await p.click('#chessBack'); await p.waitForTimeout(200);
   check('back returns to hub', await p.$eval('#hub', (e) => e.classList.contains('on')));
   check('no page errors', errs.length === 0, errs.join(' | ').slice(0, 300));

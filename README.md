@@ -23,6 +23,10 @@ Two games in one offline iPhone app. Pick one on the launcher:
   The eval bar next to the board tracks who is winning.
 - **Postgame analysis:** accuracy for both sides, counts of blunders, mistakes and inaccuracies, an eval graph you can
   scrub, a replay board with the engine's best move drawn as an arrow, the three worst moments, and a lesson for next game.
+- **Tutor mode (think ahead):** switch Mode to Tutor on the chess home. Before each of your moves the coach shows your
+  three best options with a plain-English reason for each (tap one to see it on the board), and what the opponent would
+  do if you passed, drawn as a red arrow when it is a real threat. After an inaccuracy or worse the game stops and offers a
+  take-back. Take-backs are counted and go on your record; the review says so.
 - **Openings:** the opening's ECO code and name show as you play and in the review, from the lichess openings table.
 - **Hint:** the coach will show you the best move if you ask, but the game is marked *assisted* in your history and the
   coach is not gracious about it.

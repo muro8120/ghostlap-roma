@@ -223,6 +223,21 @@
   .themes button { width: 40px; height: 40px; border-radius: 10px; border: 2px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; overflow: hidden; padding: 0; }
   .themes button.on { border-color: var(--amber); }
   .themes button i { display: block; }
+  #tutor { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--ghost); border-radius: 14px; padding: 10px 12px 11px; }
+  #tutor .th { display: flex; justify-content: space-between; align-items: baseline; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; color: var(--ghost); }
+  #tutor .th small { color: var(--dim); letter-spacing: 0; text-transform: none; font-weight: 500; font-size: 12px; }
+  #tutorOpts { display: grid; gap: 6px; margin-top: 8px; }
+  .opt { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: center; text-align: left; width: 100%; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .opt.on { border-color: var(--amber); }
+  .opt b { font-size: 17px; font-weight: 800; }
+  .opt span { color: var(--text); font-size: 13px; line-height: 1.3; }
+  .opt i { font-style: normal; color: var(--dim); font-size: 12px; font-weight: 700; }
+  .opt.first b { color: var(--green); }
+  .threat { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(255,90,95,.1); border: 1px solid rgba(255,90,95,.35); font-size: 13px; line-height: 1.35; }
+  .threat b { color: var(--red); font-weight: 800; letter-spacing: .1em; font-size: 11px; display: block; margin-bottom: 2px; }
+  .threat.calm { background: var(--panel2); border-color: var(--line); } .threat.calm b { color: var(--dim); }
+  .board .arrow line.red { stroke: rgba(255,90,95,.85); } .board .arrow polygon.red { fill: rgba(255,90,95,.85); }
+  .board .arrow line.ghost { stroke: rgba(169,210,255,.85); } .board .arrow polygon.ghost { fill: rgba(169,210,255,.85); }
   .opening { color: var(--dim); font-size: 12px; margin: -2px 0 6px; min-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .opening b { color: var(--text); font-weight: 600; }
   #rOpening { margin: 4px 0 8px; }
@@ -398,6 +413,8 @@
         <div class="srow"><span class="k">Engine strength</span>
           <div class="step"><button id="eloMinus" aria-label="Weaker">&minus;</button><span class="v num" id="eloV">1600</span><button id="eloPlus" aria-label="Stronger">+</button></div></div>
         <div class="srow"><span class="k">You play</span><button class="pill on" id="colorBtn">White</button></div>
+        <div class="srow"><span class="k">Mode</span><button class="pill on" id="modeBtn">Play</button></div>
+        <p class="chint" id="modeHint"></p>
         <div class="srow"><span class="k">Board</span><div class="themes" id="themeRow"></div></div>
         <p class="chint">Promotion is always a queen. The coach rates every move you make, out loud. Hints are allowed, and held against you.</p>
         <button class="btn primary" id="newGame">New game</button>
@@ -413,7 +430,13 @@
         <div class="board" id="board"></div>
       </div>
       <div class="prow"><b id="youName">You</b><span id="turnTxt"></span></div>
-      <div id="rate" data-label=""><div class="rh"><span id="rateLabel"></span><span id="rateLoss" class="num"></span></div><div id="rateJab"></div></div>
+      <div id="tutor" hidden>
+        <div class="th"><span>Think ahead</span><small id="tutorStat"></small></div>
+        <div id="tutorOpts"></div>
+        <div id="tutorThreat" class="threat" hidden></div>
+      </div>
+      <div id="rate" data-label=""><div class="rh"><span id="rateLabel"></span><span id="rateLoss" class="num"></span></div><div id="rateJab"></div>
+        <div class="row2" id="takeRow" hidden style="margin-top:10px"><button class="btn" id="takeBack">Take it back</button><button class="btn primary" id="liveWith">Live with it</button></div></div>
       <div class="moves cap" id="moveList"></div>
       <div class="btns" style="margin-top:12px"><div class="row2"><button class="btn" id="hintBtn">Hint</button><button class="btn" id="resignBtn">Resign</button></div><button class="btn primary" id="analyzeBtn" hidden>Analyze</button></div>
     </div>
