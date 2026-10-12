@@ -238,6 +238,18 @@
   .threat.calm { background: var(--panel2); border-color: var(--line); } .threat.calm b { color: var(--dim); }
   .board .arrow line.red { stroke: rgba(255,90,95,.85); } .board .arrow polygon.red { fill: rgba(255,90,95,.85); }
   .board .arrow line.ghost { stroke: rgba(169,210,255,.85); } .board .arrow polygon.ghost { fill: rgba(169,210,255,.85); }
+  .players { display: flex; gap: 8px; }
+  .ab { margin-left: auto; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); color: var(--ghost); font-weight: 800; font-size: 13px; letter-spacing: .04em; }
+  .ab:active { border-color: var(--ghost); }
+  .why { margin-top: 10px; display: grid; gap: 6px; font-size: 14px; line-height: 1.4; color: var(--text); border-top: 1px solid var(--line); padding-top: 10px; }
+  .why div:last-child { color: var(--dim); font-size: 13px; }
+  #rMove .ab { display: block; margin: 8px 0 0 auto; }
+  #patterns .ph { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; color: var(--dim); font-size: 13px; line-height: 1.4; }
+  #patterns .ph b { color: var(--text); font-size: 16px; font-weight: 800; white-space: nowrap; }
+  .pat { background: var(--panel2); border-radius: 10px; padding: 9px 11px; display: grid; gap: 3px; }
+  .pat b { color: var(--amber); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+  .pat span { font-size: 14px; line-height: 1.35; } .pat i { font-style: normal; color: var(--dim); font-size: 13px; line-height: 1.35; }
+  .opt.warn { border-color: rgba(255,90,95,.5); } .opt.warn span { color: var(--red); }
   .opening { color: var(--dim); font-size: 12px; margin: -2px 0 6px; min-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .opening b { color: var(--text); font-weight: 600; }
   #rOpening { margin: 4px 0 8px; }
@@ -410,6 +422,9 @@
     <div class="cbar"><button class="back" id="chessBack" aria-label="Back">&#8249;</button><h1>COACH</h1></div>
     <div id="chessHome">
       <div class="cset">
+        <div class="srow"><span class="k">Player</span><div class="players" id="playerRow"></div></div>
+        <div class="srow"><span class="k">Coach</span><button class="pill on" id="voiceBtn">Tough</button></div>
+        <p class="chint" id="voiceHint"></p>
         <div class="srow"><span class="k">Engine strength</span>
           <div class="step"><button id="eloMinus" aria-label="Weaker">&minus;</button><span class="v num" id="eloV">1600</span><button id="eloPlus" aria-label="Stronger">+</button></div></div>
         <div class="srow"><span class="k">You play</span><button class="pill on" id="colorBtn">White</button></div>
@@ -419,6 +434,8 @@
         <p class="chint">Promotion is always a queen. The coach rates every move you make, out loud. Hints are allowed, and held against you.</p>
         <button class="btn primary" id="newGame">New game</button>
       </div>
+      <h2>Your patterns</h2>
+      <div class="cset" id="patterns"></div>
       <h2>Last games</h2>
       <div id="chessHist"></div>
     </div>
@@ -435,7 +452,8 @@
         <div id="tutorOpts"></div>
         <div id="tutorThreat" class="threat" hidden></div>
       </div>
-      <div id="rate" data-label=""><div class="rh"><span id="rateLabel"></span><span id="rateLoss" class="num"></span></div><div id="rateJab"></div>
+      <div id="rate" data-label=""><div class="rh"><span id="rateLabel"></span><span id="rateLoss" class="num"></span><button class="ab" id="whyBtn" hidden aria-label="Why?">αβ</button></div><div id="rateJab"></div>
+        <div class="why" id="why" hidden></div>
         <div class="row2" id="takeRow" hidden style="margin-top:10px"><button class="btn" id="takeBack">Take it back</button><button class="btn primary" id="liveWith">Live with it</button></div></div>
       <div class="moves cap" id="moveList"></div>
       <div class="btns" style="margin-top:12px"><div class="row2"><button class="btn" id="hintBtn">Hint</button><button class="btn" id="resignBtn">Resign</button></div><button class="btn primary" id="analyzeBtn" hidden>Analyze</button></div>
@@ -457,7 +475,8 @@
         <div class="board" id="rBoard"></div>
       </div>
       <div class="rstep"><button class="btn" id="rPrev">&#8249; Prev</button><span class="rpos" id="rPos"></span><button class="btn" id="rNext">Next &#8250;</button></div>
-      <div id="rMove" data-label=""><div id="rMoveHead"></div><div id="rMoveJab"></div></div>
+      <div id="rMove" data-label=""><div id="rMoveHead"></div><div id="rMoveJab"></div>
+      <button class="ab" id="rWhyBtn" hidden aria-label="Why?">αβ</button><div class="why" id="rWhy" hidden></div></div>
       <div class="moves" id="rMoveList"></div>
       <h2>Worst moments</h2>
       <div class="worst" id="rWorst"></div>

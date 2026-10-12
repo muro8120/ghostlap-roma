@@ -23,6 +23,16 @@ Two games in one offline iPhone app. Pick one on the launcher:
   The eval bar next to the board tracks who is winning.
 - **Postgame analysis:** accuracy for both sides, counts of blunders, mistakes and inaccuracies, an eval graph you can
   scrub, a replay board with the engine's best move drawn as an arrow, the three worst moments, and a lesson for next game.
+- **Two players:** Jesse and J, picked on the chess home. Each has their own history, settings and coach voice.
+- **Coach voice:** Tough (the default: every move judged out loud), Kind (same facts, said nicely) or Quiet (nothing
+  during the game at all, no strip, no labels, no colours; the review is still there afterwards with neutral wording).
+  J starts on Quiet.
+- **αβ (why?):** after any rated move, and on any move in the review, the αβ button explains it in plain words: what your
+  move did, what the best move did instead, what the opponent can do now, the cost in pawns, and the engine's line.
+- **Your patterns:** across your analysed games the coach tracks what keeps going wrong (hanging pieces, mate blindness,
+  early trouble, endgame slips, queen adventures, greedy captures, pointless checks, tilt) and shows the top three with a
+  drill each, plus your accuracy trend. Before each game the coach names the one to watch, and in Tutor mode options
+  that repeat a known pattern are flagged in red.
 - **Tutor mode (think ahead):** switch Mode to Tutor on the chess home. Before each of your moves the coach shows your
   three best options with a plain-English reason for each (tap one to see it on the board), and what the opponent would
   do if you passed, drawn as a red arrow when it is a real threat. After an inaccuracy or worse the game stops and offers a

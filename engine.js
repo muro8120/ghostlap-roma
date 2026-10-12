@@ -354,6 +354,8 @@
       const e = {
         ply: i + 1, color, uci: legal[i], san: sans[i], cpBefore: ev0.cp, cpAfter: ev1.cp, mateBefore: ev0.mate, mateAfter: ev1.mate,
         best: ev0.best, bestSan, loss: r.loss, label: r.label,
+        reply: ev1.best || null, pv: (ev0.pv || []).slice(0, 8),                 // engine's best reply, and the line it expected
+        pieces: (fens[i].split(' ')[0].match(/[nbrqNBRQ]/g) || []).length,      // non-pawn, non-king pieces on the board: endgame detection
       };
       e.jab = jab(r.label, { san: e.san, bestSan, loss: r.loss, ply: e.ply, streak: streak[color], cpAfter: ev1.cp, color });
       // did the engine's best reply simply take a piece we left hanging?

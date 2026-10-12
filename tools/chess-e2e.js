@@ -44,6 +44,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   const tap = async (sq) => { const el = await p.$('#board [data-sq="' + sq + '"]'); check('square ' + sq + ' exists', !!el); if (el) await el.tap(); await p.waitForTimeout(150); };
   await tap('e2'); await p.screenshot({ path: SHOTS + '/c3-selected.png' }); await tap('e4');
   const rated = await p.waitForFunction(() => (document.getElementById('rateLabel').textContent || '').trim().length > 0, null, { timeout: 30000 }).then(() => true).catch(() => false);
+  if (rated) { await p.click('#whyBtn'); await p.waitForTimeout(100); const why = await p.$$eval('#why div', (e) => e.map((d) => d.textContent)); check('αβ explains the move', why.length >= 3 && why.some((t) => /^You played/.test(t)) && why.some((t) => /^Engine line/.test(t)), why.join(' | ').slice(0, 200)); await p.click('#whyBtn'); }
   check('human move gets a rating', rated, rated ? await p.$eval('#rate', (e) => e.innerText.replace(/\s+/g, ' ').slice(0, 120)) : '');
   const replied = await p.waitForFunction(() => window.__coach.game && window.__coach.game.moves.length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 }).then(() => true).catch(() => false);
   check('engine replies', replied, replied ? await p.evaluate(() => window.__coach.game.moves.map((m) => m.san).join(' ')) : '');
@@ -69,19 +70,46 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   check('analysis completes', reviewed);
   await p.screenshot({ path: SHOTS + '/c7-review.png', fullPage: false });
   await p.click('#rNext'); await p.click('#rNext'); await p.waitForTimeout(200);
+  await p.click('#rWhyBtn'); await p.waitForTimeout(100);
+  check('αβ in the review', (await p.$$eval('#rWhy div', (e) => e.length)) >= 2, await p.$eval('#rWhy', (e) => e.innerText.slice(0, 160)));
   await p.screenshot({ path: SHOTS + '/c8-review-step.png' });
-  const h = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-chess-v1')));
+  const h = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse);
   check('hint counted in history', !!(h && h.games[0] && h.games[0].hints === 1), h && h.games[0] && 'hints=' + h.games[0].hints);
   check('history saved with report', !!(h && h.games && h.games.length === 1 && h.games[0].report && h.games[0].report.moves.length >= 4),
     h && h.games && h.games[0] && h.games[0].report ? 'accuracy ' + JSON.stringify(h.games[0].report.accuracy) : JSON.stringify(h).slice(0, 100));
   await p.click('#reviewBack'); await p.waitForTimeout(200);
+  check('patterns card reads the analysed game', /analysed game/.test(await p.$eval('#patterns', (e) => e.innerText)), await p.$eval('#patterns', (e) => e.innerText.replace(/\s+/g, ' ').slice(0, 120)));
   check('history list shows the game', (await p.$$eval('#chessHist button', (e) => e.length)) >= 1);
   await p.screenshot({ path: SHOTS + '/c9-home-history.png' });
   await p.click('#themeRow button[data-theme="wood"]'); await p.waitForTimeout(100);
-  check('theme persists', (await p.evaluate(() => document.documentElement.dataset.theme + '/' + JSON.parse(localStorage.getItem('ghostlap-chess-v1')).theme)) === 'wood/wood');
+  check('theme persists', (await p.evaluate(() => document.documentElement.dataset.theme + '/' + JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse.theme)) === 'wood/wood');
   await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1600 })); await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
   await p.waitForTimeout(300); await p.screenshot({ path: SHOTS + '/c9b-wood.png' });
   check('wood squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(181, 136, 99)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
+  // J's profile: quiet coach, separate history
+  await p.evaluate(() => window.__coach.setPlayer('j'));
+  check('J starts with no games', (await p.$$eval('#chessHist button', (e) => e.length)) === 0 && (await p.$eval('#voiceBtn', (e) => e.textContent)) === 'Quiet');
+  await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1200 }));
+  await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
+  await p.evaluate(() => window.__coach.move('e2e4'));
+  await p.waitForFunction(() => window.__coach.game.moves.length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 }).catch(() => {});
+  const quiet = await p.evaluate(() => ({ rateHidden: document.getElementById('rate').hidden, labelled: document.querySelectorAll('#moveList .m[class*="l-"]').length, rated: !!(window.__coach.lastRating && window.__coach.lastRating.label) }));
+  check('quiet mode shows no verdicts but still rates', quiet.rateHidden && quiet.labelled === 0 && quiet.rated, JSON.stringify(quiet));
+  await p.screenshot({ path: SHOTS + '/c12-quiet.png' });
+  await p.evaluate(() => window.__coach.resign()); await p.waitForTimeout(200);
+  check('quiet end sheet is neutral', !/respect|didn’t even/.test(await p.$eval('#endMsg', (e) => e.textContent)), await p.$eval('#endMsg', (e) => e.textContent));
+  await p.click('#endHome'); await p.waitForTimeout(200);
+  const jh = await p.evaluate(() => ({ j: window.__coach.history.length, store: JSON.parse(localStorage.getItem('ghostlap-chess-v1')) }));
+  check('J has his own history', jh.j === 1 && jh.store.players.jesse.games.length >= 1 && jh.store.players.j.games.length === 1, JSON.stringify({ j: jh.j, jesse: jh.store.players.jesse.games.length }));
+  await p.evaluate(() => { window.__coach.setPlayer('jesse'); window.__coach.setVoice('kind'); });
+  await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1200 }));
+  await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
+  await p.evaluate(() => window.__coach.move('e2e4'));
+  await p.waitForFunction(() => window.__coach.lastRating && window.__coach.lastRating.label, null, { timeout: 30000 }).catch(() => {});
+  const kind = await p.$eval('#rateJab', (e) => e.textContent);
+  check('kind voice is factual', /Best move|better|Fine|Very good/.test(kind), kind);
+  await p.evaluate(() => { window.__coach.resign(); window.__coach.setVoice('tough'); }); await p.waitForTimeout(200);
+  await p.click('#endHome'); await p.waitForTimeout(100);
   // tutor mode: options with reasons, the opponent's idea, take-back after a bad move
   await p.evaluate(() => window.__coach.close()); await p.waitForTimeout(100); await p.evaluate(() => window.__coach.open());
   await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1200, tutor: true }));
@@ -105,7 +133,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   const cont = await p.waitForFunction(() => window.__coach.game.moves.length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 }).then(() => true).catch(() => false);
   check('game continues after take-back', cont, await p.evaluate(() => window.__coach.game.moves.map((m) => m.san).join(' ')));
   await p.evaluate(() => window.__coach.resign()); await p.waitForTimeout(200);
-  const h2 = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-chess-v1')).games[0]);
+  const h2 = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse.games[0]);
   check('tutor game tagged in history', h2.tutor === true && h2.takebacks === 1, JSON.stringify({ tutor: h2.tutor, takebacks: h2.takebacks }));
   await p.click('#endHome'); await p.waitForTimeout(200);
   await p.click('#chessBack'); await p.waitForTimeout(200);
