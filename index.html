@@ -239,6 +239,7 @@
   .board .arrow line.red { stroke: rgba(255,90,95,.85); } .board .arrow polygon.red { fill: rgba(255,90,95,.85); }
   .board .arrow line.ghost { stroke: rgba(169,210,255,.85); } .board .arrow polygon.ghost { fill: rgba(169,210,255,.85); }
   .players { display: flex; gap: 8px; }
+  .btn:disabled { opacity: .35; }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   #nudgeRow .btn { font-size: 15px; } #nudgeRow .btn.on { border-color: var(--ghost); color: var(--ghost); }
   .board.sandbox { outline: 3px dashed rgba(169,210,255,.6); outline-offset: 3px; }
@@ -473,6 +474,7 @@
       <div class="btns" style="margin-top:12px"><div class="row3"><button class="btn" id="nudgeBtn">Nudge</button><button class="btn" id="hintBtn">Hint</button><button class="btn" id="resignBtn">Resign</button></div>
         <div class="row2" id="nudgeRow" hidden><button class="btn" id="sandboxBtn">Sandbox a move</button><button class="btn" id="readBtn">Read the board</button></div>
         <p class="chint" id="nudgeHint" hidden></p>
+        <p class="chint" id="assistLine" hidden></p>
         <button class="btn primary" id="analyzeBtn" hidden>Analyze</button></div>
     </div>
   </div>
