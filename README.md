@@ -37,7 +37,7 @@ Two games in one offline iPhone app. Pick one on the launcher:
 1. Open the GitHub Pages URL in **Safari**.
 2. Tap **Share → Add to Home Screen**.
 3. Open it **from the home-screen icon once while still online**. iOS keeps a separate cache for home-screen apps.
-4. Wait until the menu shows **✓ Ready offline**. Then turn on airplane mode and open it again to confirm.
+4. Wait until the launcher shows **✓ Ready offline**. Then turn on airplane mode and open it again to confirm.
 
 Your times and ghosts are stored on the phone (localStorage). Nothing is sent anywhere.
 
