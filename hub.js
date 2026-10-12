@@ -3,7 +3,8 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   const hub = $('hub');
-  function show() { for (const id of ['menu', 'hud', 'chess', 'review']) { const el = $(id); if (el) el.classList.remove('on'); } hub.classList.add('on'); }
+  function show() { for (const id of ['menu', 'hud', 'chess', 'review', 'learn', 'lesson']) { const el = $(id); if (el) el.classList.remove('on'); } hub.classList.add('on'); }
+  function learn() { if (!window.__learn) return; hub.classList.remove('on'); window.__learn.open(); }
   function drive() { hub.classList.remove('on'); $('menu').classList.add('on'); $('menu').scrollTo(0, 0); }
   function chess() {
     if (!window.__coach) { alert('Chess is still loading. Try again in a moment.'); return; }
@@ -11,6 +12,7 @@
   }
   $('pickDrive').onclick = drive;
   $('pickChess').onclick = chess;
+  $('pickLearn').onclick = learn;
   $('toHub').onclick = show;
   // mirror the offline badge from the drive menu so the hub says when the whole app is cached
   const src = $('offline'), dst = $('hubOffline');
@@ -18,6 +20,6 @@
   dst.textContent = src.textContent;
   // deep link: ?game=chess or ?game=drive opens that game straight away (used by the tests too)
   const g = new URLSearchParams(location.search).get('game');
-  if (g === 'drive') drive(); else if (g === 'chess') setTimeout(chess, 0);
-  window.__hub = { show, drive, chess };
+  if (g === 'drive') drive(); else if (g === 'chess') setTimeout(chess, 0); else if (g === 'learn') setTimeout(learn, 0);
+  window.__hub = { show, drive, chess, learn };
 })();

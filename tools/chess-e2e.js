@@ -108,6 +108,14 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.waitForFunction(() => window.__coach.lastRating && window.__coach.lastRating.label, null, { timeout: 30000 }).catch(() => {});
   const kind = await p.$eval('#rateJab', (e) => e.textContent);
   check('kind voice is factual', /Best move|better|Fine|Very good/.test(kind), kind);
+  // nudge: sandbox a move (rated, not played, no answer) and read the board
+  const sb = await p.evaluate(() => window.__coach.sandbox('d2d4'));
+  const sbState = await p.evaluate(() => ({ n: window.__coach.game.moves.length, left: window.__coach.game.sandLeft, nudges: window.__coach.game.nudges, strip: document.getElementById('rate').innerText.replace(/\s+/g, ' ').slice(0, 100) }));
+  check('sandbox rates without playing', !!(sb && sb.label) && sbState.n === 2 && sbState.left === 1 && sbState.nudges === 1 && /sandbox/i.test(sbState.strip), JSON.stringify(sb) + ' ' + JSON.stringify(sbState));
+  check('sandbox hides the better move', !/was the move|Best was/.test(sbState.strip), sbState.strip);
+  const rb = await p.evaluate(() => window.__coach.readBoard());
+  check('read the board', Array.isArray(rb) && rb.length >= 6 && rb.some((l) => /^Material/.test(l)) && rb.some((l) => /^Your priority/.test(l)) && rb.some((l) => /^Their priority/.test(l)), (rb || []).join(' | ').slice(0, 240));
+  await p.screenshot({ path: SHOTS + '/c13-read.png' });
   await p.evaluate(() => { window.__coach.resign(); window.__coach.setVoice('tough'); }); await p.waitForTimeout(200);
   await p.click('#endHome'); await p.waitForTimeout(100);
   // tutor mode: options with reasons, the opponent's idea, take-back after a bad move
@@ -136,6 +144,30 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   const h2 = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse.games[0]);
   check('tutor game tagged in history', h2.tutor === true && h2.takebacks === 1, JSON.stringify({ tutor: h2.tutor, takebacks: h2.takebacks }));
   await p.click('#endHome'); await p.waitForTimeout(200);
+  // learn: lessons, the step-through board, practice hands over to the coach with the book line
+  await p.click('#chessBack'); await p.waitForTimeout(200);
+  await p.click('#pickLearn'); await p.waitForTimeout(200);
+  check('learn opens with lessons', await p.$eval('#learn', (e) => e.classList.contains('on')) && (await p.$$eval('#learnList .lcard', (e) => e.length)) >= 8);
+  await p.screenshot({ path: SHOTS + '/c14-learn.png' });
+  await p.evaluate(() => window.__learn.show('italian')); await p.waitForTimeout(200);
+  await p.click('#lNext'); await p.click('#lNext'); await p.click('#lNext'); await p.waitForTimeout(150);
+  const les = await p.evaluate(() => ({ ply: window.__learn.ply, note: document.getElementById('lNote').textContent, pcs: document.querySelectorAll('#lBoard .pc.svg').length, bc4: !!document.querySelector('#lBoard [data-sq="c4"] .pc.svg') }));
+  check('lesson steps through the line', les.ply === 3 && les.note.length > 10 && les.pcs === 32 && !les.bc4 && true, JSON.stringify(les).slice(0, 160));
+  await p.click('#lNext'); await p.click('#lNext'); await p.waitForTimeout(150);
+  check('bishop lands on c4 at move 5', await p.evaluate(() => !!document.querySelector('#lBoard [data-sq="c4"] .pc.svg.cw.tb')));
+  await p.screenshot({ path: SHOTS + '/c15-lesson.png' });
+  await p.click('#lPractice');
+  await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
+  check('practice starts a game', await p.$eval('#chess', (e) => e.classList.contains('on')) && (await p.evaluate(() => !!window.__coach.game.practice)));
+  await p.evaluate(() => window.__coach.move('e2e4'));
+  await p.waitForFunction(() => window.__coach.game.moves.length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 });
+  const pr1 = await p.evaluate(() => ({ sans: window.__coach.game.moves.map((m) => m.san).join(' '), jab: document.getElementById('rateJab').textContent }));
+  check('engine follows the book', pr1.sans === 'e4 e5' && /Book move/.test(pr1.jab), JSON.stringify(pr1).slice(0, 160));
+  await p.evaluate(() => window.__coach.move('f2f4'));
+  await p.waitForFunction(() => window.__coach.game.moves.length >= 4 && window.__coach.state === 'playing', null, { timeout: 30000 });
+  const pr2 = await p.evaluate(() => ({ off: window.__coach.game.practice.off, jab: document.getElementById('rateJab').textContent }));
+  check('leaving the line is called out', pr2.off === true && /Out of the Italian Game line/.test(pr2.jab), pr2.jab.slice(0, 160));
+  await p.evaluate(() => window.__coach.resign()); await p.waitForTimeout(200); await p.click('#endHome'); await p.waitForTimeout(100);
   await p.click('#chessBack'); await p.waitForTimeout(200);
   check('back returns to hub', await p.$eval('#hub', (e) => e.classList.contains('on')));
   check('no page errors', errs.length === 0, errs.join(' | ').slice(0, 300));

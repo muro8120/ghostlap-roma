@@ -200,6 +200,86 @@
     const f = c.fen().split(' '); f[1] = f[1] === 'w' ? 'b' : 'w'; f[3] = '-';
     try { const t = new Chess(f.join(' ')); if (!t.moves().length) return null; return t.fen(); } catch (e) { return null; }
   }
+  // what the opponent would do with a free move: { uci, san, calm, cp, text } or null
+  async function threatOf(c, you, ev, e) {
+    const pf = passFen(c);
+    if (!pf) return c.in_check() ? { uci: null, san: '', calm: false, cp: 999, text: 'You are in check. Everything else can wait.' } : null;
+    const tv = await e.evaluate(pf, { depth: 10 });
+    if (!tv || !tv.best) return null;
+    const opp = you === 'w' ? 'b' : 'w', swing = opp === 'w' ? clampCp(tv) - clampCp(ev) : clampCp(ev) - clampCp(tv);
+    const san = sanOf(pf, tv.best), why = explain(new Chess(pf), tv.best);
+    const calm = swing < 60 && !tv.mate;
+    return { uci: tv.best, san, calm, cp: swing, text: (calm ? 'Nothing sharp. Given a free move they would play ' + san + '. ' : 'If you pass, they play ' + san + '. ') + why };
+  }
+  // ---------- read the board: an objective description for both sides, and each side's priority ----------
+  const START = { n: ['b1', 'g1', 'b8', 'g8'], b: ['c1', 'f1', 'c8', 'f8'] };
+  function material(c) {
+    const m = { w: 0, b: 0 }, pcs = { w: {}, b: {} };
+    for (const row of c.board()) for (const p of row) if (p && p.type !== 'k') { m[p.color] += VAL[p.type]; pcs[p.color][p.type] = (pcs[p.color][p.type] || 0) + 1; }
+    return { m, pcs };
+  }
+  const WORDS = { 1: 'a pawn', 2: 'two pawns', 3: 'a minor piece', 4: 'a piece and a pawn', 5: 'a rook', 6: 'a rook and a pawn', 9: 'a queen' };
+  function hangingOf(c, color) {
+    const out = [], opp = color === 'w' ? 'b' : 'w';
+    for (const row of c.board()) for (const p of row) if (p && p.color === color && p.type !== 'k' && p.type !== 'p') {
+      const sq = p.square; if (attackedBy(c, sq, opp) && !attackedBy(c, sq, color)) out.push({ type: p.type, sq });
+    }
+    return out.sort((a, b) => VAL[b.type] - VAL[a.type]);
+  }
+  function kingState(c, color) {
+    const k = (function () { for (const row of c.board()) for (const p of row) if (p && p.type === 'k' && p.color === color) return p.square; })();
+    const f = k[0], r = k[1], home = color === 'w' ? '1' : '8';
+    const castled = r === home && (f === 'g' || f === 'c' || f === 'b' || f === 'h');
+    const centre = r === home && (f === 'e' || f === 'd');
+    const fi = FILES.indexOf(f), shieldRank = color === 'w' ? +r + 1 : +r - 1, shield2 = color === 'w' ? +r + 2 : +r - 2;
+    let shield = 0;
+    for (const df of [-1, 0, 1]) { const ff = FILES[fi + df]; if (!ff) continue; for (const rr of [shieldRank, shield2]) { const p = c.get(ff + rr); if (p && p.type === 'p' && p.color === color) { shield++; break; } } }
+    return { sq: k, castled, centre, shield };
+  }
+  function developed(c, color) {
+    let out = 0, total = 0;
+    for (const t of ['n', 'b']) for (const sq of START[t]) { if ((color === 'w') !== (sq[1] === '1')) continue; total++; const p = c.get(sq); if (!(p && p.type === t && p.color === color)) out++; }
+    return { out, total };
+  }
+  function readBoard(c, you, ev, threat) {
+    const opp = you === 'w' ? 'b' : 'w', YOU = 'You', THEM = 'They';
+    const { m } = material(c), diff = m[you] - m[opp], lines = [];
+    const amount = (d) => WORDS[Math.abs(d)] || Math.abs(d) + ' points';
+    lines.push('Material: ' + (diff === 0 ? 'even.' : diff > 0 ? 'you are up ' + amount(diff) + '.' : 'you are down ' + amount(diff) + '.'));
+    if (ev) {
+      const cp = clampCp(ev), mine = you === 'w' ? cp : -cp;
+      const word = ev.mate ? (((ev.mate > 0) === (you === 'w')) ? 'you have a forced mate' : 'they have a forced mate') : Math.abs(mine) < 40 ? 'even' : Math.abs(mine) < 120 ? (mine > 0 ? 'slightly better for you' : 'slightly better for them') : Math.abs(mine) < 300 ? (mine > 0 ? 'clearly better for you' : 'clearly better for them') : (mine > 0 ? 'winning for you' : 'winning for them');
+      lines.push('Engine: ' + word + (ev.mate ? '.' : ' (' + pawns(cp) + ').'));
+    }
+    const dy = developed(c, you), dt = developed(c, opp);
+    lines.push('Development: you have ' + dy.out + ' of ' + dy.total + ' minor pieces out, they have ' + dt.out + ' of ' + dt.total + '.');
+    const ky = kingState(c, you), kt = kingState(c, opp);
+    const kw = (k, who) => who + (k.castled ? ' castled, ' + (k.shield >= 2 ? 'pawn shield intact' : 'pawn shield thin') : k.centre ? ' still in the centre' : ' king on ' + k.sq) + '.';
+    lines.push('Kings: ' + kw(ky, 'your king') + ' ' + kw(kt, 'Their king').replace('Their king', 'their king').replace(/^their/, 'Their'));
+    const cen = (col) => ['d4', 'e4', 'd5', 'e5'].filter((sq) => { const p = c.get(sq); return p && p.type === 'p' && p.color === col; });
+    const cy = cen(you), ct = cen(opp);
+    lines.push('Centre: ' + (cy.length || ct.length ? 'your pawns on ' + (cy.join(', ') || 'none') + ', theirs on ' + (ct.join(', ') || 'none') + '.' : 'nobody has claimed it yet.'));
+    const hy = hangingOf(c, you), ht = hangingOf(c, opp);
+    if (hy.length) lines.push('Hanging (yours): ' + hy.map((h) => PIECE[h.type] + ' on ' + h.sq).join(', ') + '.');
+    if (ht.length) lines.push('Hanging (theirs): ' + ht.map((h) => PIECE[h.type] + ' on ' + h.sq).join(', ') + '.');
+    if (threat) lines.push('Their idea: ' + threat.text);
+    // priorities
+    const pri = (side) => {
+      const me = side === you, k = me ? ky : kt, d = me ? dy : dt, dother = me ? dt : dy, h = me ? hy : ht, md = me ? diff : -diff;
+      if (me && c.in_check()) return 'get out of check, and look at what the check was for.';
+      if (h.length) return 'save the ' + PIECE[h[0].type] + ' on ' + h[0].sq + ' before anything else.';
+      if (me && threat && !threat.calm) return 'answer the threat (' + threat.san + ') first.';
+      if (k.centre && d.out >= 2) return 'castle. The king is in the centre with pieces coming off.';
+      if (d.out < d.total && d.out <= dother.out) return 'develop: knights and bishops out, nothing fancy yet.';
+      if (md >= 3) return 'trade pieces and simplify; the extra material wins the endgame.';
+      if (md <= -3) return 'keep pieces on and look for tactics; trades only help the side ahead.';
+      if (k.castled && k.shield < 2) return 'repair or cover the king; the pawn shield is thin.';
+      return 'improve the worst-placed piece and look for a pawn break in the centre.';
+    };
+    lines.push('Your priority: ' + pri(you));
+    lines.push('Their priority: ' + pri(opp));
+    return lines;
+  }
   function renderTutor() {
     const g = game, el = $('tutor');
     if (!g || !g.tutor || state !== 'playing') { el.hidden = true; return; }
@@ -236,17 +316,9 @@
       if (myGen !== gen) return;
       const lines = (multi.lines || []).filter((l) => l.pv && l.pv[0]).slice(0, 3).map((l) => { const ex = explainFull(c, l.pv[0]); return { uci: l.pv[0], san: sanOf(c.fen(), l.pv[0]), cp: l.cp, mate: l.mate, note: ex.text, flags: ex.flags }; });
       g.think = { ev: multi, lines, threat: null, done: false }; renderTutor();
-      const pf = passFen(c);
-      if (pf) {
-        const tv = await e.evaluate(pf, { depth: 10 });
-        if (myGen !== gen || !g.think) return;
-        if (tv && tv.best) {
-          const opp = g.you === 'w' ? 'b' : 'w', swing = opp === 'w' ? clampCp(tv) - clampCp(multi) : clampCp(multi) - clampCp(tv);
-          const san = sanOf(pf, tv.best), why = explain(new Chess(pf), tv.best);
-          const calm = swing < 60 && !tv.mate;
-          g.think.threat = { uci: tv.best, san, calm, cp: swing, text: (calm ? 'Nothing sharp. Given a free move they would play ' + san + '. ' : 'If you pass, they play ' + san + '. ') + why };
-        }
-      } else g.think.threat = c.in_check() ? { uci: null, san: '', calm: false, cp: 999, text: 'You are in check. Everything else can wait.' } : null;
+      const th = await threatOf(c, g.you, multi, e);
+      if (myGen !== gen || !g.think) return;
+      g.think.threat = th;
       g.think.done = true; renderTutor(); drawGame();
     } catch (err) { if (myGen === gen) { g.think = { ev: null, lines: [], threat: null, done: true }; renderTutor(); } }
   }
@@ -303,14 +375,14 @@
     const c = game.chess, last = game.moves.length ? game.moves[game.moves.length - 1] : null;
     renderBoard(board, c, { flip: game.you === 'b', sel, targets, last: last && mv(last.uci), check: c.in_check(), onTap: tap, busy: state !== 'playing',
       arrow: game.hint && game.hint.ply === game.moves.length ? mv(game.hint.uci) : null,
-      arrows: game.tutor && state === 'playing' && game.think ? [].concat(game.pick ? [Object.assign(mv(game.pick), { cls: 'ghost' })] : [],
-        game.think.threat && game.think.threat.uci && !game.think.threat.calm ? [Object.assign(mv(game.think.threat.uci), { cls: 'red' })] : []) : [] });
+      arrows: (game.sand && game.sand.ply === game.moves.length ? [Object.assign(mv(game.sand.uci), { cls: 'sand' })] : []).concat(game.tutor && state === 'playing' && game.think ? [].concat(game.pick ? [Object.assign(mv(game.pick), { cls: 'ghost' })] : [],
+        game.think.threat && game.think.threat.uci && !game.think.threat.calm ? [Object.assign(mv(game.think.threat.uci), { cls: 'red' })] : []) : []) });
     $('turnTxt').textContent = state === 'playing' ? (c.in_check() ? 'check: your move' : 'your move') : state === 'over' ? 'game over' : '';
   }
   function tap(sq) {
     if (state !== 'playing' || !game) return;
     const c = game.chess, t = sel && targets.find((t) => t.to === sq);
-    if (t) { humanMove(sel + sq + (t.promotion ? 'q' : '')); return; }
+    if (t) { const u = sel + sq + (t.promotion ? 'q' : ''); if (game.sandbox) sandboxMove(u); else humanMove(u); return; }
     const p = c.get(sq);
     if (p && p.color === game.you && c.turn() === game.you && sq !== sel) {
       sel = sq;
@@ -343,7 +415,7 @@
     cancelAnalysis(); gen++;
     const col = opts.color || P().color, you = col === 'r' ? (Math.random() < .5 ? 'w' : 'b') : col;
     game = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: new Date().toISOString(), elo: clampElo(opts.elo || P().elo), you,
-      chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null, tutor: (opts.tutor != null ? !!opts.tutor : P().mode === 'tutor'), think: null, pick: null, takebacks: 0 };
+      chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null, tutor: (opts.tutor != null ? !!opts.tutor : P().mode === 'tutor'), think: null, pick: null, takebacks: 0, nudges: 0, sandbox: false, sandLeft: 2, readPly: -1, sand: null, practice: opts.practice || null };
     lastRating = null; sel = null; targets = []; review = null;
     sheet('chessEnd', false); $('review').classList.remove('on'); $('chess').classList.add('on');
     $('chessHome').hidden = true; $('chessGame').hidden = false;
@@ -353,7 +425,7 @@
     game.weak = patterns(P().games).items.map((it) => it.key);
     const focus = focusLine();
     rateIdle(voice() === 'quiet' ? '' : (game.tutor ? 'Tutor mode. I show you the options and what they are up to. You still have to choose.' : you === 'w' ? (voice() === 'kind' ? 'Your move. Take your time.' : 'Your move. I’m watching.') : (voice() === 'kind' ? 'You have black. The engine opens.' : 'Black. The engine opens; try to keep up.')) + (focus ? ' ' + focus : ''));
-    $('why').hidden = true; $('whyBtn').hidden = true;
+    $('why').hidden = true; $('whyBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; $('nudgeBtn').hidden = false; board.classList.remove('sandbox');
     $('takeRow').hidden = true; $('tutor').hidden = !game.tutor; renderTutor();
     thinking(false); setEvalBar(evalBar, { cp: 0 }, you === 'b');
     renderMoves(); setState(you === 'w' ? 'playing' : 'thinking'); drawGame(); showOpening($('opening'), []); $('hintBtn').hidden = false;
@@ -387,6 +459,7 @@
     g.moves.push(rec); sel = null; targets = []; showOpening($('opening'), g.moves.map((x) => x.san));
     const usedHint = g.hint && g.hint.ply === g.moves.length - 1 && g.hint.uci === played; g.hint = null;
     const thought = g.think; g.think = null; g.pick = null; renderTutor();
+    g.sandbox = false; g.sandLeft = 2; g.sand = null; board.classList.remove('sandbox'); $('sandboxBtn').classList.remove('on'); $('nudgeRow').hidden = true; $('nudgeHint').hidden = true;
     setState('thinking'); thinking(c.game_over() ? false : 'rating…'); drawGame(); renderMoves(); renderTutor();
     const fenAfter = c.fen();
     try {
@@ -409,8 +482,15 @@
       rec.jab = coachLine(rating.label, { san: m.san, bestSan, loss: rating.loss, ply: g.moves.length, streak: g.streak, cpAfter: clampCp(after), color: g.you });
       rec.why = { fenBefore, fenAfter, played, best: before ? before.best : null, reply: after ? after.best : null, pv: before ? before.pv : [], label: rating.label, loss: rating.loss };
       if (usedHint) { rec.hinted = true; if (voice() === 'tough') rec.jab = HINTED[g.moves.length % HINTED.length]; }
+      const pr = g.practice;
+      if (pr && !pr.off) {
+        const i = g.moves.length - 1, book = pr.line[i];
+        if (book && played === book) rec.jab = 'Book move. ' + (pr.notes[i] || '') + (voice() === 'quiet' ? '' : ' ' + rec.jab);
+        else { pr.off = true; rec.jab = 'Out of the ' + pr.title + ' line at move ' + Math.floor(i / 2 + 1) + '.' + (book ? ' The line goes ' + sanOf(fenBefore, book) + ': ' + (pr.notes[i] || '') : ' The lesson line is finished; from here it is your game.') + (voice() === 'quiet' ? '' : ' ' + rec.jab); }
+        rec.book = !pr.off;
+      }
       lastRating = { uci: played, san: m.san, label: rating.label, loss: rating.loss, jab: rec.jab, bestSan, ply: g.moves.length, why: rec.why };
-      showRate(lastRating); renderMoves();
+      showRate(lastRating); if (pr) $('rate').hidden = false; renderMoves();
       if (c.game_over()) { thinking(false); gameOver(); return lastRating; }
       if (g.tutor && (rating.label === 'mistake' || rating.label === 'blunder' || rating.label === 'inaccuracy')) {
         // stop here: let them see it, and offer the take-back (which goes on the record)
@@ -441,7 +521,9 @@
     const g = game, c = g.chess, e = engine();
     thinking(true); setState('thinking'); drawGame();
     let m = null;
-    if (e) {
+    const pr = g.practice;
+    if (pr && !pr.off && pr.line[g.moves.length] && g.moves.every((x, i) => x.uci === pr.line[i])) m = c.move(mv(pr.line[g.moves.length]));
+    if (!m && e) {
       await engReady; e.setStrength(g.elo);
       const r = await e.play(c.fen());
       if (myGen !== gen) return;
@@ -481,10 +563,10 @@
     g.result = result; g.reason = reason;
     setState('over'); drawGame();
     if (g.moves.length >= 2) {
-      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, tutor: g.tutor, takebacks: g.takebacks, report: null };
+      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, nudges: g.nudges, tutor: g.tutor, takebacks: g.takebacks, practice: g.practice ? g.practice.title : null, report: null };
       P().games.unshift(g.entry); P().games = P().games.slice(0, 20); persist();
     }
-    $('analyzeBtn').hidden = !g.entry; $('resignBtn').hidden = true; $('hintBtn').hidden = true;
+    $('analyzeBtn').hidden = !g.entry; $('resignBtn').hidden = true; $('hintBtn').hidden = true; $('nudgeBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; board.classList.remove('sandbox');
     renderHist();
     if (showSheet) {
       const k = reason === 'checkmate' ? (result === 'win' ? 'checkmateWin' : 'checkmateLoss') : reason;
@@ -547,6 +629,73 @@
       thinking(false); drawGame();
       return g.hint;
     } catch (err) { thinking(false); return null; }
+  }
+  // ---------- nudge: a sandbox rating without the answer, or an objective read of the board ----------
+  const SAND_LINES = {
+    tough: { best: 'That one works. Play it before you talk yourself out of it.', great: 'Close to best. You will not get a better offer from me.', good: 'Playable. Not inspired, but playable.', forced: 'It is the only move. The sandbox was not needed.',
+      inaccuracy: 'Loose. Something better exists, and no, I am not telling you what.', mistake: 'That costs you. Look again before you commit.', blunder: 'No. Absolutely not. Find out why before you touch the board.' },
+    kind: { best: 'That is the best move here.', great: 'Very good option.', good: 'Fine, a reasonable move.', forced: 'It is the only legal move.', inaccuracy: 'A little loose. Have another look.', mistake: 'That one costs something. Look for what it allows.', blunder: 'That loses material or worse. Try something else.' },
+  };
+  function nudgeToggle() {
+    if (state !== 'playing' || !game) return;
+    const row = $('nudgeRow'); row.hidden = !row.hidden;
+    $('sandboxBtn').textContent = 'Sandbox a move (' + game.sandLeft + ' left)'; $('sandboxBtn').disabled = game.sandLeft <= 0;
+    $('nudgeHint').hidden = row.hidden; $('nudgeHint').textContent = 'Sandbox: tap a move to have it rated without playing it, no answer given, twice a turn. Read: the position in plain words, for both sides. Both count as assisted.';
+  }
+  function sandboxToggle() {
+    if (state !== 'playing' || !game) return;
+    game.sandbox = !game.sandbox && game.sandLeft > 0; sel = null; targets = [];
+    board.classList.toggle('sandbox', game.sandbox); $('sandboxBtn').classList.toggle('on', game.sandbox);
+    if (game.sandbox) rateIdle('Sandbox. Tap the move you are thinking of.'); else if (voice() !== 'quiet' && !lastRating) rateIdle('');
+    drawGame();
+  }
+  async function sandboxMove(uci) {
+    const g = game; if (!g || state !== 'playing' || g.sandLeft <= 0) return null;
+    const c = g.chess, myGen = gen, e = engine();
+    const t = new Chess(c.fen()); const m = t.move(mv(uci)); if (!m) return null;
+    sel = null; targets = []; g.sandLeft--; g.nudges++; g.sand = { uci, ply: g.moves.length }; drawGame();
+    thinking('sandbox…');
+    try {
+      const before = await (g.before || Promise.resolve(null));
+      if (myGen !== gen || state !== 'playing') return null;
+      const after = t.in_checkmate() ? { cp: g.you === 'w' ? 2000 : -2000, mate: 0 } : t.game_over() ? { cp: 0, mate: null } : await e.evaluate(t.fen(), { depth: 12 });
+      if (myGen !== gen || state !== 'playing') return null;
+      const r = before ? ChessEngine.rate({ cpBefore: clampCp(before), cpAfter: clampCp(after), color: g.you, played: uci, best: before.best, mateBefore: before.mate, mateAfter: after.mate, onlyMove: c.moves().length === 1 }) : { loss: 0, label: 'good' };
+      const el = $('rate'); el.hidden = false; el.dataset.label = r.label; el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
+      $('rateLabel').textContent = 'Sandbox · ' + cap(r.label); $('rateLoss').textContent = r.label === 'forced' ? '' : lossTxt(r.loss);
+      $('rateJab').textContent = m.san + ': ' + (SAND_LINES[voice() === 'tough' ? 'tough' : 'kind'][r.label] || '') + (g.sandLeft ? '' : ' That was your last sandbox this turn.');
+      $('why').hidden = true; $('whyBtn').hidden = true;
+      thinking(false); g.sandbox = false; board.classList.remove('sandbox'); $('sandboxBtn').classList.remove('on');
+      $('sandboxBtn').textContent = 'Sandbox a move (' + g.sandLeft + ' left)'; $('sandboxBtn').disabled = g.sandLeft <= 0;
+      return { uci, san: m.san, label: r.label, loss: r.loss };
+    } catch (err) { thinking(false); return null; }
+  }
+  async function readTheBoard() {
+    const g = game; if (!g || state !== 'playing') return null;
+    const c = g.chess, myGen = gen, e = engine();
+    thinking('reading…');
+    try {
+      const ev = await (g.before || Promise.resolve(null));
+      if (myGen !== gen || state !== 'playing') return null;
+      const th = g.think && g.think.threat ? g.think.threat : await threatOf(c, g.you, ev, e);
+      if (myGen !== gen || state !== 'playing') return null;
+      if (g.readPly !== g.moves.length) { g.nudges++; g.readPly = g.moves.length; }
+      const lines = readBoard(c, g.you, ev, th);
+      const el = $('rate'); el.hidden = false; el.dataset.label = 'forced'; el.classList.remove('in');
+      $('rateLabel').textContent = 'The board, read plainly'; $('rateLoss').textContent = ''; $('rateJab').textContent = '';
+      renderWhy($('why'), lines); $('whyBtn').hidden = true;
+      thinking(false);
+      return lines;
+    } catch (err) { thinking(false); return null; }
+  }
+  // practice an opening from the Learn screen: the engine plays the book line as long as you do
+  function practice(lesson) {
+    if (!lesson || !lesson.line) return null;
+    const c = new Chess(), line = [];
+    for (const san of lesson.line) { const m = c.move(san); if (!m) break; line.push(uciOf(m)); }
+    const g = newGame({ color: lesson.side || 'w', practice: { title: lesson.title, line, notes: lesson.notes || [], off: false } });
+    if (g) { $('rate').hidden = false; rateIdle('Practice: the ' + lesson.title + '. Play the line you just stepped through; the engine answers from the book until you leave it.'); $('rate').hidden = false; }
+    return g;
   }
   function resign() {
     if (game && (state === 'playing' || state === 'thinking')) endGame('loss', 'resign', true);
@@ -625,7 +774,7 @@
       const acc = g.report && g.report.accuracy ? g.report.accuracy[g.you] + '%' : '—';
       d.innerHTML = '<div><b class="res"></b><small></small></div><div class="num"><span></span><small>elo</small></div><div class="num"><span></span><small>acc</small></div><button class="pill rv">Review</button>';
       const b = d.querySelector('.res'); b.textContent = RES[g.result] || '?'; b.classList.add(g.result);
-      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.tutor ? ' · tutor' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '');
+      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.practice ? ' · ' + g.practice : '') + (g.tutor ? ' · tutor' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '') + (g.nudges ? ' · ' + g.nudges + ' nudge' + (g.nudges > 1 ? 's' : '') : '');
       d.children[1].firstChild.textContent = g.elo; d.children[2].firstChild.textContent = acc;
       d.querySelector('.rv').onclick = () => openReview(g);
       el.appendChild(d);
@@ -690,7 +839,7 @@
     const r = review, rep = r.report, you = r.you, op = you === 'w' ? 'b' : 'w';
     const c = new Chess(); r.fens = [c.fen()];
     for (const u of r.moves) { c.move(mv(u)); r.fens.push(c.fen()); }
-    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints ? '\nAssisted: you asked for ' + r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') + '. The accuracy knows.' : '') + (r.entry.tutor ? '\nTutor game' + (r.entry.takebacks ? ', ' + r.entry.takebacks + ' take-back' + (r.entry.takebacks > 1 ? 's' : '') : '') + '. The moves you kept are the ones being judged.' : '');
+    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints || r.entry.nudges ? '\nAssisted: ' + [r.entry.hints ? r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') : '', r.entry.nudges ? r.entry.nudges + ' nudge' + (r.entry.nudges > 1 ? 's' : '') : ''].filter(Boolean).join(' and ') + '. The accuracy knows.' : '') + (r.entry.tutor ? '\nTutor game' + (r.entry.takebacks ? ', ' + r.entry.takebacks + ' take-back' + (r.entry.takebacks > 1 ? 's' : '') : '') + '. The moves you kept are the ones being judged.' : '');
     showOpening($('rOpening'), r.entry.sans || []);
     const cy = rep.counts[you], st = $('rStats'); st.innerHTML = '';
     for (const [v, k] of [[rep.accuracy[you] + '%', 'you'], [rep.accuracy[op] + '%', 'engine'], [cy.blunder, 'blunders'], [cy.mistake, 'mistakes'], [cy.inaccuracy, 'inacc.']]) {
@@ -796,6 +945,9 @@
   $('colorBtn').onclick = () => { P().color = { w: 'b', b: 'r', r: 'w' }[P().color]; persist(); renderSettings(); };
   $('resignBtn').onclick = resign;
   $('hintBtn').onclick = hint;
+  $('nudgeBtn').onclick = nudgeToggle;
+  $('sandboxBtn').onclick = sandboxToggle;
+  $('readBtn').onclick = readTheBoard;
   $('modeBtn').onclick = () => { P().mode = P().mode === 'tutor' ? 'play' : 'tutor'; persist(); renderSettings(); };
   $('voiceBtn').onclick = () => { P().voice = VOICES[(VOICES.indexOf(voice()) + 1) % VOICES.length]; persist(); renderSettings(); };
   $('whyBtn').onclick = () => { const w = $('why'); if (!w.hidden) { w.hidden = true; return; } if (lastRating && lastRating.why) renderWhy(w, whyText(lastRating.why)); };
@@ -823,7 +975,7 @@
 
   // test hook
   window.__coach = {
-    open, close, newGame, move: humanMove, resign, analyze, hint, openingOf, explain, get theme() { return P().theme; },
+    open, close, newGame, move: humanMove, resign, analyze, hint, openingOf, explain, sandbox: sandboxMove, readBoard: readTheBoard, practice, renderBoard, get theme() { return P().theme; },
     takeBack() { if (game && game.pending) { const r = game.pending; game.pending = null; r('back'); return true; } return false; },
     liveWith() { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); return true; } return false; },
     get think() { return game ? game.think : null; },

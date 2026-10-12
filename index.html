@@ -214,10 +214,10 @@
     border-radius: 8px; overflow: hidden; touch-action: none; flex: none; }
   .board.busy { pointer-events: none; }
   .sq { position: relative; display: grid; place-items: center; font-size: calc(var(--sq) * .78); line-height: 1; }
-  #chess, #review { --sqL: #9aa7b8; --sqD: #4a5568; --crL: #2b3340; --crD: #c7d0dc; }
-  [data-theme="wood"] #chess, [data-theme="wood"] #review { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; }
-  [data-theme="modern"] #chess, [data-theme="modern"] #review { --sqL: #eeeed2; --sqD: #769656; --crL: #6b7a4a; --crD: #eeeed2; }
-  [data-theme="mono"] #chess, [data-theme="mono"] #review { --sqL: #d5d8de; --sqD: #6e7480; --crL: #4a505c; --crD: #e4e7ec; }
+  #chess, #review, #lesson { --sqL: #9aa7b8; --sqD: #4a5568; --crL: #2b3340; --crD: #c7d0dc; }
+  [data-theme="wood"] #chess, [data-theme="wood"] #review, [data-theme="wood"] #lesson { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; }
+  [data-theme="modern"] #chess, [data-theme="modern"] #review, [data-theme="modern"] #lesson { --sqL: #eeeed2; --sqD: #769656; --crL: #6b7a4a; --crD: #eeeed2; }
+  [data-theme="mono"] #chess, [data-theme="mono"] #review, [data-theme="mono"] #lesson { --sqL: #d5d8de; --sqD: #6e7480; --crL: #4a505c; --crD: #e4e7ec; }
   .sq.l { background: var(--sqL); } .sq.d { background: var(--sqD); }
   .themes { display: flex; gap: 8px; }
   .themes button { width: 40px; height: 40px; border-radius: 10px; border: 2px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; overflow: hidden; padding: 0; }
@@ -239,6 +239,10 @@
   .board .arrow line.red { stroke: rgba(255,90,95,.85); } .board .arrow polygon.red { fill: rgba(255,90,95,.85); }
   .board .arrow line.ghost { stroke: rgba(169,210,255,.85); } .board .arrow polygon.ghost { fill: rgba(169,210,255,.85); }
   .players { display: flex; gap: 8px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  #nudgeRow .btn { font-size: 15px; } #nudgeRow .btn.on { border-color: var(--ghost); color: var(--ghost); }
+  .board.sandbox { outline: 3px dashed rgba(169,210,255,.6); outline-offset: 3px; }
+  .board .arrow line.sand { stroke: rgba(139,147,161,.9); stroke-dasharray: .25 .18; } .board .arrow polygon.sand { fill: rgba(139,147,161,.9); }
   .ab { margin-left: auto; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); color: var(--ghost); font-weight: 800; font-size: 13px; letter-spacing: .04em; }
   .ab:active { border-color: var(--ghost); }
   .why { margin-top: 10px; display: grid; gap: 6px; font-size: 14px; line-height: 1.4; color: var(--text); border-top: 1px solid var(--line); padding-top: 10px; }
@@ -250,6 +254,15 @@
   .pat b { color: var(--amber); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
   .pat span { font-size: 14px; line-height: 1.35; } .pat i { font-style: normal; color: var(--dim); font-size: 13px; line-height: 1.35; }
   .opt.warn { border-color: rgba(255,90,95,.5); } .opt.warn span { color: var(--red); }
+  #learn, #lesson { overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; background: var(--bg);
+    padding: calc(var(--st) + 10px) calc(var(--sr) + 16px) calc(var(--sb) + 28px) calc(var(--sl) + 16px); --sq: calc(min(100vw - 32px, 52vh) / 8); }
+  .lcard { grid-template-columns: 44px 1fr auto; }
+  .lcard .cap { font-size: 28px; text-align: center; }
+  .lidea { font-size: 15px; line-height: 1.5; color: var(--text); margin: 8px 0 12px; }
+  #lesson .brow { justify-content: center; margin-top: 4px; }
+  .lnote { margin-top: 10px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 14px; padding: 10px 12px; font-size: 16px; line-height: 1.4; min-height: 64px; }
+  .llist { margin: 0; padding-left: 18px; color: var(--text); font-size: 14px; line-height: 1.5; }
+  .llist li { margin-bottom: 4px; }
   .opening { color: var(--dim); font-size: 12px; margin: -2px 0 6px; min-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .opening b { color: var(--text); font-weight: 600; }
   #rOpening { margin: 4px 0 8px; }
@@ -327,6 +340,7 @@
     <div class="pick">
       <button id="pickDrive"><span class="ico">&#127950;</span><span><span class="t">Drive</span><span class="b" style="display:block">Night laps through Rome. Beat your own ghost.</span></span><span class="go">&#8250;</span></button>
       <button id="pickChess"><span class="ico chess">&#9822;</span><span><span class="t">Chess</span><span class="b" style="display:block">Play the engine. The coach rates every move, then takes the game apart.</span></span><span class="go">&#8250;</span></button>
+      <button id="pickLearn"><span class="ico">&#127891;</span><span><span class="t">Learn</span><span class="b" style="display:block">Opening lessons, step by step, then practice them against the engine.</span></span><span class="go">&#8250;</span></button>
     </div>
     <p class="hubFoot" id="hubOffline">Checking offline&hellip;</p>
   </div>
@@ -456,8 +470,35 @@
         <div class="why" id="why" hidden></div>
         <div class="row2" id="takeRow" hidden style="margin-top:10px"><button class="btn" id="takeBack">Take it back</button><button class="btn primary" id="liveWith">Live with it</button></div></div>
       <div class="moves cap" id="moveList"></div>
-      <div class="btns" style="margin-top:12px"><div class="row2"><button class="btn" id="hintBtn">Hint</button><button class="btn" id="resignBtn">Resign</button></div><button class="btn primary" id="analyzeBtn" hidden>Analyze</button></div>
+      <div class="btns" style="margin-top:12px"><div class="row3"><button class="btn" id="nudgeBtn">Nudge</button><button class="btn" id="hintBtn">Hint</button><button class="btn" id="resignBtn">Resign</button></div>
+        <div class="row2" id="nudgeRow" hidden><button class="btn" id="sandboxBtn">Sandbox a move</button><button class="btn" id="readBtn">Read the board</button></div>
+        <p class="chint" id="nudgeHint" hidden></p>
+        <button class="btn primary" id="analyzeBtn" hidden>Analyze</button></div>
     </div>
+  </div>
+</section>
+
+<section id="learn" class="screen">
+  <div class="wrap">
+    <div class="cbar"><button class="back" id="learnBack" aria-label="Back">&#8249;</button><h1>LEARN</h1></div>
+    <p class="chint">The names at the top of your games, explained. Each lesson is a line you can step through, with what to aim for and what to avoid. Openings come with a Practice button: the engine plays the book line until you leave it.</p>
+    <div id="learnList"></div>
+  </div>
+</section>
+
+<section id="lesson" class="screen">
+  <div class="wrap">
+    <div class="cbar"><button class="back" id="lessonBack" aria-label="Back">&#8249;</button><h1 id="lTitle">LESSON</h1></div>
+    <div class="opening" id="lEco"></div>
+    <p class="lidea" id="lIdea"></p>
+    <div class="brow"><div class="board" id="lBoard"></div></div>
+    <div class="rstep"><button class="btn" id="lPrev">&#8249; Prev</button><span class="rpos" id="lPos"></span><button class="btn" id="lNext">Next &#8250;</button></div>
+    <div class="lnote" id="lNote"></div>
+    <div class="moves" id="lMoves"></div>
+    <h2>What you want</h2><ul class="llist" id="lWant"></ul>
+    <h2>Watch out for</h2><ul class="llist" id="lAvoid"></ul>
+    <h2>Then what</h2><p class="lidea" id="lThen"></p>
+    <div class="btns" style="margin-top:14px"><button class="btn primary" id="lPractice">Practice this opening</button></div>
   </div>
 </section>
 
@@ -507,7 +548,9 @@
 <script src="game.js"></script>
 <script src="engine.js"></script>
 <script src="openings.js"></script>
+<script src="lessons.js"></script>
 <script src="coach.js"></script>
+<script src="learn.js"></script>
 <script src="hub.js"></script>
 </body>
 </html>

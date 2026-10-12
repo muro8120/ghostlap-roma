@@ -40,11 +40,24 @@ Two games in one offline iPhone app. Pick one on the launcher:
 - **Openings:** the opening's ECO code and name show as you play and in the review, from the lichess openings table.
 - **Hint:** the coach will show you the best move if you ask, but the game is marked *assisted* in your history and the
   coach is not gracious about it.
+- **Nudge:** the gentler option. *Sandbox a move* rates a move you are considering without playing it and without saying
+  what is better, twice a turn. *Read the board* describes the position plainly for both sides: material, the engine's
+  view, development, kings, centre, hanging pieces, the opponent's idea, and each side's priority. Both count as nudges
+  in your history, separately from hints.
 - **Board themes:** Night, Wood, Modern and Mono, with the cburnett SVG piece set. Chess only; the racer keeps its look.
 - **History:** your last 20 games and their reports are kept on the phone. Promotion is always to a queen.
 - Credits: [Stockfish](https://stockfishchess.org) (GPL-3.0, `vendor/STOCKFISH-LICENSE.txt`) via
   [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause); piece set by Colin M.L. Burnett (GPLv2+, from lichess,
   `vendor/pieces/`); opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
+
+## Learn
+
+The third card on the launcher. Eleven lessons: three on basics (opening principles, what to do when you leave the book,
+how to read a position) and eight openings (Italian, Ruy Lopez, Queen's Gambit, London with White; Sicilian, French,
+Caro-Kann, King's Indian with Black). Each one has the idea in a paragraph, a line you step through on a board with a note
+per move, what you want, what to avoid, and what to do next. Openings have a **Practice** button: the engine plays the book
+line for as long as you do, each book move is confirmed with its note, and the moment you leave the line the coach says
+so and shows what the line was. Lesson text lives in `lessons.js`; the screen is `learn.js`.
 
 ## Install on iPhone
 
@@ -60,7 +73,8 @@ Your times and ghosts are stored on the phone (localStorage). Nothing is sent an
 - `index.html`: layout and styles (launcher, drive menu, race HUD, chess, review)
 - `hub.js`: the launcher (Drive or Chess)
 - `engine.js`: Stockfish worker wrapper, move rating, coach lines, postgame analysis (runs under node too: `node tools/engine-test.js`)
-- `coach.js`: chess board, live rating strip, end sheet, review screen, game history
+- `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen, patterns, game history
+- `lessons.js`, `learn.js`: opening lessons and the Learn screen
 - `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)
 - `vendor/`: chess.js, the Stockfish lite WASM engine, and the piece SVGs
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
