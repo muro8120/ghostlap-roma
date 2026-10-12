@@ -58,3 +58,5 @@ Your times and ghosts are stored on the phone (localStorage). Nothing is sent an
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `tools/`: OSM fetch and build scripts, synthetic test map, headless test (`tools/e2e.js`)
+
+
