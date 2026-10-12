@@ -23,9 +23,14 @@ Two games in one offline iPhone app. Pick one on the launcher:
   The eval bar next to the board tracks who is winning.
 - **Postgame analysis:** accuracy for both sides, counts of blunders, mistakes and inaccuracies, an eval graph you can
   scrub, a replay board with the engine's best move drawn as an arrow, the three worst moments, and a lesson for next game.
+- **Openings:** the opening's ECO code and name show as you play and in the review, from the lichess openings table.
+- **Hint:** the coach will show you the best move if you ask, but the game is marked *assisted* in your history and the
+  coach is not gracious about it.
+- **Board themes:** Night, Wood, Modern and Mono, with the cburnett SVG piece set. Chess only; the racer keeps its look.
 - **History:** your last 20 games and their reports are kept on the phone. Promotion is always to a queen.
 - Credits: [Stockfish](https://stockfishchess.org) (GPL-3.0, `vendor/STOCKFISH-LICENSE.txt`) via
-  [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause).
+  [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause); piece set by Colin M.L. Burnett (GPLv2+, from lichess,
+  `vendor/pieces/`); opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
 
 ## Install on iPhone
 
@@ -42,7 +47,8 @@ Your times and ghosts are stored on the phone (localStorage). Nothing is sent an
 - `hub.js`: the launcher (Drive or Chess)
 - `engine.js`: Stockfish worker wrapper, move rating, coach lines, postgame analysis (runs under node too: `node tools/engine-test.js`)
 - `coach.js`: chess board, live rating strip, end sheet, review screen, game history
-- `vendor/`: chess.js and the Stockfish lite WASM engine
+- `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)
+- `vendor/`: chess.js, the Stockfish lite WASM engine, and the piece SVGs
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
 - `game.js`: rendering, input, menus, sound, saving, offline status
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)

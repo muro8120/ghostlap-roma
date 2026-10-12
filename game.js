@@ -1261,7 +1261,8 @@
 
   // ---------- offline ------------------------------------------------------------------
   const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'hub.js', 'engine.js', 'coach.js', 'vendor/chess.js', 'vendor/stockfish-19-lite-single.js',
-    'vendor/stockfish-19-lite-single.wasm', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'].concat(ROME ? ['rome.js'] : []);
+    'vendor/stockfish-19-lite-single.wasm', 'openings.js',
+    'vendor/pieces/wK.svg', 'vendor/pieces/wQ.svg', 'vendor/pieces/wR.svg', 'vendor/pieces/wB.svg', 'vendor/pieces/wN.svg', 'vendor/pieces/wP.svg', 'vendor/pieces/bK.svg', 'vendor/pieces/bQ.svg', 'vendor/pieces/bR.svg', 'vendor/pieces/bB.svg', 'vendor/pieces/bN.svg', 'vendor/pieces/bP.svg', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'].concat(ROME ? ['rome.js'] : []);
   async function offline() {
     const el = $('offline');
     if (!('serviceWorker' in navigator) || !window.caches || !window.isSecureContext) {
