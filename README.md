@@ -40,6 +40,11 @@ Two games in one offline iPhone app. Pick one on the launcher:
 - **Openings:** the opening's ECO code and name show as you play and in the review, from the lichess openings table.
 - **Hint:** the coach will show you the best move if you ask, but the game is marked *assisted* in your history and the
   coach is not gracious about it.
+- **Assist budget:** every game starts with a budget of assist points: a hint costs 3, a tutor take-back 2, a nudge 1.
+  The budget is 10 until you have three analysed games, then it drops to 8, 6 and 4 as your *unassisted* accuracy
+  (hinted moves excluded) over the last five analysed games passes 60, 70 and 80 percent. It is a soft cap: when a hint
+  no longer fits, the Hint button offers a nudge instead; when nothing fits, the help greys out and the game goes on.
+  The patterns card shows the current budget and how many points you have been using per game.
 - **Nudge:** the gentler option. *Sandbox a move* rates a move you are considering without playing it and without saying
   what is better, twice a turn. *Read the board* describes the position plainly for both sides: material, the engine's
   view, development, kings, centre, hanging pieces, the opponent's idea, and each side's priority. Both count as nudges

@@ -100,6 +100,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   check('quiet end sheet is neutral', !/respect|didn’t even/.test(await p.$eval('#endMsg', (e) => e.textContent)), await p.$eval('#endMsg', (e) => e.textContent));
   await p.click('#endHome'); await p.waitForTimeout(200);
   const jh = await p.evaluate(() => ({ j: window.__coach.history.length, store: JSON.parse(localStorage.getItem('ghostlap-chess-v1')) }));
+  check('assist recorded in history', !!(jh.store.players.jesse.games[0].assist) && jh.store.players.jesse.games[0].assist.budget === 10, JSON.stringify(jh.store.players.jesse.games[0].assist));
   check('J has his own history', jh.j === 1 && jh.store.players.jesse.games.length >= 1 && jh.store.players.j.games.length === 1, JSON.stringify({ j: jh.j, jesse: jh.store.players.jesse.games.length }));
   await p.evaluate(() => { window.__coach.setPlayer('jesse'); window.__coach.setVoice('kind'); });
   await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1200 }));
@@ -114,6 +115,15 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   check('sandbox rates without playing', !!(sb && sb.label) && sbState.n === 2 && sbState.left === 1 && sbState.nudges === 1 && /sandbox/i.test(sbState.strip), JSON.stringify(sb) + ' ' + JSON.stringify(sbState));
   check('sandbox hides the better move', !/was the move|Best was/.test(sbState.strip), sbState.strip);
   const rb = await p.evaluate(() => window.__coach.readBoard());
+  const bud = await p.evaluate(() => ({ budget: window.__coach.game.budget, used: window.__coach.game.used, line: document.getElementById('assistLine').textContent }));
+  check('assist budget counts nudges', bud.budget === 10 && bud.used === 2 && /8 of 10/.test(bud.line), JSON.stringify(bud));
+  // burn the rest with hints (3 each): 2 more hints fit, the third must degrade to a nudge, then nothing
+  await p.evaluate(() => window.__coach.move('e2e4').then(() => null)); await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game.moves.length >= 2, null, { timeout: 30000 }).catch(() => {});
+  const hA = await p.evaluate(() => window.__coach.hint()); await p.evaluate(() => window.__coach.move('b1c3')); await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game.moves.length >= 4, null, { timeout: 30000 }).catch(() => {});
+  const hB = await p.evaluate(() => window.__coach.hint()); await p.evaluate(() => window.__coach.move('g1f3')); await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game.moves.length >= 6, null, { timeout: 30000 }).catch(() => {});
+  const hC = await p.evaluate(() => window.__coach.hint());
+  const bud2 = await p.evaluate(() => ({ used: window.__coach.game.used, hintDisabled: document.getElementById('hintBtn').disabled, nudgeRow: !document.getElementById('nudgeRow').hidden }));
+  check('soft cap: hint degrades to a nudge when it cannot afford 3', !!(hA && hA.uci) && !!(hB && hB.uci) && !!(hC && hC.degraded) && bud2.used === 8 && bud2.nudgeRow, JSON.stringify({ hA: !!hA, hB: !!hB, hC, bud2 }));
   check('read the board', Array.isArray(rb) && rb.length >= 6 && rb.some((l) => /^Material/.test(l)) && rb.some((l) => /^Your priority/.test(l)) && rb.some((l) => /^Their priority/.test(l)), (rb || []).join(' | ').slice(0, 240));
   await p.screenshot({ path: SHOTS + '/c13-read.png' });
   await p.evaluate(() => { window.__coach.resign(); window.__coach.setVoice('tough'); }); await p.waitForTimeout(200);

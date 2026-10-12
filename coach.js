@@ -415,7 +415,7 @@
     cancelAnalysis(); gen++;
     const col = opts.color || P().color, you = col === 'r' ? (Math.random() < .5 ? 'w' : 'b') : col;
     game = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: new Date().toISOString(), elo: clampElo(opts.elo || P().elo), you,
-      chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null, tutor: (opts.tutor != null ? !!opts.tutor : P().mode === 'tutor'), think: null, pick: null, takebacks: 0, nudges: 0, sandbox: false, sandLeft: 2, readPly: -1, sand: null, practice: opts.practice || null };
+      chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null, tutor: (opts.tutor != null ? !!opts.tutor : P().mode === 'tutor'), think: null, pick: null, takebacks: 0, nudges: 0, sandbox: false, sandLeft: 2, readPly: -1, sand: null, practice: opts.practice || null, budget: assistBudget(P().games).budget, used: 0, hinted: [] };
     lastRating = null; sel = null; targets = []; review = null;
     sheet('chessEnd', false); $('review').classList.remove('on'); $('chess').classList.add('on');
     $('chessHome').hidden = true; $('chessGame').hidden = false;
@@ -425,7 +425,7 @@
     game.weak = patterns(P().games).items.map((it) => it.key);
     const focus = focusLine();
     rateIdle(voice() === 'quiet' ? '' : (game.tutor ? 'Tutor mode. I show you the options and what they are up to. You still have to choose.' : you === 'w' ? (voice() === 'kind' ? 'Your move. Take your time.' : 'Your move. I’m watching.') : (voice() === 'kind' ? 'You have black. The engine opens.' : 'Black. The engine opens; try to keep up.')) + (focus ? ' ' + focus : ''));
-    $('why').hidden = true; $('whyBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; $('nudgeBtn').hidden = false; board.classList.remove('sandbox');
+    $('why').hidden = true; $('whyBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; $('nudgeBtn').hidden = false; board.classList.remove('sandbox'); renderAssist();
     $('takeRow').hidden = true; $('tutor').hidden = !game.tutor; renderTutor();
     thinking(false); setEvalBar(evalBar, { cp: 0 }, you === 'b');
     renderMoves(); setState(you === 'w' ? 'playing' : 'thinking'); drawGame(); showOpening($('opening'), []); $('hintBtn').hidden = false;
@@ -481,7 +481,7 @@
       rec.label = rating.label; rec.loss = rating.loss; rec.best = before ? before.best : null; rec.bestSan = bestSan;
       rec.jab = coachLine(rating.label, { san: m.san, bestSan, loss: rating.loss, ply: g.moves.length, streak: g.streak, cpAfter: clampCp(after), color: g.you });
       rec.why = { fenBefore, fenAfter, played, best: before ? before.best : null, reply: after ? after.best : null, pv: before ? before.pv : [], label: rating.label, loss: rating.loss };
-      if (usedHint) { rec.hinted = true; if (voice() === 'tough') rec.jab = HINTED[g.moves.length % HINTED.length]; }
+      if (usedHint) { rec.hinted = true; g.hinted.push(g.moves.length); if (voice() === 'tough') rec.jab = HINTED[g.moves.length % HINTED.length]; }
       const pr = g.practice;
       if (pr && !pr.off) {
         const i = g.moves.length - 1, book = pr.line[i];
@@ -492,7 +492,7 @@
       lastRating = { uci: played, san: m.san, label: rating.label, loss: rating.loss, jab: rec.jab, bestSan, ply: g.moves.length, why: rec.why };
       showRate(lastRating); if (pr) $('rate').hidden = false; renderMoves();
       if (c.game_over()) { thinking(false); gameOver(); return lastRating; }
-      if (g.tutor && (rating.label === 'mistake' || rating.label === 'blunder' || rating.label === 'inaccuracy')) {
+      if (g.tutor && (rating.label === 'mistake' || rating.label === 'blunder' || rating.label === 'inaccuracy') && g.used + COST.takeback <= g.budget) {
         // stop here: let them see it, and offer the take-back (which goes on the record)
         thinking(false); $('takeRow').hidden = false; $('rate').hidden = false;
         if (voice() === 'tough') $('rateJab').textContent += ' ' + TAKE_OFFER[g.moves.length % TAKE_OFFER.length];
@@ -502,7 +502,7 @@
         $('takeRow').hidden = true;
         if (myGen !== gen) return false;
         if (choice === 'back') {
-          c.undo(); g.moves.pop(); g.takebacks++; g.streak = Math.max(0, g.streak - 1);
+          c.undo(); g.moves.pop(); g.takebacks++; g.used += COST.takeback; renderAssist(); g.streak = Math.max(0, g.streak - 1);
           rec.label = null; lastRating = null;
           renderMoves(); showOpening($('opening'), g.moves.map((x) => x.san));
           rateIdle(voice() === 'tough' ? TAKE_LINES[g.takebacks % TAKE_LINES.length].replace('%s', bestSan || 'something else').replace('%n', g.takebacks) : voice() === 'kind' ? 'Taken back. Have another look' + (bestSan ? ', ' + bestSan + ' is worth considering.' : '.') : '');
@@ -563,7 +563,7 @@
     g.result = result; g.reason = reason;
     setState('over'); drawGame();
     if (g.moves.length >= 2) {
-      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, nudges: g.nudges, tutor: g.tutor, takebacks: g.takebacks, practice: g.practice ? g.practice.title : null, report: null };
+      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, nudges: g.nudges, tutor: g.tutor, takebacks: g.takebacks, practice: g.practice ? g.practice.title : null, assist: { used: g.used, budget: g.budget }, hinted: g.hinted.slice(), report: null };
       P().games.unshift(g.entry); P().games = P().games.slice(0, 20); persist();
     }
     $('analyzeBtn').hidden = !g.entry; $('resignBtn').hidden = true; $('hintBtn').hidden = true; $('nudgeBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; board.classList.remove('sandbox');
@@ -616,13 +616,17 @@
     const g = game, myGen = gen, e = engine();
     if (!e) return null;
     if (g.hint && g.hint.ply === g.moves.length) return g.hint;
+    if (g.used + COST.hint > g.budget) {
+      if (g.used + COST.sandbox <= g.budget) { $('nudgeRow').hidden = false; nudgeNote('Not enough budget for a hint. A nudge is still on the table.'); return { degraded: true }; }
+      budgetGone(); return null;
+    }
     thinking('asking…');
     try {
       let ev = await (g.before || Promise.resolve(null));
       if (myGen !== gen || state !== 'playing') return null;
       if (!ev || !ev.best) { ev = await e.evaluate(g.chess.fen(), { depth: 12 }); if (myGen !== gen || state !== 'playing') return null; }
       if (!ev || !ev.best) return null;
-      g.hints++; g.hint = { ply: g.moves.length, uci: ev.best, san: sanOf(g.chess.fen(), ev.best) };
+      g.hints++; g.used += COST.hint; renderAssist(); g.hint = { ply: g.moves.length, uci: ev.best, san: sanOf(g.chess.fen(), ev.best) };
       const el = $('rate'); el.dataset.label = 'forced'; el.classList.remove('in');
       $('rateLabel').textContent = 'Hint ' + g.hints; $('rateLoss').textContent = ''; el.hidden = false; $('why').hidden = true; $('whyBtn').hidden = true;
       $('rateJab').textContent = voice() === 'tough' ? HINT_LINES[g.hints % HINT_LINES.length].replace('%s', g.hint.san) : 'Try ' + g.hint.san + '. ' + explain(g.chess, ev.best);
@@ -636,14 +640,17 @@
       inaccuracy: 'Loose. Something better exists, and no, I am not telling you what.', mistake: 'That costs you. Look again before you commit.', blunder: 'No. Absolutely not. Find out why before you touch the board.' },
     kind: { best: 'That is the best move here.', great: 'Very good option.', good: 'Fine, a reasonable move.', forced: 'It is the only legal move.', inaccuracy: 'A little loose. Have another look.', mistake: 'That one costs something. Look for what it allows.', blunder: 'That loses material or worse. Try something else.' },
   };
+  function nudgeNote(text) { $('nudgeHint').hidden = false; $('nudgeHint').textContent = text; $('sandboxBtn').textContent = 'Sandbox a move (' + game.sandLeft + ' left)'; $('sandboxBtn').disabled = game.sandLeft <= 0; }
   function nudgeToggle() {
     if (state !== 'playing' || !game) return;
+    if (game.used + COST.sandbox > game.budget) { budgetGone(); return; }
     const row = $('nudgeRow'); row.hidden = !row.hidden;
-    $('sandboxBtn').textContent = 'Sandbox a move (' + game.sandLeft + ' left)'; $('sandboxBtn').disabled = game.sandLeft <= 0;
-    $('nudgeHint').hidden = row.hidden; $('nudgeHint').textContent = 'Sandbox: tap a move to have it rated without playing it, no answer given, twice a turn. Read: the position in plain words, for both sides. Both count as assisted.';
+    $('nudgeHint').hidden = row.hidden;
+    if (!row.hidden) nudgeNote('Sandbox: tap a move to have it rated without playing it, no answer given, twice a turn. Read: the position in plain words, for both sides. Each costs 1 from the budget.');
   }
   function sandboxToggle() {
     if (state !== 'playing' || !game) return;
+    if (!game.sandbox && game.used + COST.sandbox > game.budget) { budgetGone(); return; }
     game.sandbox = !game.sandbox && game.sandLeft > 0; sel = null; targets = [];
     board.classList.toggle('sandbox', game.sandbox); $('sandboxBtn').classList.toggle('on', game.sandbox);
     if (game.sandbox) rateIdle('Sandbox. Tap the move you are thinking of.'); else if (voice() !== 'quiet' && !lastRating) rateIdle('');
@@ -653,6 +660,7 @@
     const g = game; if (!g || state !== 'playing' || g.sandLeft <= 0) return null;
     const c = g.chess, myGen = gen, e = engine();
     const t = new Chess(c.fen()); const m = t.move(mv(uci)); if (!m) return null;
+    if (!spend('sandbox')) { budgetGone(); g.sandbox = false; board.classList.remove('sandbox'); return null; }
     sel = null; targets = []; g.sandLeft--; g.nudges++; g.sand = { uci, ply: g.moves.length }; drawGame();
     thinking('sandbox…');
     try {
@@ -672,6 +680,7 @@
   }
   async function readTheBoard() {
     const g = game; if (!g || state !== 'playing') return null;
+    if (g.readPly !== g.moves.length && g.used + COST.read > g.budget) { budgetGone(); return null; }
     const c = g.chess, myGen = gen, e = engine();
     thinking('reading…');
     try {
@@ -679,7 +688,7 @@
       if (myGen !== gen || state !== 'playing') return null;
       const th = g.think && g.think.threat ? g.think.threat : await threatOf(c, g.you, ev, e);
       if (myGen !== gen || state !== 'playing') return null;
-      if (g.readPly !== g.moves.length) { g.nudges++; g.readPly = g.moves.length; }
+      if (g.readPly !== g.moves.length) { if (!spend('read')) { budgetGone(); thinking(false); return null; } g.nudges++; g.readPly = g.moves.length; }
       const lines = readBoard(c, g.you, ev, th);
       const el = $('rate'); el.hidden = false; el.dataset.label = 'forced'; el.classList.remove('in');
       $('rateLabel').textContent = 'The board, read plainly'; $('rateLoss').textContent = ''; $('rateJab').textContent = '';
@@ -743,6 +752,39 @@
     const recent = accs.slice(0, 3), older = accs.slice(3, 6), mean = (a) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
     return { games: done.length, items, acc: mean(recent), trend: older.length ? mean(recent) - mean(older) : null, badRate: total.moves ? total.bad / total.moves : 0 };
   }
+  // ---------- assist budget: hints cost 3, take-backs 2, nudges 1. The budget shrinks as your unassisted accuracy rises. ----------
+  const COST = { hint: 3, takeback: 2, sandbox: 1, read: 1 };
+  function unassistedAcc(entry) {
+    if (!entry.report || !entry.report.moves) return null;
+    const hinted = new Set(entry.hinted || []);
+    const losses = entry.report.moves.filter((m) => m.color === entry.you && !hinted.has(m.ply)).map((m) => m.loss || 0);
+    return losses.length && window.ChessEngine ? ChessEngine.accuracy(losses) : null;
+  }
+  function assistBudget(games) {
+    const accs = games.map(unassistedAcc).filter((a) => a != null).slice(0, 5);
+    const acc = accs.length ? accs.reduce((x, y) => x + y, 0) / accs.length : null;
+    const budget = accs.length < 3 || acc < 60 ? 10 : acc < 70 ? 8 : acc < 80 ? 6 : 4;     // generous, floor of 4, never zero
+    const used = games.filter((g) => g.assist).slice(0, 6).map((g) => g.assist.used);
+    const mean = (a) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+    return { budget, acc, games: accs.length, recent: mean(used.slice(0, 3)), older: mean(used.slice(3, 6)) };
+  }
+  // spend from this game's budget; false means it is gone (the soft cap: the game goes on, the help does not)
+  function spend(kind) {
+    const g = game; if (!g) return false;
+    if (g.used + COST[kind] > g.budget) return false;
+    g.used += COST[kind]; renderAssist(); return true;
+  }
+  function renderAssist() {
+    const g = game, el = $('assistLine'); if (!g) { el.hidden = true; return; }
+    el.hidden = false;
+    const left = g.budget - g.used;
+    el.textContent = left > 0 ? 'Assist budget: ' + left + ' of ' + g.budget + ' left (hint 3, take-back 2, nudge 1).' : 'Assist budget spent. This one is yours.';
+    $('hintBtn').disabled = left < 1; $('nudgeBtn').disabled = left < 1;
+  }
+  function budgetGone() {
+    rateIdle(voice() === 'tough' ? 'Budget’s gone. This one is yours, and I am watching.' : voice() === 'kind' ? 'No more help this game. You have got this.' : '');
+    $('rate').hidden = voice() === 'quiet';
+  }
   function focusLine() {
     const pt = patterns(P().games); if (!pt.items.length || voice() === 'quiet') return '';
     const it = pt.items[0];
@@ -756,6 +798,10 @@
     h.firstChild.textContent = pt.acc != null ? Math.round(pt.acc) + '% accuracy' : '';
     h.lastChild.textContent = (pt.trend != null ? (pt.trend >= 0 ? '▲ ' : '▼ ') + Math.abs(pt.trend).toFixed(0) + ' vs the three before · ' : '') + pt.games + ' analysed game' + (pt.games > 1 ? 's' : '') + (pt.games < 3 ? ' · early read' : '');
     el.appendChild(h);
+    const ab = assistBudget(P().games), al = document.createElement('div'); al.className = 'ph';
+    al.innerHTML = '<b></b><span></span>'; al.firstChild.textContent = 'Assist budget ' + ab.budget;
+    al.lastChild.textContent = (ab.acc != null ? Math.round(ab.acc) + '% unassisted over the last ' + ab.games + ' · ' : '') + (ab.recent != null ? 'using ' + ab.recent.toFixed(1) + ' a game' + (ab.older != null ? (ab.recent <= ab.older ? ' ▼ ' : ' ▲ ') + 'from ' + ab.older.toFixed(1) : '') : 'drops to 8, 6, then 4 as your unassisted accuracy passes 60, 70, 80');
+    el.appendChild(al);
     if (!pt.items.length) { const p = document.createElement('p'); p.className = 'chint'; p.textContent = pt.games < 3 ? 'Nothing repeating yet. A few more games and it will.' : 'No pattern stands out. The mistakes are spread around, which is its own kind of answer.'; el.appendChild(p); return; }
     for (const it of pt.items) {
       const d = document.createElement('div'); d.className = 'pat';
@@ -774,7 +820,7 @@
       const acc = g.report && g.report.accuracy ? g.report.accuracy[g.you] + '%' : '—';
       d.innerHTML = '<div><b class="res"></b><small></small></div><div class="num"><span></span><small>elo</small></div><div class="num"><span></span><small>acc</small></div><button class="pill rv">Review</button>';
       const b = d.querySelector('.res'); b.textContent = RES[g.result] || '?'; b.classList.add(g.result);
-      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.practice ? ' · ' + g.practice : '') + (g.tutor ? ' · tutor' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '') + (g.nudges ? ' · ' + g.nudges + ' nudge' + (g.nudges > 1 ? 's' : '') : '');
+      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.practice ? ' · ' + g.practice : '') + (g.tutor ? ' · tutor' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '') + (g.nudges ? ' · ' + g.nudges + ' nudge' + (g.nudges > 1 ? 's' : '') : '') + (g.assist && g.assist.used ? ' · assist ' + g.assist.used + '/' + g.assist.budget : '');
       d.children[1].firstChild.textContent = g.elo; d.children[2].firstChild.textContent = acc;
       d.querySelector('.rv').onclick = () => openReview(g);
       el.appendChild(d);
@@ -839,7 +885,7 @@
     const r = review, rep = r.report, you = r.you, op = you === 'w' ? 'b' : 'w';
     const c = new Chess(); r.fens = [c.fen()];
     for (const u of r.moves) { c.move(mv(u)); r.fens.push(c.fen()); }
-    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints || r.entry.nudges ? '\nAssisted: ' + [r.entry.hints ? r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') : '', r.entry.nudges ? r.entry.nudges + ' nudge' + (r.entry.nudges > 1 ? 's' : '') : ''].filter(Boolean).join(' and ') + '. The accuracy knows.' : '') + (r.entry.tutor ? '\nTutor game' + (r.entry.takebacks ? ', ' + r.entry.takebacks + ' take-back' + (r.entry.takebacks > 1 ? 's' : '') : '') + '. The moves you kept are the ones being judged.' : '');
+    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints || r.entry.nudges ? '\nAssisted: ' + [r.entry.hints ? r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') : '', r.entry.nudges ? r.entry.nudges + ' nudge' + (r.entry.nudges > 1 ? 's' : '') : ''].filter(Boolean).join(' and ') + '. The accuracy knows.' : '') + (r.entry.assist && r.entry.assist.used ? ' Assist budget used: ' + r.entry.assist.used + ' of ' + r.entry.assist.budget + '.' + (unassistedAcc(r.entry) != null && (r.entry.hinted || []).length ? ' Accuracy without the hinted moves: ' + unassistedAcc(r.entry) + '%.' : '') : '') + (r.entry.tutor ? '\nTutor game' + (r.entry.takebacks ? ', ' + r.entry.takebacks + ' take-back' + (r.entry.takebacks > 1 ? 's' : '') : '') + '. The moves you kept are the ones being judged.' : '');
     showOpening($('rOpening'), r.entry.sans || []);
     const cy = rep.counts[you], st = $('rStats'); st.innerHTML = '';
     for (const [v, k] of [[rep.accuracy[you] + '%', 'you'], [rep.accuracy[op] + '%', 'engine'], [cy.blunder, 'blunders'], [cy.mistake, 'mistakes'], [cy.inaccuracy, 'inacc.']]) {
@@ -980,7 +1026,7 @@
     liveWith() { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); return true; } return false; },
     get think() { return game ? game.think : null; },
     get game() { return game; }, get state() { return state; }, get lastRating() { return lastRating; }, get history() { return P().games; },
-    get player() { return save.player; }, setPlayer(k) { if (save.players[k]) { save.player = k; persist(); applyTheme(); renderSettings(); renderHist(); } return save.player; },
+    budget() { return assistBudget(P().games); }, get player() { return save.player; }, setPlayer(k) { if (save.players[k]) { save.player = k; persist(); applyTheme(); renderSettings(); renderHist(); } return save.player; },
     setVoice(v) { if (VOICES.includes(v)) { P().voice = v; persist(); renderSettings(); } return voice(); }, patterns() { return patterns(P().games); }, whyText,
   };
 })();
