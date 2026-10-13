@@ -137,17 +137,42 @@ if (process.env.ROME_JS) {
         const v = await p.evaluate(() => ({ ...window.__ghostlap.view, on: document.getElementById('view3d').classList.contains('on') }));
         check('follow camera in Rome: car points up, sits low', v.mode === 'follow' && !v.chase && !v.on && Math.abs(v.a + Math.PI / 2) < 0.6 && v.y > 0.5 && v.y < 0.75, JSON.stringify(v));
       }
+      if (i === cityIdx[2]) { await p.waitForTimeout(2500); await p.screenshot({ path: SHOTS + '/29-city-race-chase-2.png' }); }
       const nav = await p.$eval('#navSt', (e) => e.textContent);
       const signs = await p.evaluate(() => window.__ghostlap.signs);
       const navOn = await p.$eval('#nav', (e) => getComputedStyle(e).display !== 'none');
       const banners = [];
       const poll = setInterval(async () => { try { const b = await p.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b && !banners.includes(b)) banners.push(b); } catch (e) {} }, 150);
+      const labs = []; // chase mode: the last frame's label layout, sampled through the run
+      const lpoll = setInterval(async () => { try { const L = await p.evaluate(() => window.__ghostlap.labels); if (L) labs.push(L); } catch (e) {} }, 300);
       const done = await p.waitForSelector('#finish.on', { timeout: 120000 }).then(() => true).catch(() => false);
-      clearInterval(poll);
+      clearInterval(poll); clearInterval(lpoll);
       const via = await p.$eval('.via', (e) => e.textContent).catch(() => '');
       const id = await p.evaluate((k) => window.GL.TRACKS[k].id, i);
       check(id + ' completes, shows street + stops + signs + route list', done && navOn && nav.length > 2 && signs >= 1 && via.includes('MIN ON FOOT') && banners.length >= 2,
         `nav="${nav}" signs=${signs} banners=${JSON.stringify(banners)}`);
+      if (labs.length) {
+        const hit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1], w = (a) => Math.atan2(Math.sin(a), Math.cos(a)), bad = [];
+        let most = 0, streets = 0;
+        for (const L of labs) {
+          const B = L.labels; most = Math.max(most, B.length); streets += B.some((a) => a.kind === 'street');
+          if (B.length > 6) bad.push('count ' + B.length);
+          B.forEach((a, k) => {
+            if (hit(a.box, L.car)) bad.push('on the car: ' + a.t);
+            if (a.t.trim() === L.nav) bad.push('current street repeated: ' + a.t);
+            if (L.hud.some((r) => hit(a.box, r))) bad.push('under the HUD: ' + a.t);
+            for (const b of B.slice(k + 1)) if (hit(a.box, b.box)) bad.push('overlap: ' + a.t + ' / ' + b.t);
+          });
+          L.signs.forEach((sg, k) => { for (const o of L.signs.slice(k + 1)) if (hit(sg.box, o.box)) bad.push('signs overlap: ' + sg.t + ' / ' + o.t); });
+          for (const sg of L.signs) {
+            if (L.hud.some((r) => r[1] < 300 && hit(sg.box, r))) bad.push('sign over the nav box or minimap: ' + sg.t);
+            // the arrow is the bearing seen from the camera: it matches the north-up minimap's bearing from the car's heading up to the camera's lag
+            if (Math.abs(w(sg.ang + Math.PI / 2 - (sg.bear - L.carA))) > Math.abs(w(L.yaw - L.carA)) + 0.02) bad.push('sign arrow off: ' + sg.t);
+          }
+        }
+        check(id + ' chase labels: at most 6, no overlaps, off the car and the HUD, current street not repeated, sign arrows true', !bad.length && most >= 2 && streets > 0,
+          `samples=${labs.length} most=${most} withStreet=${streets} ${[...new Set(bad)].slice(0, 4).join(' | ')}`);
+      }
       if (i === cityIdx[0]) await p.screenshot({ path: SHOTS + '/30-city-finish.png' });
       if (i === cityIdx[1]) await p.evaluate(() => window.__ghostlap.setCam('chase'));
       await p.click('#menuBtn');

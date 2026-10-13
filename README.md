@@ -18,6 +18,8 @@ Two games in one offline iPhone app. Pick one on the launcher:
   taller and floodlit, lit windows), street lamps, the car's headlight and the night vignette. *Follow* is the flat top-down
   view with the car's heading up the screen, and *North-up* the fixed map view. In every view the left thumb turns the car left
   on screen, and the minimap stays north-up, with the car as an arrow. A phone without WebGL gets Follow instead of Chase.
+  In Chase the map labels thin out to what you can read: at most six, nearest first, faded with distance, never overlapping,
+  kept off the car and the road, and never repeating the street at the top; the gold stars always show.
 - **Offline:** a service worker caches everything, so after one online visit it runs in airplane mode.
 
 ## Chess coach

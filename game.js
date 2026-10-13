@@ -197,6 +197,7 @@
 
   // street names and places, drawn crisp in screen space
   function drawCityLabels() {
+    if (chaseView) return drawChaseLabels();
     const hud = state === 'menu' ? [] : hudRects();
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
@@ -204,7 +205,7 @@
     for (const a of ROME.anchors) {
       const [sx, sy] = toScr(a[0], a[1]);
       if (sx < -90 || sx > vw + 90 || sy < -20 || sy > vh + 20 || underHud(sx, sy, hud)) continue;
-      const t = ROME.names[a[3]], ra = chaseView ? scrAngle(a[0], a[1], a[2] / 100, sx, sy) : wrap(a[2] / 100 + cam.r); // keep the text upright
+      const t = ROME.names[a[3]], ra = wrap(a[2] / 100 + cam.r); // keep the text upright
       g.save(); g.translate(sx, sy); g.rotate(ra > Math.PI / 2 ? ra - Math.PI : ra < -Math.PI / 2 ? ra + Math.PI : ra);
       g.lineWidth = 3; g.strokeStyle = 'rgba(12,13,17,.9)'; g.strokeText(t, 0, 0);
       g.fillStyle = 'rgba(200,206,216,.62)'; g.fillText(t, 0, 0);
@@ -216,16 +217,20 @@
       const [sx, sy] = toScr(p.x, p.y);
       if (sx < -120 || sx > vw + 120 || sy < -30 || sy > vh + 30 || underHud(sx, sy - 10, hud)) continue;
       taken.push([sx - 70, sy - 24, sx + 70, sy + 8]);
-      const col = p.k === 'hotel' ? '#f2b24c' : p.k === 'metro' ? '#ff5a5f' : p.k === 'stop' ? '#ffffff' : '#a9d2ff';
-      g.fillStyle = col; g.strokeStyle = 'rgba(12,13,17,.9)'; g.lineWidth = 2;
-      g.beginPath(); g.arc(sx, sy, p.k === 'hotel' ? 7 : 5, 0, 7); g.fill(); g.stroke();
-      if (p.k === 'metro') { g.fillStyle = '#fff'; g.font = '800 8px -apple-system, system-ui, sans-serif'; g.fillText('M', sx, sy + 0.5); }
-      g.font = (p.k === 'sight' ? 'italic 600 ' : '800 ') + (p.k === 'hotel' || p.k === 'stop' ? '13px' : '11px') + ' -apple-system, system-ui, sans-serif';
-      g.lineWidth = 4; g.strokeText(p.n, sx, sy - 15); g.fillStyle = col; g.fillText(p.n, sx, sy - 15);
+      drawPlace(p, sx, sy);
     }
     drawPicks(free);
     drawLandmarks(free);
     if (state !== 'menu' && race && race.T.def.city) drawSigns(hud);
+  }
+  const placeFont = (p) => (p.k === 'sight' ? 'italic 600 ' : '800 ') + (p.k === 'hotel' || p.k === 'stop' ? '13px' : '11px') + ' -apple-system, system-ui, sans-serif';
+  function drawPlace(p, sx, sy) { // a dot with the name above (expects textAlign center, textBaseline middle)
+    const col = p.k === 'hotel' ? '#f2b24c' : p.k === 'metro' ? '#ff5a5f' : p.k === 'stop' ? '#ffffff' : '#a9d2ff';
+    g.fillStyle = col; g.strokeStyle = 'rgba(12,13,17,.9)'; g.lineWidth = 2;
+    g.beginPath(); g.arc(sx, sy, p.k === 'hotel' ? 7 : 5, 0, 7); g.fill(); g.stroke();
+    if (p.k === 'metro') { g.fillStyle = '#fff'; g.font = '800 8px -apple-system, system-ui, sans-serif'; g.fillText('M', sx, sy + 0.5); }
+    g.font = placeFont(p);
+    g.lineWidth = 4; g.strokeText(p.n, sx, sy - 15); g.fillStyle = col; g.fillText(p.n, sx, sy - 15);
   }
 
   // Jesse's places (from his Andiamo trip page): gold stars with a short note
@@ -242,20 +247,29 @@
       g.font = '800 12px -apple-system, system-ui, sans-serif';
       const w = g.measureText(p.n).width;
       free(sx - 10, sy - 10, sx + w + 16, sy + 22);
-      g.save(); g.shadowColor = GOLD; g.shadowBlur = 10; g.fillStyle = GOLD; star(sx, sy, 8); g.fill(); g.restore();
-      g.strokeStyle = 'rgba(12,13,17,.95)'; g.lineWidth = 1.5; star(sx, sy, 8); g.stroke();
-      g.textAlign = 'left'; g.textBaseline = 'middle'; g.lineJoin = 'round';
-      g.lineWidth = 4; g.strokeStyle = 'rgba(12,13,17,.92)'; g.strokeText(p.n, sx + 12, sy); g.fillStyle = GOLD; g.fillText(p.n, sx + 12, sy);
-      const note = p.note + (p.sun ? ' \u00b7 closed Sun' : '');
-      g.font = '600 10px -apple-system, system-ui, sans-serif';
-      g.lineWidth = 3; g.strokeText(note, sx + 12, sy + 13); g.fillStyle = 'rgba(255,209,102,.8)'; g.fillText(note, sx + 12, sy + 13);
+      goldStar(sx, sy, 8);
+      pickText(p, sx, sy);
     }
+  }
+  function goldStar(sx, sy, r) {
+    g.save(); g.shadowColor = GOLD; g.shadowBlur = 10; g.fillStyle = GOLD; star(sx, sy, r); g.fill(); g.restore();
+    g.strokeStyle = 'rgba(12,13,17,.95)'; g.lineWidth = 1.5; star(sx, sy, r); g.stroke();
+  }
+  const pickNote = (p) => p.note + (p.sun ? ' \u00b7 closed Sun' : '');
+  function pickText(p, sx, sy) { // name and note to the right of the star
+    g.font = '800 12px -apple-system, system-ui, sans-serif';
+    g.textAlign = 'left'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+    g.lineWidth = 4; g.strokeStyle = 'rgba(12,13,17,.92)'; g.strokeText(p.n, sx + 12, sy); g.fillStyle = GOLD; g.fillText(p.n, sx + 12, sy);
+    const note = pickNote(p);
+    g.font = '600 10px -apple-system, system-ui, sans-serif';
+    g.lineWidth = 3; g.strokeText(note, sx + 12, sy + 13); g.fillStyle = 'rgba(255,209,102,.8)'; g.fillText(note, sx + 12, sy + 13);
   }
 
   // Direction signs at the screen edge: the hotel, the next stop, and the nearest of Jesse's places,
   // each with its straight-line distance, so you learn which way things are from wherever you are.
   let signCount = 0;
-  function drawSigns(hud) {
+  function drawSigns(hud) { paintSigns(layoutSigns(hud)); }
+  function layoutSigns(hud) {
     const T = race.T, c = race.car, S = ROME.S;
     const [cx, cy] = toScr(c.x, c.y);
     const targets = [];
@@ -277,7 +291,7 @@
     const chips = [];
     for (const tg of targets) {
       const [sx, sy] = toScr(tg.x, tg.y);
-      if (sx > box.l + 30 && sx < box.r - 30 && sy > box.t + 20 && sy < box.b - 20) continue; // visible already
+      if (sx > box.l + 30 && sx < box.r - 30 && sy > box.t + 20 && sy < box.b - 20 && (!chaseView || Chase.toScreen(tg.x, tg.y, 0)[2] < CH_SIGN)) continue; // visible already (chase: and near enough to read)
       const wx = tg.x - c.x, wy = tg.y - c.y, m = Math.hypot(wx, wy) / S;
       let dx = sx - cx, dy = sy - cy;
       if (chaseView) { const r = -(Chase.yaw + Math.PI / 2); dx = wx * Math.cos(r) - wy * Math.sin(r); dy = wx * Math.sin(r) + wy * Math.cos(r); } // map-style bearing
@@ -308,11 +322,24 @@
       }
       for (const ch of list) { // nudge away from the car
         if (Math.abs(ch.px - cx) < ch.w / 2 + 18 && Math.abs(ch.py - cy) < h / 2 + 18) ch.py += ch.py < cy ? -(h + 22) : h + 22;
+        if (chaseView) ch.py = Math.max(box.t + h / 2, Math.min(box.b - h / 2, ch.py)); // never up under the nav box or the minimap
       }
     }
-    // 3) draw
+    // chase: chips on two edges can meet in a corner; step the later one towards the middle until it is clear
+    if (chaseView) for (let i = 1; i < chips.length; i++) for (let j = 0, n = 0; j < i && n < 12; j++) {
+      const a = chips[i], b = chips[j];
+      if (Math.abs(a.px - b.px) < (a.w + b.w) / 2 + 4 && Math.abs(a.py - b.py) < h + 4) {
+        a.py = Math.max(box.t + h / 2, Math.min(box.b - h / 2, b.py + (a.py > (box.t + box.b) / 2 ? -1 : 1) * (h + 4))); j = -1; n++;
+      }
+    }
+    // still crowded (rare): the later sign gives way; the list is in priority order (hotel, next stop, Jesse's places)
+    if (chaseView) return chips.filter((a, i) => !chips.slice(0, i).some((b) => Math.abs(a.px - b.px) < (a.w + b.w) / 2 + 2 && Math.abs(a.py - b.py) < h + 2));
+    return chips;
+  }
+  function paintSigns(chips) {
+    const h = 22;
     signCount = chips.length;
-    g.textBaseline = 'middle';
+    g.font = '700 10.5px -apple-system, system-ui, sans-serif'; g.textBaseline = 'middle';
     for (const ch of chips) {
       const { px, py, w, tg } = ch;
       const fg = tg.solid ? '#1a1205' : tg.col; // the hotel sign is solid amber: "home"
@@ -342,7 +369,7 @@
   function drawLandmarks(free) {
     if (!ROME.pois) return;
     if (!POIS) POIS = ROME.pois.map(([k, x, y, l]) => ({ st: POI_STYLE[ROME.poiKinds[k]] || POI_STYLE.sight, x, y, t: ROME.poiLabels[l] })).sort((a, b) => a.st.pri - b.st.pri);
-    const font = (st) => (st.it ? 'italic 600 ' : '700 ') + (st.small ? '9px' : '10px') + ' -apple-system, system-ui, sans-serif';
+    const font = poiFont;
     g.textBaseline = 'middle';
     for (const p of POIS) {
       const [sx, sy] = toScr(p.x, p.y), st = p.st;
@@ -352,28 +379,160 @@
       if (!textW.has(key)) textW.set(key, g.measureText(p.t).width);
       const w = textW.get(key), sign = st.icon === 'sign';
       if (!free(sx - 8, sy - 8, sx + (sign ? w + 4 : w + 14), sy + 8)) continue;
-      g.lineJoin = 'round';
-      if (sign) { // supermarket: the label is the sign
-        g.fillStyle = st.bg; rr(g, sx - 6, sy - 7, w + 12, 14, 3); g.fill();
-        g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(p.t, sx, sy + 0.5);
-        continue;
-      }
-      if (st.bg) {
-        g.fillStyle = st.bg; rr(g, sx - 6, sy - 6, 12, 12, 2.5); g.fill();
-        g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '800 ' + (st.icon.length > 1 ? '6px' : '9px') + ' -apple-system, system-ui, sans-serif';
-        g.fillText(st.icon, sx, sy + 0.5);
-      } else if (st.icon === 'cross') {
-        g.save(); g.shadowColor = '#3ddc84'; g.shadowBlur = 8; g.fillStyle = '#3ddc84';
-        g.fillRect(sx - 1.8, sy - 6, 3.6, 12); g.fillRect(sx - 6, sy - 1.8, 12, 3.6); g.restore();
-      } else if (st.icon === 'church') {
-        g.strokeStyle = st.col; g.lineWidth = 1.6; g.beginPath(); g.moveTo(sx, sy - 6); g.lineTo(sx, sy + 6); g.moveTo(sx - 3.5, sy - 2.5); g.lineTo(sx + 3.5, sy - 2.5); g.stroke();
-      } else {
-        g.fillStyle = st.col; g.beginPath(); g.arc(sx, sy, st.small ? 2.8 : 3.6, 0, 7); g.fill();
-      }
-      g.font = font(st); g.textAlign = 'left';
-      g.lineWidth = 3; g.strokeStyle = 'rgba(12,13,17,.92)'; g.strokeText(p.t, sx + 9, sy + 0.5);
-      g.fillStyle = st.col; g.fillText(p.t, sx + 9, sy + 0.5);
+      drawPoi(p, sx, sy, w);
     }
+  }
+  const poiFont = (st) => (st.it ? 'italic 600 ' : '700 ') + (st.small ? '9px' : '10px') + ' -apple-system, system-ui, sans-serif';
+  function drawPoi(p, sx, sy, w) { // icon and label; w is the label's width in poiFont (expects textBaseline middle)
+    const st = p.st;
+    g.lineJoin = 'round';
+    if (st.icon === 'sign') { // supermarket: the label is the sign
+      g.fillStyle = st.bg; rr(g, sx - 6, sy - 7, w + 12, 14, 3); g.fill();
+      g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(p.t, sx, sy + 0.5);
+      return;
+    }
+    if (st.bg) {
+      g.fillStyle = st.bg; rr(g, sx - 6, sy - 6, 12, 12, 2.5); g.fill();
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '800 ' + (st.icon.length > 1 ? '6px' : '9px') + ' -apple-system, system-ui, sans-serif';
+      g.fillText(st.icon, sx, sy + 0.5);
+    } else if (st.icon === 'cross') {
+      g.save(); g.shadowColor = '#3ddc84'; g.shadowBlur = 8; g.fillStyle = '#3ddc84';
+      g.fillRect(sx - 1.8, sy - 6, 3.6, 12); g.fillRect(sx - 6, sy - 1.8, 12, 3.6); g.restore();
+    } else if (st.icon === 'church') {
+      g.strokeStyle = st.col; g.lineWidth = 1.6; g.beginPath(); g.moveTo(sx, sy - 6); g.lineTo(sx, sy + 6); g.moveTo(sx - 3.5, sy - 2.5); g.lineTo(sx + 3.5, sy - 2.5); g.stroke();
+    } else {
+      g.fillStyle = st.col; g.beginPath(); g.arc(sx, sy, st.small ? 2.8 : 3.6, 0, 7); g.fill();
+    }
+    g.font = poiFont(st); g.textAlign = 'left';
+    g.lineWidth = 3; g.strokeStyle = 'rgba(12,13,17,.92)'; g.strokeText(p.t, sx + 9, sy + 0.5);
+    g.fillStyle = st.col; g.fillText(p.t, sx + 9, sy + 0.5);
+  }
+
+  // ---------- labels in the chase view ---------------------------------------------------------------
+  // In 3D a label has to earn its place: only what is near enough to read, shrunk and faded with its depth (Chase.toScreen),
+  // nearest first through a greedy pass so no two overlap, at most CH_MAX on screen, and never over the HUD, the sign
+  // chips, the car, or the bottom third of the screen where the road is. The current street is in the nav box already.
+  const CH_MAX = 6, CH_CAP = { street: 3, spot: 4, pick: 2 }, CH_SIGN = 700;
+  const SFONT = '600 12px -apple-system, system-ui, sans-serif', PFONT = '800 12px -apple-system, system-ui, sans-serif', NFONT = '600 10px -apple-system, system-ui, sans-serif';
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v)), fade = (d, a, b) => clamp((b - d) / (b - a), 0, 1);
+  const hit = (b, r) => b[0] < r[2] && b[2] > r[0] && b[1] < r[3] && b[3] > r[1];
+  const chW = new Map();
+  const measure = (font, t) => { const k = font + t; if (!chW.has(k)) { g.font = font; chW.set(k, g.measureText(t).width); } return chW.get(k); };
+  const pois = () => POIS || (POIS = ROME.pois.map(([k, x, y, l]) => ({ st: POI_STYLE[ROME.poiKinds[k]] || POI_STYLE.sight, x, y, t: ROME.poiLabels[l] })).sort((a, b) => a.st.pri - b.st.pri));
+  let chaseLabels = null; // the last frame's layout (read by the test hook)
+  let SGRID = null;
+  function streetGrid() { // points every ~120 units along the named streets, [x, y, angle, name] by 400-unit cell
+    if (SGRID) return SGRID;
+    SGRID = new Map();
+    for (const s of ROME.streets) {
+      if (!ROME.names[s[1]]) continue;
+      for (let i = 4; i < s.length; i += 2) {
+        const x0 = s[i - 2], y0 = s[i - 1], x1 = s[i], y1 = s[i + 1], n = Math.max(1, Math.round(Math.hypot(x1 - x0, y1 - y0) / 120));
+        for (let j = 0; j < n; j++) {
+          const t = (j + 0.5) / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t, k = Math.floor(x / 400) + ',' + Math.floor(y / 400);
+          if (!SGRID.has(k)) SGRID.set(k, []);
+          SGRID.get(k).push(x, y, Math.atan2(y1 - y0, x1 - x0), s[1]);
+        }
+      }
+    }
+    return SGRID;
+  }
+  function drawChaseLabels() {
+    const c = race.car, hud = hudRects(), P = (x, y) => Chase.toScreen(x, y, 0);
+    const near = (x, y) => (x - c.x) ** 2 + (y - c.y) ** 2 < 1100 * 1100;
+    const cp = P(c.x, c.y) || [vw / 2, vh * 0.65], road = vh * 0.67;
+    // the car's reserved rectangle: its projected corners (roof included) with a margin, and never less than a fixed box
+    const carBox = [cp[0] - 56, cp[1] - 46, cp[0] + 56, cp[1] + 30], ca = Math.cos(c.a), sa = Math.sin(c.a), cl = c.spec.len / 2, cw = c.spec.wid / 2;
+    for (const [u, v] of [[cl, cw], [cl, -cw], [-cl, cw], [-cl, -cw]]) for (const z of [0, c.spec.wid * 0.7 + 4]) {
+      const q = Chase.toScreen(c.x + u * ca - v * sa, c.y + u * sa + v * ca, z);
+      if (q) { carBox[0] = Math.min(carBox[0], q[0] - 18); carBox[1] = Math.min(carBox[1], q[1] - 22); carBox[2] = Math.max(carBox[2], q[0] + 18); carBox[3] = Math.max(carBox[3], q[1] + 14); }
+    }
+    const chips = layoutSigns(hud), taken = chips.map((ch) => [ch.px - ch.w / 2 - 4, ch.py - 15, ch.px + ch.w / 2 + 4, ch.py + 15]);
+    const cand = [], stars = [];
+    // a label at screen point p (with depth p[2]), scale k, opacity a; rel is its box round p at scale 1
+    const add = (L, p, rel) => { if (L.a > 0.06) cand.push(Object.assign(L, { sx: p[0], sy: p[1], d: p[2], box: [p[0] + rel[0] * L.k, p[1] + rel[1] * L.k, p[0] + rel[2] * L.k, p[1] + rel[3] * L.k] })); };
+    // street names: for each named street ahead, its nearest point on screen above the road (nearer the middle is
+    // better: that is where it meets the street you're on), along the street as seen on screen, never upside down or on end
+    const fx = Math.cos(Chase.yaw), fy = Math.sin(Chase.yaw), G = streetGrid(), best = new Map();
+    for (let gx = Math.floor((c.x - 1000) / 400); gx <= Math.floor((c.x + 1000) / 400); gx++) for (let gy = Math.floor((c.y - 1000) / 400); gy <= Math.floor((c.y + 1000) / 400); gy++) {
+      const cell = G.get(gx + ',' + gy);
+      if (cell) for (let i = 0; i < cell.length; i += 4) {
+        const x = cell[i], y = cell[i + 1], dx = x - c.x, dy = y - c.y;
+        if (dx * fx + dy * fy < 0 || dx * dx + dy * dy > 1e6) continue;
+        const p = P(x, y);
+        if (!p || p[2] < 200 || p[2] > 850 || p[0] < 30 || p[0] > vw - 30 || p[1] < 0 || p[1] > road - 8) continue;
+        const sc = p[2] + Math.abs(p[0] - vw / 2) * 0.6, b = best.get(cell[i + 3]);
+        if (!b || sc < b.sc) best.set(cell[i + 3], { sc, p, x, y, ang: cell[i + 2] });
+      }
+    }
+    for (const [ni, { p, x, y, ang }] of best) {
+      const t = ROME.names[ni];
+      if (t.trim() === navStreet) continue;
+      const ex = Math.cos(ang) * 24, ey = Math.sin(ang) * 24, p0 = P(x - ex, y - ey), p1 = P(x + ex, y + ey);
+      if (!p0 || !p1) continue;
+      let ra = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]);
+      if (ra > Math.PI / 2) ra -= Math.PI; else if (ra < -Math.PI / 2) ra += Math.PI;
+      if (Math.abs(ra) > 1.05) continue; // a street running away from the camera: its name would stand on end
+      const k = clamp(330 / p[2], 0.8, 1), hw = measure(SFONT, t) / 2, cs = Math.abs(Math.cos(ra)), sn = Math.abs(Math.sin(ra));
+      const ex2 = cs * hw + sn * 7, ey2 = sn * hw + cs * 7;
+      add({ kind: 'street', grp: 'street', t, key: p[2] * 0.9, k, a: 0.35 + 0.65 * fade(p[2], 450, 850), ra, draw() {
+        g.font = SFONT; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(12,13,17,.9)'; g.strokeText(t, 0, 0);
+        g.fillStyle = 'rgba(214,220,230,.86)'; g.fillText(t, 0, 0);
+      } }, p, [-ex2, -ey2, ex2, ey2]);
+    }
+    // the hotel, the stops, metro stations and sights
+    for (const q of ROME.places) {
+      const p = near(q.x, q.y) && P(q.x, q.y);
+      if (!p || p[2] > 1000) continue;
+      const hw = Math.max(measure(placeFont(q), q.n) / 2 + 2, 8);
+      add({ kind: 'place', grp: 'spot', t: q.n, key: p[2] * (q.k === 'hotel' || q.k === 'stop' ? 0.6 : 0.8), k: clamp(300 / p[2], 0.65, 1), a: fade(p[2], 650, 1000),
+        draw() { g.textAlign = 'center'; drawPlace(q, 0, 0); } }, p, [-hw, -23, hw, 8]);
+    }
+    // shop fronts and street furniture: only the nearest handful
+    for (const q of ROME.pois ? pois() : []) {
+      const p = near(q.x, q.y) && P(q.x, q.y);
+      if (!p || p[2] > 760) continue;
+      const st = q.st, w = measure(poiFont(st), q.t);
+      add({ kind: 'poi', grp: 'spot', t: q.t, key: p[2] * (0.85 + st.pri * 0.06), k: clamp(300 / p[2], 0.7, 1), a: fade(p[2], 450, 760),
+        draw() { g.font = poiFont(st); drawPoi(q, 0, 0, w); } }, p, [-8, -8, st.icon === 'sign' ? w + 6 : w + 13, 8]);
+    }
+    // gold stars: always drawn when in view, sized by depth; their names go through the placement first
+    for (const q of ROME.picks || []) {
+      const p = P(q.x, q.y);
+      if (!p || p[2] > 2400 || p[0] < -20 || p[0] > vw + 20 || p[1] < -20 || p[1] > vh + 20) continue;
+      const ks = clamp(260 / p[2], 0.45, 1.15), k = clamp(300 / p[2], 0.7, 1);
+      stars.push([p[0], p[1], ks]); taken.push([p[0] - 9 * ks, p[1] - 9 * ks, p[0] + 9 * ks, p[1] + 9 * ks]);
+      if (p[2] > 1000) continue;
+      const w = Math.max(measure(PFONT, q.n), measure(NFONT, pickNote(q)));
+      add({ kind: 'pick', grp: 'pick', t: q.n, key: p[2] * 0.5, k, a: fade(p[2], 700, 1000), draw() { pickText(q, 0, 0); } },
+        [p[0] + 8 * ks - 8 * k, p[1], p[2]], [10, -9, w + 14, 19]); // the text starts just right of the star at either size
+    }
+    // greedy, nearest (and most useful) first: skip whatever would overlap a label already placed
+    cand.sort((a, b) => a.key - b.key);
+    const placed = [], n = { street: 0, spot: 0, pick: 0 }, names = new Set([navStreet]); // nothing repeats the nav box
+    for (const L of cand) {
+      if (placed.length >= CH_MAX) break;
+      if (n[L.grp] >= CH_CAP[L.grp] || names.has(L.t)) continue;
+      const b = L.box;
+      // lift it out of the road band and the car's box when only a little of it is in there; otherwise skip it
+      let lift = Math.max(0, b[3] - road);
+      if (hit([b[0], b[1] - lift, b[2], b[3] - lift], carBox)) lift = b[3] - carBox[1] + 1;
+      if (lift > 30 || b[0] < 2 || b[2] > vw - 2 || b[1] - lift < 2) continue;
+      const bb = [b[0], b[1] - lift, b[2], b[3] - lift];
+      if (hud.some((r) => hit(bb, r)) || taken.some((r) => hit(bb, r))) continue;
+      taken.push(bb); placed.push(L); L.b = bb; L.lift = lift; n[L.grp]++; names.add(L.t);
+    }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.textBaseline = 'middle'; g.lineJoin = 'round';
+    for (const [x, y, ks] of stars) { g.save(); g.translate(x, y); g.scale(ks, ks); goldStar(0, 0, 8); g.restore(); }
+    for (const L of placed) {
+      g.save(); g.globalAlpha = L.a; g.translate(L.sx, L.sy - L.lift);
+      if (L.ra) g.rotate(L.ra);
+      g.scale(L.k, L.k); L.draw(); g.restore();
+    }
+    paintSigns(chips);
+    chaseLabels = { cand: cand.length, labels: placed.map((L) => ({ kind: L.kind, t: L.t, d: Math.round(L.d), a: +L.a.toFixed(2), box: L.b.map(Math.round) })), stars: stars.length,
+      car: carBox.map(Math.round), road: Math.round(road), hud: hud.map((r) => r.map(Math.round)), nav: navStreet, yaw: Chase.yaw, carA: c.a,
+      signs: chips.map((ch) => ({ t: ch.tg.t, ang: ch.ang, bear: Math.atan2(ch.tg.y - c.y, ch.tg.x - c.x), box: [ch.px - ch.w / 2, ch.py - 11, ch.px + ch.w / 2, ch.py + 11].map(Math.round) })) };
   }
 
   function buildWorld(T) {
@@ -690,7 +849,6 @@
     const dx = (x - cam.x) * cam.z, dy = (y - cam.y) * cam.z;
     return [cam.ax + dx * cam.c - dy * cam.s, cam.ay + dx * cam.s + dy * cam.c];
   }
-  function scrAngle(x, y, a, sx, sy) { const p = toScr(x + Math.cos(a) * 20, y + Math.sin(a) * 20); return Math.atan2(p[1] - sy, p[0] - sx); }
   function toWorld(sx, sy) {
     const dx = (sx - cam.ax) / cam.z, dy = (sy - cam.ay) / cam.z;
     return [cam.x + dx * cam.c + dy * cam.s, cam.y - dx * cam.s + dy * cam.c];
@@ -1351,7 +1509,7 @@
   }
 
   // test hook (read-only peek for the headless tests)
-  window.__ghostlap = { get state() { return state; }, get race() { return race; }, get save() { return save; }, get signs() { return signCount; },
+  window.__ghostlap = { get state() { return state; }, get race() { return race; }, get save() { return save; }, get signs() { return signCount; }, get labels() { return chaseView ? chaseLabels : null; },
     get view() {
       const c = race && race.car, [x, y] = c ? toScr(c.x, c.y) : [0, 0], r = chaseView ? -(Chase.yaw + Math.PI / 2) : cam.r;
       return { mode: save.cam, chase: chaseView, r, x: x / vw, y: y / vh, a: c ? wrap(c.a + r) : 0 };
