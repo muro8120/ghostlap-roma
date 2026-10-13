@@ -78,6 +78,26 @@ What is already set up in the repo:
 4. **Product > Archive**, **Distribute App**, upload, and add the new build to the tester group if it is not added
    automatically. Testers get it through the TestFlight app.
 
+## Or skip TestFlight: install by cable, once a year
+
+TestFlight builds expire after 90 days. A build installed straight from Xcode over a cable is signed with your paid
+developer account's development profile and runs for **12 months**. For two phones this is less work than three
+re-uploads a year. Nothing is submitted to Apple and nothing is visible in the App Store.
+
+1. On the iPhone, turn on **Settings > Privacy & Security > Developer Mode** (iOS 16 and later; the phone restarts).
+2. Plug the phone into the Mac with a cable, unlock it, and tap **Trust** if asked.
+3. `npm run build:www && npx cap sync ios && npx cap open ios`.
+4. In Xcode pick the phone as the run destination (the device menu at the top, next to the scheme name). The first time,
+   Xcode registers the phone on your developer account by itself when **Automatically manage signing** is on.
+5. For a smooth build, **Product > Scheme > Edit Scheme > Run > Build Configuration: Release**.
+6. **Product > Run**. Xcode installs the app and launches it. Unplug; it stays.
+7. Repeat steps 2 to 6 for the second phone. Each phone counts against the 100 devices a year your account allows.
+8. When the year is up the app stops opening. Plug in and **Product > Run** again.
+
+Updates go the same way: pull, build, sync, Run. No build numbers to raise. If one of you is not around to plug in,
+TestFlight above still works for that phone; the two routes do not interfere, but they are separate installs with
+separate saved data.
+
 ## Notes
 
 - **Saved data does not move across.** Times, ghosts and chess history live in the web view's storage, which is separate
