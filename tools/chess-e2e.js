@@ -10,7 +10,18 @@ const srv = http.createServer((q, r) => {
   const f = path.join(ROOT, p);
   if (!f.startsWith(ROOT) || !fs.existsSync(f)) { r.writeHead(404); return r.end('nf'); }
   r.writeHead(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r);
-}).listen(8767);
+}).listen(+process.env.PORT || 8767);   // PORT=8770 node tools/chess-e2e.js if 8767 is taken
+// a synthetic analysed game (White): 1. e4 e5 2. Nf3 Nc6 3. Nxe5?? Nxe5 4. d4 Nc6, the knight on e5 simply hung
+const SYN = (id, daysAgo) => {
+  const mk = (ply, uci, san, label, loss, x) => Object.assign({ ply, color: ply % 2 ? 'w' : 'b', uci, san, label, loss, cpBefore: 30, cpAfter: 30, mateBefore: null, mateAfter: null, best: uci, bestSan: san, reply: null, pv: [], pieces: 14, hung: null }, x || {});
+  const moves = [mk(1, 'e2e4', 'e4', 'best', 0), mk(2, 'e7e5', 'e5', 'best', 0), mk(3, 'g1f3', 'Nf3', 'best', 0), mk(4, 'b8c6', 'Nc6', 'best', 0),
+    mk(5, 'f3e5', 'Nxe5', 'blunder', 300, { best: 'f1c4', bestSan: 'Bc4', reply: 'c6e5', hung: 'n', cpAfter: -270 }), mk(6, 'c6e5', 'Nxe5', 'best', 0), mk(7, 'd2d4', 'd4', 'great', 10), mk(8, 'e5c6', 'Nc6', 'good', 30)];
+  const cnt = (c) => ({ best: 0, great: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0, forced: 0, ...c });
+  return { id, date: new Date(Date.now() - daysAgo * 864e5).toISOString(), elo: 1200, you: 'w', result: 'loss', reason: 'resign', moves: moves.map((m) => m.uci), sans: moves.map((m) => m.san),
+    hints: 0, nudges: 0, tutor: false, takebacks: 0, practice: null, assist: { used: 0, budget: 10 }, hinted: [],
+    report: { accuracy: { w: 61, b: 97 }, counts: { w: cnt({ best: 2, great: 1, blunder: 1 }), b: cnt({ best: 3, good: 1 }) }, moves, evals: [30, 30, 30, 30, 30, -270, -270, -280, -260],
+      worst: [moves[4]], summary: 'Accuracy 61%. 1 blunder, 0 mistakes, 0 inaccuracies.', lesson: 'Synthetic lesson.' } };
+};
 const results = [];
 const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, extra || '']); console.log((ok ? 'PASS ' : 'FAIL ') + name + (extra ? '  ' + extra : '')); };
 
@@ -21,7 +32,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   const errs = [];
   p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   p.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
-  const base = 'http://localhost:8767/';
+  const base = 'http://localhost:' + (+process.env.PORT || 8767) + '/';
   await p.goto(base);
   await p.waitForTimeout(500);
   await p.screenshot({ path: SHOTS + '/c0-hub.png' });
@@ -72,6 +83,21 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.click('#rNext'); await p.click('#rNext'); await p.waitForTimeout(200);
   await p.click('#rWhyBtn'); await p.waitForTimeout(100);
   check('αβ in the review', (await p.$$eval('#rWhy div', (e) => e.length)) >= 2, await p.$eval('#rWhy', (e) => e.innerText.slice(0, 160)));
+  // feedback cards above the review; tapping one moves the replay board there and opens αβ
+  const rc = await p.$$eval('#rCards .rcard', (e) => e.map((d) => ({ cls: d.className, ref: d.querySelector('.kt small').textContent, text: d.innerText.replace(/\s+/g, ' ') })));
+  check('feedback cards render after analysis', rc.length >= 2 && rc.length <= 3, rc.map((c) => c.text).join(' | ').slice(0, 300));
+  await p.evaluate(() => document.getElementById('review').scrollTo(0, 0)); await p.waitForTimeout(100);
+  await p.screenshot({ path: SHOTS + '/c7b-cards.png' });
+  const tc = rc.find((c) => /k-one/.test(c.cls) && c.ref) || rc.find((c) => c.ref);
+  await p.evaluate(() => { document.getElementById('rWhy').hidden = true; });
+  await p.click('#rCards .rcard.' + tc.cls.split(' ').find((c) => /^k-/.test(c))); await p.waitForTimeout(400);
+  const moved = await p.evaluate(() => ({ pos: document.getElementById('rPos').textContent, why: !document.getElementById('rWhy').hidden, last: document.querySelectorAll('#rBoard .sq.last').length }));
+  check('tapping a card scrubs the replay board and opens αβ', moved.pos === tc.ref && moved.why && moved.last === 2, JSON.stringify({ moved, want: tc.ref }));
+  await p.screenshot({ path: SHOTS + '/c7c-card-tapped.png' });
+  // cards() is pure: a synthetic game where 3. Nxe5 hangs the knight
+  const cs = await p.evaluate((e) => window.__coach.cards(e, []), SYN('syn0', 0));
+  check('cards() on a synthetic entry: three cards, hanging pieces', cs.length === 3 && cs[0].kind === 'good' && cs[1].pattern === 'hung' && cs[1].ply === 5 && /knight/.test(cs[1].text)
+    && /what of mine is undefended/.test(cs[2].text) && cs.every((c) => c.text.length > 10), JSON.stringify(cs.map((c) => [c.kind, c.head, c.text, c.ply])).slice(0, 400));
   await p.screenshot({ path: SHOTS + '/c8-review-step.png' });
   const h = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse);
   check('hint counted in history', !!(h && h.games[0] && h.games[0].hints === 1), h && h.games[0] && 'hints=' + h.games[0].hints);
@@ -86,9 +112,10 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1600 })); await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
   await p.waitForTimeout(300); await p.screenshot({ path: SHOTS + '/c9b-wood.png' });
   check('wood squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(181, 136, 99)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
-  // J's profile: quiet coach, separate history
+  // J's profile: kind coach by default, separate history; switched to quiet here to check the quiet voice
   await p.evaluate(() => window.__coach.setPlayer('j'));
-  check('J starts with no games', (await p.$$eval('#chessHist button', (e) => e.length)) === 0 && (await p.$eval('#voiceBtn', (e) => e.textContent)) === 'Quiet');
+  check('J starts with no games, on the Kind voice', (await p.$$eval('#chessHist button', (e) => e.length)) === 0 && (await p.$eval('#voiceBtn', (e) => e.textContent)) === 'Kind');
+  await p.evaluate(() => window.__coach.setVoice('quiet'));
   await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1200 }));
   await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
   await p.evaluate(() => window.__coach.move('e2e4'));
@@ -180,6 +207,76 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.evaluate(() => window.__coach.resign()); await p.waitForTimeout(200); await p.click('#endHome'); await p.waitForTimeout(100);
   await p.click('#chessBack'); await p.waitForTimeout(200);
   check('back returns to hub', await p.$eval('#hub', (e) => e.classList.contains('on')));
+
+  // escalation and level check, in a fresh phone: Jesse seeded with three analysed games that all hung a piece; J untouched
+  const ctx2 = await b.newContext({ ...devices['iPhone 13'] });
+  const q = await ctx2.newPage();
+  q.on('pageerror', (e) => errs.push('pageerror(2): ' + e.message));
+  q.on('console', (m) => { if (m.type() === 'error') errs.push('console(2): ' + m.text()); });
+  await q.goto(base);
+  await q.evaluate((games) => localStorage.setItem('ghostlap-chess-v1', JSON.stringify({ player: 'jesse', players: { jesse: { name: 'Jesse', elo: 1400, color: 'w', theme: 'night', mode: 'play', voice: 'kind', games } } })), [SYN('s1', 1), SYN('s2', 2), SYN('s3', 3)]);
+  await q.reload(); await q.waitForTimeout(300);
+  await q.click('#pickChess'); await q.waitForTimeout(300);
+  const esc = await q.evaluate(() => ({ st: window.__coach.streaks().hung, line: window.__coach.focusLine(), box: document.getElementById('focusBox').hidden ? '' : document.getElementById('focusBox').innerText.replace(/\s+/g, ' '),
+    calib: !document.getElementById('calibCard').hidden, cal: window.__coach.calib, one: window.__coach.cards(window.__coach.history[0]) }));
+  check('streak counts three games running', esc.st === 3, JSON.stringify(esc.st));
+  check('pre-game focus gets firmer after three games', /^Same thing three games running\. This game, before every move: what of mine is undefended\?$/.test(esc.line) && esc.box.includes(esc.line), esc.line + ' / ' + esc.box);
+  check('the one thing says third game running', esc.one[1] && esc.one[1].head === 'Third game running: hanging pieces' && /^Next game, before every move/.test(esc.one[2].text), JSON.stringify(esc.one.map((c) => [c.head, c.text])).slice(0, 300));
+  check('3+ analysed games count as calibrated', !esc.calib && esc.cal.calibrated && esc.cal.elo === 1400, JSON.stringify(esc.cal));
+  await q.click('#chessHist .rv >> nth=0'); await q.waitForTimeout(400);
+  const rcs = await q.$$eval('#rCards .rcard', (e) => e.map((d) => d.innerText.replace(/\s+/g, ' ')));
+  check('review of an old entry shows the escalated cards', rcs.length === 3 && rcs.some((t) => /Third game running: hanging pieces/.test(t)), rcs.join(' | ').slice(0, 300));
+  await q.screenshot({ path: SHOTS + '/c16-cards-escalated.png' });
+  await q.click('#rCards .rcard.k-one .drill'); await q.waitForTimeout(150);
+  const dr = await q.evaluate(() => ({ focus: window.__coach.focus, pos: document.getElementById('rPos').textContent, btn: document.querySelector('#rCards .rcard.k-one .drill').textContent }));
+  check('Drill this sets the focus for three games (without moving the board)', dr.focus && dr.focus.key === 'hung' && dr.focus.left === 3 && dr.pos === 'Start' && /Drilling/.test(dr.btn), JSON.stringify(dr));
+  await q.click('#reviewBack'); await q.waitForTimeout(200);
+  const fb = await q.$eval('#focusBox', (e) => e.hidden ? '' : e.innerText.replace(/\s+/g, ' '));
+  check('chosen focus shows on the chess home', /Your drill · 3 games left/i.test(fb), fb);
+  await q.screenshot({ path: SHOTS + '/c17-focus-home.png' });
+  // J: fresh profile, Kind voice, gets the level check
+  await q.evaluate(() => window.__coach.setPlayer('j')); await q.waitForTimeout(150);
+  const cc = await q.evaluate(() => ({ on: !document.getElementById('calibCard').hidden, head: document.getElementById('calibHead').textContent, voice: document.getElementById('voiceBtn').textContent }));
+  check('fresh profile gets the Find your level card', cc.on && cc.head === 'Find your level: three quick games' && cc.voice === 'Kind', JSON.stringify(cc));
+  await q.screenshot({ path: SHOTS + '/c18-calib-card.png' });
+  const calibGame = async (n) => {
+    const want = await q.evaluate(() => window.__coach.calib.next);
+    await q.click('#calibGo');
+    await q.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
+    const g = await q.evaluate(() => ({ elo: window.__coach.game.elo, calib: window.__coach.game.calib, tutor: window.__coach.game.tutor }));
+    check('level check game ' + n + ' starts at ' + want, g.calib && !g.tutor && g.elo === want, JSON.stringify(g));
+    await q.evaluate(() => window.__coach.move('e2e4'));
+    await q.waitForFunction(() => window.__coach.game.moves.length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 });
+    await q.evaluate(() => window.__coach.resign());
+    await q.waitForSelector('#chessEnd.on', { timeout: 5000 }).catch(() => {});
+    const msg = await q.$eval('#endMsg', (e) => e.textContent);
+    check('end sheet notes the level check (' + n + ')', new RegExp(n < 3 ? 'Level check: game ' + n + ' of 3 done' : 'Level check done').test(msg), msg);
+  };
+  await calibGame(1);
+  await q.waitForFunction(() => { const c = window.__coach.calib.progress; return c && c.games[0] && c.games[0].acc != null; }, null, { timeout: 120000 }).catch(() => {});
+  const e1 = await q.evaluate(() => ({ btn: document.getElementById('endNew').textContent, msg: document.getElementById('endMsg').textContent, next: window.__coach.calib.next }));
+  check('end sheet offers the next level-check game at the adjusted strength', e1.btn === 'Game 2 of 3' && e1.msg.endsWith('Next game at ' + e1.next + '.'), JSON.stringify(e1));
+  await q.click('#endHome'); await q.waitForTimeout(200);
+  const c2 = await q.evaluate(() => ({ head: document.getElementById('calibHead').textContent, cal: window.__coach.calib, hist: document.querySelector('#chessHist small').textContent }));
+  check('card progresses to Game 2 of 3 (accuracy counted)', /Game 2 of 3/.test(c2.head) && c2.cal.progress.games.length === 1 && c2.cal.progress.games[0].acc != null, JSON.stringify(c2.cal.progress));
+  check('history line tags the level check', /level check/.test(c2.hist), c2.hist);
+  await q.screenshot({ path: SHOTS + '/c19-calib-progress.png' });
+  // leaving mid-way survives a reload
+  await q.reload(); await q.waitForTimeout(300); await q.click('#pickChess'); await q.waitForTimeout(200);
+  check('level check progress survives a reload', /Game 2 of 3/.test(await q.$eval('#calibHead', (e) => e.textContent)));
+  await calibGame(2);
+  await q.waitForFunction(() => { const c = window.__coach.calib.progress; return c && c.games[1] && c.games[1].acc != null; }, null, { timeout: 120000 }).catch(() => {});
+  await q.click('#endHome'); await q.waitForTimeout(200);
+  await calibGame(3);
+  const done = await q.waitForSelector('#calibDone.on', { timeout: 120000 }).then(() => true).catch(() => false);
+  const fin = await q.evaluate(() => ({ title: document.getElementById('calibTitle').textContent, msg: document.getElementById('calibMsg').textContent, cal: window.__coach.calib, hist: window.__coach.history.filter((g) => g.calib).length }));
+  check('after game 3 the level is set', done && fin.cal.calibrated && !fin.cal.progress && fin.title === 'Your level: ~' + fin.cal.elo && fin.cal.elo % 50 === 0 && fin.cal.elo >= 800 && fin.cal.elo <= 2850
+    && /will play at that strength/.test(fin.msg) && fin.hist === 3, JSON.stringify(fin));
+  await q.screenshot({ path: SHOTS + '/c20-calib-done.png' });
+  await q.click('#calibOk'); await q.waitForTimeout(150);
+  check('level card gone once calibrated', await q.$eval('#calibCard', (e) => e.hidden) && (await q.$eval('#eloV', (e) => e.textContent)) === String(fin.cal.elo) && !(await q.$eval('#chessHome', (e) => e.hidden)));
+  await ctx2.close();
+
   check('no page errors', errs.length === 0, errs.join(' | ').slice(0, 300));
   await b.close(); srv.close();
   const fails = results.filter((r) => r[0] === 'FAIL').length;
