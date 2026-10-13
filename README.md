@@ -82,6 +82,13 @@ per move, what you want, what to avoid, and what to do next. Lesson text lives i
 
 Your times and ghosts are stored on the phone (localStorage). Nothing is sent anywhere.
 
+## Native app (TestFlight)
+
+The same files also ship as a native iOS app through [Capacitor](https://capacitorjs.com): `npm run build:www` copies the
+app into `www/`, `npx cap sync ios` puts it into the Xcode project in `ios/`, and Xcode archives and uploads it to
+TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). The native app needs no service worker
+(the files are inside the app), so its launcher says **✓ Ready** instead of **✓ Ready offline**.
+
 ## Files
 
 - `index.html`: layout and styles (launcher, drive menu, race HUD, chess, review)
@@ -96,4 +103,5 @@ Your times and ghosts are stored on the phone (localStorage). Nothing is sent an
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `tools/`: OSM fetch and build scripts, synthetic test map, headless test (`tools/e2e.js`)
+- `package.json`, `capacitor.config.json`, `ios/`, `tools/build-www.mjs`: the native iOS wrapper (see TESTFLIGHT.md)
 
