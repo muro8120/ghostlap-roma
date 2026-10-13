@@ -82,8 +82,8 @@ per move, what you want, what to avoid, and what to do next. Lesson text lives i
   two cards later. Cards live in Leitner boxes: a first answer that is right moves a card up a box, a wrong one drops it
   to box 1; box 1 comes back every session, box 2 every other session, box 3 every fourth (sessions with nothing due are
   skipped). A session ends when every due card has been answered right once, with a summary of cards seen, first-try
-  rate and how many are in box 3. Drill progress is stored per lesson under `ghostlap-learn-v1`, apart from the chess
-  history, and the Learn list shows a small ring per opening once a drill has been done.
+  rate and how many are in box 3. Drill progress is stored per player (whoever is picked on the chess home) and lesson
+  under `ghostlap-learn-v1`, apart from the chess history, and the Learn list shows a small ring per opening once a drill has been done.
 
 ## Install on iPhone
 

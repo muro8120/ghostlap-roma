@@ -8,13 +8,16 @@
   const KIND = { basics: 'Basics', w: 'With White', b: 'With Black' };
   const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch (e) { return ''; } };
 
-  // ---------- drill progress: per lesson, on the phone, apart from the chess history ----------
+  // ---------- drill progress: per player and lesson, on the phone, apart from the chess history ----------
   const KEY = 'ghostlap-learn-v1';
   let store = {};
   try { const raw = JSON.parse(localStorage.getItem(KEY) || '{}'); if (raw && typeof raw === 'object') store = raw; } catch (e) { /* private mode: keep in memory */ }
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
-  const got = (id) => store[id] || {};
-  const prog = (id) => store[id] || (store[id] = {});
+  // one record per chess player (Jesse, J), whoever is selected on the chess home, read at call time
+  const who = () => (window.__coach && window.__coach.player) || 'jesse';
+  const mine = () => { const w = who(); if (!store[w] || typeof store[w] !== 'object') store[w] = {}; return store[w]; };
+  const got = (id) => (store[who()] || {})[id] || {};
+  const prog = (id) => mine()[id] || (mine()[id] = {});
   // every position in the line where it is the lesson side's move; a card's key changes if the line does
   function cardsOf(l) {
     const out = [], c = new Chess(), me = l.side === 'b' ? 1 : 0; let last = null;
@@ -198,5 +201,5 @@
   window.__learn = { open, close, show, seek, practice, memory: () => practice('memory'), cards: startCards, answer, next, closeDrill, get drill() { return drillState(); },
     progress(id) { return JSON.parse(JSON.stringify(got(id || (cur && cur.id) || ''))); },
     due(id) { const l = L.find((x) => x.id === id); if (!l || l.kind !== 'opening') return null; const p = plan(l); return { session: p.s, due: p.due.length, cards: p.cards.length }; },
-    get lesson() { return cur; }, get ply() { return ply; } };
+    get player() { return who(); }, get lesson() { return cur; }, get ply() { return ply; } };
 })();
