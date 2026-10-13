@@ -255,6 +255,8 @@
   .pat b { color: var(--amber); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
   .pat span { font-size: 14px; line-height: 1.35; } .pat i { font-style: normal; color: var(--dim); font-size: 13px; line-height: 1.35; }
   .opt.warn { border-color: rgba(255,90,95,.5); } .opt.warn span { color: var(--red); }
+  .opt.book { border-color: rgba(61,214,140,.55); } .opt.book i { color: var(--green); } .opt.book.on { border-color: var(--amber); }
+  [data-label=book] { --lc: var(--green); } [data-label=slip] { --lc: var(--amber); }
   #learn, #lesson { overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; background: var(--bg);
     padding: calc(var(--st) + 10px) calc(var(--sr) + 16px) calc(var(--sb) + 28px) calc(var(--sl) + 16px); --sq: calc(min(100vw - 32px, 52vh) / 8); }
   .lcard { grid-template-columns: 44px 1fr auto; }
@@ -469,9 +471,10 @@
       </div>
       <div id="rate" data-label=""><div class="rh"><span id="rateLabel"></span><span id="rateLoss" class="num"></span><button class="ab" id="whyBtn" hidden aria-label="Why?">αβ</button></div><div id="rateJab"></div>
         <div class="why" id="why" hidden></div>
-        <div class="row2" id="takeRow" hidden style="margin-top:10px"><button class="btn" id="takeBack">Take it back</button><button class="btn primary" id="liveWith">Live with it</button></div></div>
+        <div class="row2" id="takeRow" hidden style="margin-top:10px"><button class="btn" id="takeBack">Take it back</button><button class="btn primary" id="liveWith">Live with it</button></div>
+        <div class="row2" id="slipRow" hidden style="margin-top:10px"><button class="btn primary" id="slipBack">Take it back</button><button class="btn" id="slipOn">Play on anyway</button></div></div>
       <div class="moves cap" id="moveList"></div>
-      <div class="btns" style="margin-top:12px"><div class="row3"><button class="btn" id="nudgeBtn">Nudge</button><button class="btn" id="hintBtn">Hint</button><button class="btn" id="resignBtn">Resign</button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn" id="lessonBtn" hidden>Back to lesson</button><div class="row3" id="playRow"><button class="btn" id="nudgeBtn">Nudge</button><button class="btn" id="hintBtn">Hint</button><button class="btn" id="resignBtn">Resign</button></div>
         <div class="row2" id="nudgeRow" hidden><button class="btn" id="sandboxBtn">Sandbox a move</button><button class="btn" id="readBtn">Read the board</button></div>
         <p class="chint" id="nudgeHint" hidden></p>
         <p class="chint" id="assistLine" hidden></p>
@@ -483,7 +486,7 @@
 <section id="learn" class="screen">
   <div class="wrap">
     <div class="cbar"><button class="back" id="learnBack" aria-label="Back">&#8249;</button><h1>LEARN</h1></div>
-    <p class="chint">The names at the top of your games, explained. Each lesson is a line you can step through, with what to aim for and what to avoid. Openings come with a Practice button: the engine plays the book line until you leave it.</p>
+    <p class="chint">The names at the top of your games, explained. Each lesson is a line you can step through, with what to aim for and what to avoid. Openings come with a Practice button: the coach walks you through the line move by move and stops you when you leave it.</p>
     <div id="learnList"></div>
   </div>
 </section>
@@ -539,6 +542,21 @@
       <div class="row2">
         <button class="btn" id="endNew">New game</button>
         <button class="btn" id="endHome">Home</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="lineDone">
+  <div class="panel">
+    <h3>PRACTICE</h3>
+    <div class="endT" id="ldTitle">Line done</div>
+    <div class="msg" id="ldMsg"></div>
+    <div class="btns">
+      <button class="btn primary" id="ldOn">Play on</button>
+      <div class="row2">
+        <button class="btn" id="ldAgain">Again</button>
+        <button class="btn" id="ldLesson">Back to lesson</button>
       </div>
     </div>
   </div>

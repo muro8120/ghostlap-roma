@@ -295,7 +295,8 @@
       const d = g.you === 'w' ? clampCp(ln) - cur : cur - clampCp(ln);
       b.innerHTML = '<b></b><span></span><i class="num"></i>';
       b.children[0].textContent = ln.san; b.children[1].textContent = (warn ? 'Your pattern: ' + PATTERNS[warn].name.toLowerCase() + '. ' : '') + ln.note;
-      b.children[2].textContent = ln.mate ? 'M' + Math.abs(ln.mate) : i === 0 ? 'best' : lossTxt(-d);
+      b.children[2].textContent = (ln.book ? 'Book' + (ln.cp == null && !ln.mate ? '' : ' · ') : '') + (ln.cp == null && !ln.mate ? '' : ln.mate ? 'M' + Math.abs(ln.mate) : i === 0 ? 'best' : lossTxt(-d));
+      if (ln.book) b.classList.add('book');
       b.onclick = () => { g.pick = g.pick === ln.uci ? null : ln.uci; sel = g.pick ? ln.uci.slice(0, 2) : null;
         targets = sel ? c.moves({ square: sel, verbose: true }).map((m) => ({ to: m.to, capture: !!m.captured, promotion: !!m.promotion })) : []; drawGame(); renderTutor(); };
       opts.appendChild(b);
@@ -315,7 +316,9 @@
       const multi = await e.evaluate(c.fen(), { depth: 12, multipv: 3 });
       if (myGen !== gen) return;
       const lines = (multi.lines || []).filter((l) => l.pv && l.pv[0]).slice(0, 3).map((l) => { const ex = explainFull(c, l.pv[0]); return { uci: l.pv[0], san: sanOf(c.fen(), l.pv[0]), cp: l.cp, mate: l.mate, note: ex.text, flags: ex.flags }; });
-      g.think = { ev: multi, lines, threat: null, done: false }; renderTutor();
+      const pr = g.practice, bi = g.moves.length, bk = pr && !pr.off && !pr.done ? pr.line[bi] : null;   // practice: tag the book move, or add it
+      if (bk) { const hit = lines.find((l) => l.uci === bk); if (hit) hit.book = true; else lines.push({ uci: bk, san: sanOf(c.fen(), bk), cp: null, mate: null, note: pr.notes[bi] || explain(c, bk), flags: [], book: true }); }
+      g.think ={ ev: multi, lines, threat: null, done: false }; renderTutor();
       const th = await threatOf(c, g.you, multi, e);
       if (myGen !== gen || !g.think) return;
       g.think.threat = th;
@@ -390,18 +393,19 @@
     } else { sel = null; targets = []; }
     drawGame();
   }
+  const hush = () => voice() === 'quiet' && !(game && game.practice);   // practice always talks, in the tutor's voice
   function showRate(r) {
     const el = $('rate');
-    el.hidden = voice() === 'quiet';
+    el.hidden = hush();
     $('why').hidden = true; $('whyBtn').hidden = !r.why;
-    el.dataset.label = r.label;
-    $('rateLabel').textContent = cap(r.label);
-    $('rateLoss').textContent = r.label === 'forced' ? '' : lossTxt(r.loss);
+    el.dataset.label = r.tag || r.label;
+    $('rateLabel').textContent = r.tag === 'book' ? 'Book' : r.tag === 'slip' ? 'Off the line' : cap(r.label);
+    $('rateLoss').textContent = r.label === 'forced' || r.tag === 'book' ? '' : lossTxt(r.loss);
     $('rateJab').textContent = r.jab;
     el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
   }
   function rateIdle(text) {
-    const el = $('rate'); el.dataset.label = ''; el.classList.remove('in'); el.hidden = voice() === 'quiet' || !text;
+    const el = $('rate'); el.dataset.label = ''; el.classList.remove('in'); el.hidden = hush() || !text;
     $('why').hidden = true; $('whyBtn').hidden = true;
     $('rateLabel').textContent = 'Coach'; $('rateLoss').textContent = ''; $('rateJab').textContent = text;
   }
@@ -417,9 +421,9 @@
     game = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: new Date().toISOString(), elo: clampElo(opts.elo || P().elo), you,
       chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null, tutor: (opts.tutor != null ? !!opts.tutor : P().mode === 'tutor'), think: null, pick: null, takebacks: 0, nudges: 0, sandbox: false, sandLeft: 2, readPly: -1, sand: null, practice: opts.practice || null, budget: assistBudget(P().games).budget, used: 0, hinted: [] };
     lastRating = null; sel = null; targets = []; review = null;
-    sheet('chessEnd', false); $('review').classList.remove('on'); $('chess').classList.add('on');
+    sheet('chessEnd', false); sheet('lineDone', false); $('review').classList.remove('on'); $('chess').classList.add('on');
     $('chessHome').hidden = true; $('chessGame').hidden = false;
-    $('analyzeBtn').hidden = true; $('resignBtn').hidden = false;
+    $('analyzeBtn').hidden = true; $('resignBtn').hidden = false; $('playRow').hidden = !!game.practice; $('lessonBtn').hidden = !game.practice; $('slipRow').hidden = true;
     $('oppName').textContent = 'Engine · ' + game.elo;
     $('youName').textContent = 'You · ' + COLN[you];
     game.weak = patterns(P().games).items.map((it) => it.key);
@@ -428,7 +432,7 @@
     $('why').hidden = true; $('whyBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; $('nudgeBtn').hidden = false; board.classList.remove('sandbox'); renderAssist();
     $('takeRow').hidden = true; $('tutor').hidden = !game.tutor; renderTutor();
     thinking(false); setEvalBar(evalBar, { cp: 0 }, you === 'b');
-    renderMoves(); setState(you === 'w' ? 'playing' : 'thinking'); drawGame(); showOpening($('opening'), []); $('hintBtn').hidden = false;
+    renderMoves(); setState(you === 'w' ? 'playing' : 'thinking'); drawGame(); showOpening($('opening'), []); $('hintBtn').hidden = !!game.practice;
     $('chess').scrollTo(0, 0);
     const myGen = gen, e = engine();
     if (!e) { thinking('engine unavailable'); return game; }
@@ -477,39 +481,55 @@
         setEvalBar(evalBar, after, g.you === 'b');
       }
       const bestSan = before && before.best ? sanOf(fenBefore, before.best) : '';
-      g.streak = GOOD[rating.label] ? 0 : g.streak + 1;
+      const streak0 = g.streak; g.streak = GOOD[rating.label] ? 0 : g.streak + 1;
       rec.label = rating.label; rec.loss = rating.loss; rec.best = before ? before.best : null; rec.bestSan = bestSan;
       rec.jab = coachLine(rating.label, { san: m.san, bestSan, loss: rating.loss, ply: g.moves.length, streak: g.streak, cpAfter: clampCp(after), color: g.you });
       rec.why = { fenBefore, fenAfter, played, best: before ? before.best : null, reply: after ? after.best : null, pv: before ? before.pv : [], label: rating.label, loss: rating.loss };
       if (usedHint) { rec.hinted = true; g.hinted.push(g.moves.length); if (voice() === 'tough') rec.jab = HINTED[g.moves.length % HINTED.length]; }
-      const pr = g.practice;
-      if (pr && !pr.off) {
-        const i = g.moves.length - 1, book = pr.line[i];
-        if (book && played === book) rec.jab = 'Book move. ' + (pr.notes[i] || '') + (voice() === 'quiet' ? '' : ' ' + rec.jab);
-        else { pr.off = true; rec.jab = 'Out of the ' + pr.title + ' line at move ' + Math.floor(i / 2 + 1) + '.' + (book ? ' The line goes ' + sanOf(fenBefore, book) + ': ' + (pr.notes[i] || '') : ' The lesson line is finished; from here it is your game.') + (voice() === 'quiet' ? '' : ' ' + rec.jab); }
-        rec.book = !pr.off;
-      }
-      lastRating = { uci: played, san: m.san, label: rating.label, loss: rating.loss, jab: rec.jab, bestSan, ply: g.moves.length, why: rec.why };
-      showRate(lastRating); if (pr) $('rate').hidden = false; renderMoves();
-      if (c.game_over()) { thinking(false); gameOver(); return lastRating; }
-      if (g.tutor && (rating.label === 'mistake' || rating.label === 'blunder' || rating.label === 'inaccuracy') && g.used + COST.takeback <= g.budget) {
-        // stop here: let them see it, and offer the take-back (which goes on the record)
-        thinking(false); $('takeRow').hidden = false; $('rate').hidden = false;
-        if (voice() === 'tough') $('rateJab').textContent += ' ' + TAKE_OFFER[g.moves.length % TAKE_OFFER.length];
-        else $('rateJab').textContent = (voice() === 'quiet' ? cap(rating.label) + (rating.loss >= 5 ? ' (' + lossTxt(rating.loss) + ')' : '') + '. ' : '') + (bestSan && bestSan !== m.san ? bestSan + ' was better. ' : '') + 'Take it back?';
+      // practice: strict line. A book move gets its note; anything else stops before the engine answers.
+      const pr = g.practice, onLine = pr && !pr.off && !pr.done, bi = g.moves.length - 1, book = onLine ? pr.line[bi] : null, bookSan = book ? sanOf(fenBefore, book) : '';
+      const tag = !book ? null : played === book ? 'book' : 'slip';
+      if (tag === 'book') { rec.book = true; rec.jab = 'Book move. ' + (pr.notes[bi] || ''); }
+      else if (tag === 'slip') { pr.slips++; rec.jab = 'Not the line. The line goes ' + bookSan + ': ' + (pr.notes[bi] || ''); }
+      lastRating = { uci: played, san: m.san, label: rating.label, loss: rating.loss, jab: rec.jab, bestSan, ply: g.moves.length, why: rec.why, tag };
+      showRate(lastRating); renderMoves();
+      if (tag === 'slip') {
+        thinking(false); $('slipRow').hidden = false; g.prompt = 'slip';
         try { $('rate').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (x) {}
         const choice = await new Promise((res) => { g.pending = res; });
-        $('takeRow').hidden = true;
+        $('slipRow').hidden = true; g.prompt = null;
+        if (myGen !== gen) return false;
+        if (choice === 'back') {   // free: no counters, no record
+          c.undo(); g.moves.pop(); g.streak = streak0; rec.label = null; lastRating = null;
+          renderMoves(); showOpening($('opening'), g.moves.map((x) => x.san));
+          rateIdle('Back on the ' + pr.title + '. The move here is ' + bookSan + '; it is marked Book in Think ahead.');
+          g.think = thought; g.pick = null; setState('playing'); renderTutor(); drawGame();
+          return lastRating;
+        }
+        pr.off = true;
+        $('rateJab').textContent = 'Off the line at move ' + Math.floor(bi / 2 + 1) + '. From here it is free play against the engine at ' + g.elo + ', with Think ahead still on.';
+      }
+      if (c.game_over()) { thinking(false); gameOver(); return lastRating; }
+      if (g.tutor && !tag && (rating.label === 'mistake' || rating.label === 'blunder' || rating.label === 'inaccuracy') && (pr || g.used + COST.takeback <= g.budget)) {
+        // stop here: let them see it, and offer the take-back (which goes on the record, except in practice where it is free)
+        const tv = pr ? 'kind' : voice();
+        thinking(false); $('takeRow').hidden = false; $('rate').hidden = false; g.prompt = 'take';
+        if (tv === 'tough') $('rateJab').textContent += ' ' + TAKE_OFFER[g.moves.length % TAKE_OFFER.length];
+        else $('rateJab').textContent = (tv === 'quiet' ? cap(rating.label) + (rating.loss >= 5 ? ' (' + lossTxt(rating.loss) + ')' : '') + '. ' : '') + (bestSan && bestSan !== m.san ? bestSan + ' was better. ' : '') + 'Take it back?';
+        try { $('rate').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (x) {}
+        const choice = await new Promise((res) => { g.pending = res; });
+        $('takeRow').hidden = true; g.prompt = null;
         if (myGen !== gen) return false;
         if (choice === 'back') {
-          c.undo(); g.moves.pop(); g.takebacks++; g.used += COST.takeback; renderAssist(); g.streak = Math.max(0, g.streak - 1);
+          c.undo(); g.moves.pop(); if (!pr) { g.takebacks++; g.used += COST.takeback; renderAssist(); } g.streak = Math.max(0, g.streak - 1);
           rec.label = null; lastRating = null;
           renderMoves(); showOpening($('opening'), g.moves.map((x) => x.san));
-          rateIdle(voice() === 'tough' ? TAKE_LINES[g.takebacks % TAKE_LINES.length].replace('%s', bestSan || 'something else').replace('%n', g.takebacks) : voice() === 'kind' ? 'Taken back. Have another look' + (bestSan ? ', ' + bestSan + ' is worth considering.' : '.') : '');
+          rateIdle(tv === 'tough' ? TAKE_LINES[g.takebacks % TAKE_LINES.length].replace('%s', bestSan || 'something else').replace('%n', g.takebacks) : tv === 'kind' ? 'Taken back. Have another look' + (bestSan ? ', ' + bestSan + ' is worth considering.' : '.') : '');
           g.think = thought; g.pick = null; setState('playing'); renderTutor(); drawGame();
           return lastRating;
         }
       }
+      if (tag === 'book' && g.moves.length >= pr.line.length) { await lineDone(); if (myGen !== gen) return lastRating; }
       await engineMove(myGen);
       return lastRating;
     } catch (err) {
@@ -534,8 +554,22 @@
     g.moves.push({ uci: uciOf(m), san: m.san, label: null, loss: null });
     thinking(false); showOpening($('opening'), g.moves.map((x) => x.san));
     if (c.game_over()) { setState('over'); drawGame(); renderMoves(); gameOver(); return; }
+    if (pr && !pr.off && !pr.done && g.moves.length >= pr.line.length) { drawGame(); renderMoves(); await lineDone(); if (myGen !== gen) return; }
     setState('playing'); drawGame(); renderMoves();
     preEval(myGen);
+  }
+  // the lesson line is played out: stop and offer to play on, go again, or go back to the lesson
+  const slipTxt = (pr) => pr.slips ? 'You needed ' + pr.slips + ' correction' + (pr.slips > 1 ? 's' : '') + '.' : 'No corrections. Clean.';
+  function lineDone() {
+    const g = game, pr = g.practice; pr.done = true; g.prompt = 'done';
+    thinking(false);
+    $('ldTitle').textContent = 'Line done: the ' + pr.title; $('ldMsg').textContent = slipTxt(pr);
+    sheet('lineDone', true);
+    return new Promise((res) => { g.pending = res; }).then((v) => {
+      sheet('lineDone', false); g.prompt = null;
+      if (game === g && v === 'on') rateIdle('Line done. ' + slipTxt(pr) + ' From here the engine plays its own moves at ' + g.elo + '. Think ahead stays on; nothing is recorded.');
+      return v;
+    });
   }
   function gameOver() {
     const c = game.chess; let result = 'draw', reason = 'draw';
@@ -557,12 +591,12 @@
   };
   function endGame(result, reason, showSheet) {
     const g = game; gen++;
-    if (g.pending) { const r = g.pending; g.pending = null; r('live'); } $('takeRow').hidden = true; g.think = null; renderTutor();
+    if (g.pending) { const r = g.pending; g.pending = null; r('live'); } $('takeRow').hidden = true; $('slipRow').hidden = true; sheet('lineDone', false); g.prompt = null; g.think = null; renderTutor();
     if (eng) eng.stop();
     thinking(false); sel = null; targets = [];
     g.result = result; g.reason = reason;
     setState('over'); drawGame();
-    if (g.moves.length >= 2) {
+    if (g.moves.length >= 2 && !g.practice) {   // practice is never recorded (old entries may still carry a practice title)
       g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, nudges: g.nudges, tutor: g.tutor, takebacks: g.takebacks, practice: g.practice ? g.practice.title : null, assist: { used: g.used, budget: g.budget }, hinted: g.hinted.slice(), report: null };
       P().games.unshift(g.entry); P().games = P().games.slice(0, 20); persist();
     }
@@ -570,9 +604,10 @@
     renderHist();
     if (showSheet) {
       const k = reason === 'checkmate' ? (result === 'win' ? 'checkmateWin' : 'checkmateLoss') : reason;
-      const t = (voice() === 'tough' ? END : KIND_END)[k] || (voice() === 'tough' ? END : KIND_END).resign;
-      $('endTitle').textContent = t[0]; $('endMsg').textContent = t[1] + (g.moves.length ? ' ' + Math.ceil(g.moves.length / 2) + ' moves.' : '');
+      const T = voice() === 'tough' && !g.practice ? END : KIND_END, t = T[k] || T.resign;
+      $('endTitle').textContent = t[0]; $('endMsg').textContent = t[1] + (g.moves.length ? ' ' + Math.ceil(g.moves.length / 2) + ' moves.' : '') + (g.practice ? ' ' + slipTxt(g.practice) + ' Practice games are not recorded.' : '');
       $('endAnalyze').hidden = !g.entry;
+      $('endNew').textContent = g.practice ? 'Again' : 'New game'; $('endHome').textContent = g.practice ? 'Back to lesson' : 'Home';
       sheet('chessEnd', true);
     }
   }
@@ -590,7 +625,7 @@
     return { best: 'Best move. Well done.', great: 'Very good. ' + better, good: 'Fine. ' + better, forced: 'The only move, and you found it.',
       inaccuracy: 'Slightly loose. ' + better, mistake: 'That one costs something. ' + better, blunder: 'Ouch. ' + better + ' Have a look at why with αβ.' }[label] || '';
   }
-  function coachLine(label, ctx) { return voice() === 'tough' ? (window.ChessEngine ? ChessEngine.jab(label, ctx) : '') : voice() === 'kind' ? kindLine(label, ctx) : ''; }
+  function coachLine(label, ctx) { if (game && game.practice) return kindLine(label, ctx); return voice() === 'tough' ?(window.ChessEngine ? ChessEngine.jab(label, ctx) : '') : voice() === 'kind' ? kindLine(label, ctx) : ''; }
   const KIND_END = {
     checkmateLoss: ['Checkmate. You lost.', 'The engine found a mate. The review shows where it started.'],
     checkmateWin: ['Checkmate. You won!', 'You beat the engine. Have a look at the review and enjoy it.'],
@@ -612,7 +647,7 @@
   ];
   // the coach shows the best move, then holds it against you (the game is marked assisted)
   async function hint() {
-    if (state !== 'playing' || !game) return null;
+    if (state !== 'playing' || !game || game.practice) return null;
     const g = game, myGen = gen, e = engine();
     if (!e) return null;
     if (g.hint && g.hint.ply === g.moves.length) return g.hint;
@@ -642,14 +677,14 @@
   };
   function nudgeNote(text) { $('nudgeHint').hidden = false; $('nudgeHint').textContent = text; $('sandboxBtn').textContent = 'Sandbox a move (' + game.sandLeft + ' left)'; $('sandboxBtn').disabled = game.sandLeft <= 0; }
   function nudgeToggle() {
-    if (state !== 'playing' || !game) return;
+    if (state !== 'playing' || !game || game.practice) return;
     if (game.used + COST.sandbox > game.budget) { budgetGone(); return; }
     const row = $('nudgeRow'); row.hidden = !row.hidden;
     $('nudgeHint').hidden = row.hidden;
     if (!row.hidden) nudgeNote('Sandbox: tap a move to have it rated without playing it, no answer given, twice a turn. Read: the position in plain words, for both sides. Each costs 1 from the budget.');
   }
   function sandboxToggle() {
-    if (state !== 'playing' || !game) return;
+    if (state !== 'playing' || !game || game.practice) return;
     if (!game.sandbox && game.used + COST.sandbox > game.budget) { budgetGone(); return; }
     game.sandbox = !game.sandbox && game.sandLeft > 0; sel = null; targets = [];
     board.classList.toggle('sandbox', game.sandbox); $('sandboxBtn').classList.toggle('on', game.sandbox);
@@ -657,7 +692,7 @@
     drawGame();
   }
   async function sandboxMove(uci) {
-    const g = game; if (!g || state !== 'playing' || g.sandLeft <= 0) return null;
+    const g = game; if (!g || state !== 'playing' || g.practice || g.sandLeft <= 0) return null;
     const c = g.chess, myGen = gen, e = engine();
     const t = new Chess(c.fen()); const m = t.move(mv(uci)); if (!m) return null;
     if (!spend('sandbox')) { budgetGone(); g.sandbox = false; board.classList.remove('sandbox'); return null; }
@@ -679,7 +714,7 @@
     } catch (err) { thinking(false); return null; }
   }
   async function readTheBoard() {
-    const g = game; if (!g || state !== 'playing') return null;
+    const g = game; if (!g || state !== 'playing' || g.practice) return null;
     if (g.readPly !== g.moves.length && g.used + COST.read > g.budget) { budgetGone(); return null; }
     const c = g.chess, myGen = gen, e = engine();
     thinking('reading…');
@@ -697,15 +732,31 @@
       return lines;
     } catch (err) { thinking(false); return null; }
   }
-  // practice an opening from the Learn screen: the engine plays the book line as long as you do
+  // practice an opening from the Learn screen: a strict tutor. No budget, Think ahead always on, the engine plays the book
+  // line, a move off the line stops for a free take-back. Never recorded.
   function practice(lesson) {
     if (!lesson || !lesson.line) return null;
     const c = new Chess(), line = [];
     for (const san of lesson.line) { const m = c.move(san); if (!m) break; line.push(uciOf(m)); }
-    const g = newGame({ color: lesson.side || 'w', practice: { title: lesson.title, line, notes: lesson.notes || [], off: false } });
-    if (g) { $('rate').hidden = false; rateIdle('Practice: the ' + lesson.title + '. Play the line you just stepped through; the engine answers from the book until you leave it.'); $('rate').hidden = false; }
+    const g = newGame({ color: lesson.side || 'w', tutor: true, practice: { id: lesson.id, lesson, title: lesson.title, line, notes: lesson.notes || [], off: false, done: false, slips: 0 } });
+    if (g) rateIdle('Practice: the ' + lesson.title + '. Play the line you just stepped through; the book move is marked in Think ahead. Leave the line and I stop you.');
     return g;
   }
+  function practiceState() {
+    const g = game, pr = g && g.practice; if (!pr) return null;
+    return { id: pr.id, title: pr.title, onLine: !pr.off && !pr.done, off: pr.off, done: pr.done, slips: pr.slips, ply: g.moves.length, length: pr.line.length, prompt: g.prompt || null, over: state === 'over' };
+  }
+  function again() { const pr = game && game.practice; return pr ? practice(pr.lesson) : null; }
+  function backToLesson() {
+    const pr = game && game.practice;
+    cancelAnalysis();
+    if (game && (state === 'playing' || state === 'thinking')) endGame('loss', 'resign', false);
+    gen++; if (eng) eng.stop();
+    sheet('chessEnd', false); sheet('lineDone', false); $('chess').classList.remove('on'); $('review').classList.remove('on');
+    $('chessHome').hidden = false; $('chessGame').hidden = true; setState('home');
+    if (pr && window.__learn) window.__learn.show(pr.id); else if (window.__hub) window.__hub.show();
+  }
+  const answer = (v) => { if (game && game.pending) { const r = game.pending; game.pending = null; r(v); return true; } return false; };
   function resign() {
     if (game && (state === 'playing' || state === 'thinking')) endGame('loss', 'resign', true);
   }
@@ -770,12 +821,12 @@
   }
   // spend from this game's budget; false means it is gone (the soft cap: the game goes on, the help does not)
   function spend(kind) {
-    const g = game; if (!g) return false;
+    const g = game; if (!g || g.practice) return false;
     if (g.used + COST[kind] > g.budget) return false;
     g.used += COST[kind]; renderAssist(); return true;
   }
   function renderAssist() {
-    const g = game, el = $('assistLine'); if (!g) { el.hidden = true; return; }
+    const g = game, el = $('assistLine'); if (!g || g.practice) { el.hidden = true; return; }
     el.hidden = false;
     const left = g.budget - g.used;
     el.textContent = left > 0 ? 'Assist budget: ' + left + ' of ' + g.budget + ' left (hint 3, take-back 2, nudge 1).' : 'Assist budget spent. This one is yours.';
@@ -1007,8 +1058,14 @@
   $('liveWith').onclick = () => { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); } };
   $('analyzeBtn').onclick = analyze;
   $('endAnalyze').onclick = analyze;
-  $('endNew').onclick = () => newGame();
-  $('endHome').onclick = goHome;
+  $('endNew').onclick = () => game && game.practice ? again() : newGame();
+  $('endHome').onclick = () => game && game.practice ? backToLesson() : goHome();
+  $('slipBack').onclick = () => answer('back');
+  $('slipOn').onclick = () => answer('on');
+  $('ldOn').onclick = () => answer('on');
+  $('ldAgain').onclick = again;
+  $('ldLesson').onclick = backToLesson;
+  $('lessonBtn').onclick = backToLesson;
   $('rPrev').onclick = () => seek(review ? review.ply - 1 : 0);
   $('rNext').onclick = () => seek(review ? review.ply + 1 : 0);
   const gr = $('evalGraph');
@@ -1025,6 +1082,7 @@
     takeBack() { if (game && game.pending) { const r = game.pending; game.pending = null; r('back'); return true; } return false; },
     liveWith() { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); return true; } return false; },
     get think() { return game ? game.think : null; },
+    practiceState, playOn() { return answer('on'); }, again, backToLesson,
     get game() { return game; }, get state() { return state; }, get lastRating() { return lastRating; }, get history() { return P().games; },
     budget() { return assistBudget(P().games); }, get player() { return save.player; }, setPlayer(k) { if (save.players[k]) { save.player = k; persist(); applyTheme(); renderSettings(); renderHist(); } return save.player; },
     setVoice(v) { if (VOICES.includes(v)) { P().voice = v; persist(); renderSettings(); } return voice(); }, patterns() { return patterns(P().games); }, whyText,

@@ -44,7 +44,8 @@ Two games in one offline iPhone app. Pick one on the launcher:
   The budget is 10 until you have three analysed games, then it drops to 8, 6 and 4 as your *unassisted* accuracy
   (hinted moves excluded) over the last five analysed games passes 60, 70 and 80 percent. It is a soft cap: when a hint
   no longer fits, the Hint button offers a nudge instead; when nothing fits, the help greys out and the game goes on.
-  The patterns card shows the current budget and how many points you have been using per game.
+  The patterns card shows the current budget and how many points you have been using per game. Practice in Learn has no
+  budget and never counts towards it.
 - **Nudge:** the gentler option. *Sandbox a move* rates a move you are considering without playing it and without saying
   what is better, twice a turn. *Read the board* describes the position plainly for both sides: material, the engine's
   view, development, kings, centre, hanging pieces, the opponent's idea, and each side's priority. Both count as nudges
@@ -60,9 +61,17 @@ Two games in one offline iPhone app. Pick one on the launcher:
 The third card on the launcher. Eleven lessons: three on basics (opening principles, what to do when you leave the book,
 how to read a position) and eight openings (Italian, Ruy Lopez, Queen's Gambit, London with White; Sicilian, French,
 Caro-Kann, King's Indian with Black). Each one has the idea in a paragraph, a line you step through on a board with a note
-per move, what you want, what to avoid, and what to do next. Openings have a **Practice** button: the engine plays the book
-line for as long as you do, each book move is confirmed with its note, and the moment you leave the line the coach says
-so and shows what the line was. Lesson text lives in `lessons.js`; the screen is `learn.js`.
+per move, what you want, what to avoid, and what to do next. Lesson text lives in `lessons.js`; the screen is `learn.js`.
+
+- **Practice** (openings only) is a strict tutor for learning the line, not a game. There is no assist budget, no Hint,
+  Nudge or Resign; a **Back to lesson** button takes you back. Think ahead is always on whatever your Mode setting, and the
+  book move is tagged **Book** among the options (added with its lesson note if the engine did not list it). The engine
+  plays the book replies and each of your book moves is confirmed with its note. Play anything else and the game stops
+  before the engine answers: *Not the line. The line goes Nf3: ...* with **Take it back** (free, nothing counted) or
+  **Play on anyway**, which drops the line and leaves you in free play against the engine at your Elo, still with Think
+  ahead and free take-backs. Each deviation counts as a correction. When the line is played out a sheet says *Line done*
+  with your corrections, and offers **Play on**, **Again** or **Back to lesson**. The coach speaks in the kind voice
+  throughout, and practice games are never saved: no history, patterns, accuracy or budget stats.
 
 ## Install on iPhone
 
