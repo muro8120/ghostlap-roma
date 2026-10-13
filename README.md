@@ -25,16 +25,31 @@ Two games in one offline iPhone app. Pick one on the launcher:
   The eval bar next to the board tracks who is winning.
 - **Postgame analysis:** accuracy for both sides, counts of blunders, mistakes and inaccuracies, an eval graph you can
   scrub, a replay board with the engine's best move drawn as an arrow, the three worst moments, and a lesson for next game.
+- **Feedback cards:** at the top of every review (old games too), at most three short cards: *What went well* (a run of
+  strong moves, or the move that made them pay for a mistake), *The one thing* (the costliest moment in plain English,
+  named after your pattern when it is one) and *Next game* (one instruction, the pattern's drill when there is one). Tap a
+  card to jump the replay board to that move with αβ open. *Drill this* makes that pattern the pre-game focus for the next
+  three games; it shows on the chess home until then. Every voice gets the cards, in neutral wording.
 - **Two players:** Jesse and J, picked on the chess home. Each has their own history, settings and coach voice.
 - **Coach voice:** Tough (the default: every move judged out loud), Kind (same facts, said nicely) or Quiet (nothing
   during the game at all, no strip, no labels, no colours; the review is still there afterwards with neutral wording).
-  J starts on Quiet.
+  J starts on Kind; a choice already saved on the phone is kept.
 - **αβ (why?):** after any rated move, and on any move in the review, the αβ button explains it in plain words: what your
   move did, what the best move did instead, what the opponent can do now, the cost in pawns, and the engine's line.
 - **Your patterns:** across your analysed games the coach tracks what keeps going wrong (hanging pieces, mate blindness,
   early trouble, endgame slips, queen adventures, greedy captures, pointless checks, tilt) and shows the top three with a
   drill each, plus your accuracy trend. Before each game the coach names the one to watch, and in Tutor mode options
   that repeat a known pattern are flagged in red.
+- **Escalation:** each player has a running count of how many analysed games in a row a pattern has been the costliest
+  one (a game without it resets the count). At three, *The one thing* says so ("Third game running: hanging pieces"), the
+  pre-game focus gets firmer ("Same thing three games running. This game, before every move: what of mine is
+  undefended?", the same calm wording in every voice), and a red Tutor option that repeats it gets a line saying why.
+- **Find my level:** a player who has not been calibrated (new, or with fewer than three analysed games) sees a *Find
+  your level* card on the chess home: three games starting at 1000. After each one (analysed straight away) the strength
+  moves +250 for a win, +100 for a draw, −200 for a loss, and ±100 more for accuracy above 80 or below 55, within 800 to
+  2850. After game 3 the result, rounded to 50, becomes the player's engine strength. Progress is saved, so you can stop
+  between games ("Game 2 of 3"); a game you walk away from does not count. Level-check games are normal rated games and
+  show as *level check* in the history. *Skip* hides the card.
 - **Tutor mode (think ahead):** switch Mode to Tutor on the chess home. Before each of your moves the coach shows your
   three best options with a plain-English reason for each (tap one to see it on the board), and what the opponent would
   do if you passed, drawn as a red arrow when it is a real threat. After an inaccuracy or worse the game stops and offers a
@@ -116,7 +131,7 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `hub.js`: the launcher (Drive or Chess)
 - `engine.js`: Stockfish worker wrapper, move rating, coach lines, postgame analysis (runs under node too: `node tools/engine-test.js`,
   which drives the vendored engine and also checks every lesson line)
-- `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen, patterns, game history
+- `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen and feedback cards, patterns and escalation, level check, game history
 - `lessons.js`, `learn.js`: opening lessons, the Learn screen and its drills
 - `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)
 - `vendor/`: chess.js, the Stockfish lite WASM engine, and the piece SVGs

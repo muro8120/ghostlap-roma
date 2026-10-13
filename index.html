@@ -345,6 +345,24 @@
   .worst span { color: var(--dim); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .worst i { font-style: normal; font-weight: 700; color: var(--lc, var(--text)); }
   #rLesson { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 12px; padding: 12px 14px; font-size: 15px; line-height: 1.5; margin: 0; }
+  /* feedback cards, level check, drill focus */
+  #rCards { display: grid; gap: 8px; margin-bottom: 14px; }
+  .rcard { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--kc); border-radius: 12px; padding: 10px 12px 11px; display: grid; gap: 3px; cursor: pointer; min-width: 0; }
+  .rcard:active { background: var(--panel2); }
+  .rcard.k-good { --kc: var(--green); } .rcard.k-one { --kc: var(--amber); } .rcard.k-next { --kc: var(--ghost); }
+  .rcard .kt { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 800; color: var(--kc); }
+  .rcard .kt small { letter-spacing: 0; text-transform: none; color: var(--dim); font-weight: 700; font-size: 12px; white-space: nowrap; }
+  .rcard > b { font-size: 15px; font-weight: 800; color: var(--text); }
+  .rcard p { margin: 0; font-size: 15px; line-height: 1.4; color: var(--text); }
+  .rcard .drill { justify-self: start; margin-top: 5px; padding: 6px 12px; color: var(--amber); border-color: rgba(242,178,76,.5); font-weight: 700; }
+  .rcard .drill.on { color: var(--dim); border-color: var(--line); }
+  .calib { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--ghost); border-radius: 16px; padding: 12px; display: grid; gap: 6px; margin-bottom: 12px; }
+  .calib > b { font-size: 16px; font-weight: 800; } .calib > span { color: var(--dim); font-size: 13px; line-height: 1.45; }
+  .calib .crow { display: flex; gap: 10px; align-items: center; margin-top: 4px; } .calib .crow .btn { flex: 1; height: 48px; font-size: 16px; }
+  .focus { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; background: var(--panel2); border-left: 4px solid var(--amber); border-radius: 10px; padding: 9px 11px; }
+  .focus b { color: var(--amber); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 800; grid-column: 1; }
+  .focus span { font-size: 14px; line-height: 1.4; grid-column: 1; } .focus .pill { grid-column: 2; grid-row: 1 / span 2; padding: 6px 10px; }
+  .opt small.ow { grid-column: 1 / -1; color: var(--red); font-size: 12px; line-height: 1.3; margin-top: -2px; }
 </style>
 </head>
 <body>
@@ -453,6 +471,10 @@
   <div class="wrap">
     <div class="cbar"><button class="back" id="chessBack" aria-label="Back">&#8249;</button><h1>COACH</h1></div>
     <div id="chessHome">
+      <div class="calib" id="calibCard" hidden>
+        <b id="calibHead">Find your level: three quick games</b><span id="calibTxt"></span>
+        <div class="crow"><button class="btn primary" id="calibGo">Play game 1</button><button class="pill" id="calibSkip">Skip</button></div>
+      </div>
       <div class="cset">
         <div class="srow"><span class="k">Player</span><div class="players" id="playerRow"></div></div>
         <div class="srow"><span class="k">Coach</span><button class="pill on" id="voiceBtn">Tough</button></div>
@@ -464,6 +486,7 @@
         <p class="chint" id="modeHint"></p>
         <div class="srow"><span class="k">Board</span><div class="themes" id="themeRow"></div></div>
         <p class="chint">Promotion is always a queen. The coach rates every move you make, out loud. Hints are allowed, and held against you.</p>
+        <div class="focus" id="focusBox" hidden><b></b><span></span><button class="pill" id="focusClear">Clear</button></div>
         <button class="btn primary" id="newGame">New game</button>
       </div>
       <h2>Your patterns</h2>
@@ -551,6 +574,7 @@
     <div class="cbar"><button class="back" id="reviewBack" aria-label="Back">&#8249;</button><h1>REVIEW</h1></div>
     <p class="rprog" id="rProgress">Analysing&hellip;</p>
     <div id="rBody" hidden>
+      <div id="rCards"></div>
       <div id="rSummary"></div>
       <div class="opening" id="rOpening"></div>
       <div class="rstats" id="rStats"></div>
@@ -583,6 +607,14 @@
         <button class="btn" id="endHome">Home</button>
       </div>
     </div>
+  </div>
+</div>
+<div class="sheet" id="calibDone">
+  <div class="panel">
+    <h3>LEVEL CHECK</h3>
+    <div class="endT" id="calibTitle">Your level</div>
+    <div class="msg" id="calibMsg"></div>
+    <div class="btns"><button class="btn primary" id="calibOk">OK</button></div>
   </div>
 </div>
 
