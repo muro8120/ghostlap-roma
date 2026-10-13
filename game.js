@@ -10,7 +10,7 @@
   // ---------- saving --------------------------------------------------------
   // v2: cars got 15% slower (Oct 2026), so old times and ghosts were reset; car and sound carry over
   const KEY = 'ghostlap-roma-v2';
-  let save = { car: 'maranello', sound: false, help: true, tracks: {} };
+  let save = { car: 'maranello', sound: false, help: true, cam: 'follow', tracks: {} };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) save = Object.assign(save, JSON.parse(raw));
@@ -192,16 +192,15 @@
 
   // street names and places, drawn crisp in screen space
   function drawCityLabels() {
-    const z = cam.z, ox = vw / 2 - cam.x * z, oy = vh / 2 - cam.y * z;
     const hud = state === 'menu' ? [] : hudRects();
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
     g.font = '600 11px -apple-system, system-ui, sans-serif';
     for (const a of ROME.anchors) {
-      const sx = a[0] * z + ox, sy = a[1] * z + oy;
+      const [sx, sy] = toScr(a[0], a[1]);
       if (sx < -90 || sx > vw + 90 || sy < -20 || sy > vh + 20 || underHud(sx, sy, hud)) continue;
-      const t = ROME.names[a[3]];
-      g.save(); g.translate(sx, sy); g.rotate(a[2] / 100);
+      const t = ROME.names[a[3]], ra = wrap(a[2] / 100 + cam.r); // keep the text upright
+      g.save(); g.translate(sx, sy); g.rotate(ra > Math.PI / 2 ? ra - Math.PI : ra < -Math.PI / 2 ? ra + Math.PI : ra);
       g.lineWidth = 3; g.strokeStyle = 'rgba(12,13,17,.9)'; g.strokeText(t, 0, 0);
       g.fillStyle = 'rgba(200,206,216,.62)'; g.fillText(t, 0, 0);
       g.restore();
@@ -209,7 +208,7 @@
     const taken = hud.slice();
     const free = (x0, y0, x1, y1) => { for (const r of taken) if (x0 < r[2] && x1 > r[0] && y0 < r[3] && y1 > r[1]) return false; taken.push([x0, y0, x1, y1]); return true; };
     for (const p of ROME.places) {
-      const sx = p.x * z + ox, sy = p.y * z + oy;
+      const [sx, sy] = toScr(p.x, p.y);
       if (sx < -120 || sx > vw + 120 || sy < -30 || sy > vh + 30 || underHud(sx, sy - 10, hud)) continue;
       taken.push([sx - 70, sy - 24, sx + 70, sy + 8]);
       const col = p.k === 'hotel' ? '#f2b24c' : p.k === 'metro' ? '#ff5a5f' : p.k === 'stop' ? '#ffffff' : '#a9d2ff';
@@ -219,9 +218,9 @@
       g.font = (p.k === 'sight' ? 'italic 600 ' : '800 ') + (p.k === 'hotel' || p.k === 'stop' ? '13px' : '11px') + ' -apple-system, system-ui, sans-serif';
       g.lineWidth = 4; g.strokeText(p.n, sx, sy - 15); g.fillStyle = col; g.fillText(p.n, sx, sy - 15);
     }
-    drawPicks(ox, oy, z, free);
-    drawLandmarks(ox, oy, z, free);
-    if (state !== 'menu' && race && race.T.def.city) drawSigns(ox, oy, z, hud);
+    drawPicks(free);
+    drawLandmarks(free);
+    if (state !== 'menu' && race && race.T.def.city) drawSigns(hud);
   }
 
   // Jesse's places (from his Andiamo trip page): gold stars with a short note
@@ -231,9 +230,9 @@
     g.closePath();
   }
   const GOLD = '#ffd166';
-  function drawPicks(ox, oy, z, free) {
+  function drawPicks(free) {
     for (const p of ROME.picks || []) {
-      const sx = p.x * z + ox, sy = p.y * z + oy;
+      const [sx, sy] = toScr(p.x, p.y);
       if (sx < -60 || sx > vw + 60 || sy < -30 || sy > vh + 30) continue;
       g.font = '800 12px -apple-system, system-ui, sans-serif';
       const w = g.measureText(p.n).width;
@@ -251,9 +250,9 @@
   // Direction signs at the screen edge: the hotel, the next stop, and the nearest of Jesse's places,
   // each with its straight-line distance, so you learn which way things are from wherever you are.
   let signCount = 0;
-  function drawSigns(ox, oy, z, hud) {
-    const T = race.T, c = race.car, S = ROME.S;
-    const cx = c.x * z + ox, cy = c.y * z + oy;
+  function drawSigns(hud) {
+    const T = race.T, c = race.car, S = ROME.S, z = cam.z;
+    const [cx, cy] = toScr(c.x, c.y);
     const targets = [];
     const home = ROME.places.find((p) => p.k === 'hotel');
     if (home) targets.push({ x: home.x, y: home.y, t: 'NYX Hotel', col: '#f2b24c', solid: true });
@@ -272,7 +271,7 @@
     // 1) where each off-screen place's direction leaves the sign area
     const chips = [];
     for (const tg of targets) {
-      const sx = tg.x * z + ox, sy = tg.y * z + oy;
+      const [sx, sy] = toScr(tg.x, tg.y);
       if (sx > box.l + 30 && sx < box.r - 30 && sy > box.t + 20 && sy < box.b - 20) continue; // visible already
       const dx = sx - cx, dy = sy - cy, m = Math.hypot(dx, dy) / z / S;
       const text = tg.t + ' \u00b7 ' + (m < 950 ? Math.round(m / 10) * 10 + ' m' : (m / 1000).toFixed(1) + ' km');
@@ -313,7 +312,7 @@
       g.fillStyle = tg.solid ? tg.col : 'rgba(11,13,18,.8)'; rr(g, px - w / 2, py - h / 2, w, h, 11); g.fill();
       g.strokeStyle = tg.col; g.lineWidth = 1.3; rr(g, px - w / 2, py - h / 2, w, h, 11); g.stroke();
       g.save(); g.translate(px - w / 2 + 12, py); g.rotate(ch.ang);
-      g.fillStyle = fg; g.beginPath(); g.moveTo(6.5, 0); g.lineTo(-4.5, -5); g.lineTo(-2, 0); g.lineTo(-4.5, 5); g.closePath(); g.fill();
+      g.fillStyle = fg; g.beginPath(); g.moveTo(7, 0); g.lineTo(0.5, -5); g.lineTo(0.5, -1.6); g.lineTo(-6, -1.6); g.lineTo(-6, 1.6); g.lineTo(0.5, 1.6); g.lineTo(0.5, 5); g.closePath(); g.fill();
       g.restore();
       g.fillStyle = fg; g.textAlign = 'left'; g.fillText(ch.text, px - w / 2 + 23, py + 0.5);
     }
@@ -333,13 +332,13 @@
   };
   let POIS = null;
   const textW = new Map();
-  function drawLandmarks(ox, oy, z, free) {
+  function drawLandmarks(free) {
     if (!ROME.pois) return;
     if (!POIS) POIS = ROME.pois.map(([k, x, y, l]) => ({ st: POI_STYLE[ROME.poiKinds[k]] || POI_STYLE.sight, x, y, t: ROME.poiLabels[l] })).sort((a, b) => a.st.pri - b.st.pri);
     const font = (st) => (st.it ? 'italic 600 ' : '700 ') + (st.small ? '9px' : '10px') + ' -apple-system, system-ui, sans-serif';
     g.textBaseline = 'middle';
     for (const p of POIS) {
-      const sx = p.x * z + ox, sy = p.y * z + oy, st = p.st;
+      const [sx, sy] = toScr(p.x, p.y), st = p.st;
       if (sx < -20 || sx > vw + 20 || sy < -20 || sy > vh + 20) continue;
       g.font = font(st);
       const key = p.t + st.small;
@@ -671,7 +670,19 @@
   // ---------- canvas, camera, rendering ----------------------------------------
   const view = $('view'), g = view.getContext('2d');
   let vw = 0, vh = 0, dpr = 1, dprCap = Math.min(2, window.devicePixelRatio || 1);
-  const cam = { x: 0, y: 0, z: 0.7 };
+  // cam.x/y is the world point drawn at screen (vw/2, vh*cam.fy); cam.r turns the world (follow mode: car heading up)
+  const cam = { x: 0, y: 0, z: 0.7, r: 0, fy: 0.5, lx: 0, ly: 0, ax: 0, ay: 0, c: 1, s: 0 };
+  const follow = () => save.cam !== 'north';
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  function camFrame() { cam.ax = vw / 2; cam.ay = vh * cam.fy; cam.c = Math.cos(cam.r); cam.s = Math.sin(cam.r); }
+  function toScr(x, y) {
+    const dx = (x - cam.x) * cam.z, dy = (y - cam.y) * cam.z;
+    return [cam.ax + dx * cam.c - dy * cam.s, cam.ay + dx * cam.s + dy * cam.c];
+  }
+  function toWorld(sx, sy) {
+    const dx = (sx - cam.ax) / cam.z, dy = (sy - cam.ay) / cam.z;
+    return [cam.x + dx * cam.c + dy * cam.s, cam.y - dx * cam.s + dy * cam.c];
+  }
   function baseZoom() { return Math.max(0.42, Math.min(1.3, Math.min(vw, vh * 0.62) / 520)); }
   function resize() {
     vw = window.innerWidth; vh = window.innerHeight; dpr = dprCap; hudCache = null;
@@ -699,11 +710,14 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = W.ground; g.fillRect(0, 0, vw, vh);
     const z = cam.z;
+    camFrame();
     g.save();
-    g.translate(vw / 2, vh / 2); g.scale(z, z); g.translate(-cam.x, -cam.y);
-    const hx = vw / 2 / z + 60, hy = vh / 2 / z + 60;
-    VIEW.x0 = cam.x - hx; VIEW.x1 = cam.x + hx; VIEW.y0 = cam.y - hy; VIEW.y1 = cam.y + hy;
-    const vis = (o) => o.x + o.r > cam.x - hx && o.x - o.r < cam.x + hx && o.y + o.r > cam.y - hy && o.y - o.r < cam.y + hy;
+    g.translate(cam.ax, cam.ay); g.scale(z, z); g.rotate(cam.r); g.translate(-cam.x, -cam.y);
+    // cull round the screen centre; a turned view needs the radius of its corners
+    const [wx, wy] = toWorld(vw / 2, vh / 2), rad = Math.hypot(vw, vh) / 2 / z + 60;
+    const hx = cam.r ? rad : vw / 2 / z + 60, hy = cam.r ? rad : vh / 2 / z + 60;
+    VIEW.x0 = wx - hx; VIEW.x1 = wx + hx; VIEW.y0 = wy - hy; VIEW.y1 = wy + hy;
+    const vis = (o) => o.x + o.r > wx - hx && o.x - o.r < wx + hx && o.y + o.r > wy - hy && o.y - o.r < wy + hy;
     for (const o of W.under) if (vis(o)) o.draw(g);
     g.lineJoin = 'round'; g.lineCap = 'butt';
     const wall = T.hw + T.wall;
@@ -751,7 +765,7 @@
     for (const f of W.floods) if (vis(f)) { g.globalAlpha = f.a; g.drawImage(GLOW[f.c], f.x - f.r, f.y - f.r, f.r * 2, f.r * 2); }
     g.globalAlpha = 0.34;
     for (const l of W.lamps) {
-      if (l.x > cam.x - hx - 140 && l.x < cam.x + hx + 140 && l.y > cam.y - hy - 140 && l.y < cam.y + hy + 140) g.drawImage(GLOW[l.c], l.x - 135, l.y - 135, 270, 270);
+      if (l.x > wx - hx - 140 && l.x < wx + hx + 140 && l.y > wy - hy - 140 && l.y < wy + hy + 140) g.drawImage(GLOW[l.c], l.x - 135, l.y - 135, 270, 270);
     }
     g.globalAlpha = 1;
     if (car) {
@@ -760,7 +774,7 @@
     }
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
     g.fillStyle = '#fff1cf';
-    for (const l of W.lamps) if (Math.abs(l.x - cam.x) < hx && Math.abs(l.y - cam.y) < hy) { g.beginPath(); g.arc(l.x, l.y, 4, 0, 7); g.fill(); }
+    for (const l of W.lamps) if (Math.abs(l.x - wx) < hx && Math.abs(l.y - wy) < hy) { g.beginPath(); g.arc(l.x, l.y, 4, 0, 7); g.fill(); }
     g.restore();
     // night vignette
     const vg = g.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.32, vw / 2, vh / 2, Math.max(vw, vh) * 0.75);
@@ -769,16 +783,27 @@
     if (W.labels) W.labels();
   }
 
-  function snapCamera(car) { cam.x = car.x; cam.y = car.y; cam.z = baseZoom(); }
-  function moveCamera(car, dt) {
-    const look = 0.42;
+  const snapCamera = (car) => moveCamera(car, 0, true);
+  function moveCamera(car, dt, snap) {
+    const look = 0.42, k = snap ? 1 : 1 - Math.exp(-4.5 * dt);
     const mx = (vw / 2 / cam.z) * 0.42, my = (vh / 2 / cam.z) * 0.42;
-    const tx = car.x + Math.max(-mx, Math.min(mx, car.vx * look));
-    const ty = car.y + Math.max(-my, Math.min(my, car.vy * look));
-    const k = 1 - Math.exp(-4.5 * dt);
-    cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k;
+    if (follow()) {
+      // turn the world so the car points up (shortest way round); the car sits low so the road ahead shows
+      cam.r = wrap(cam.r + wrap(-(car.a + Math.PI / 2) - cam.r) * (snap ? 1 : 1 - Math.exp(-10 * dt)));
+      cam.fy = 0.56;
+      // look-ahead along the velocity in the turned frame, eased as an offset so speed can't drag the car up the screen
+      const c = Math.cos(cam.r), s = Math.sin(cam.r), fy = (vh * 0.07) / cam.z;
+      cam.lx += (Math.max(-mx, Math.min(mx, (car.vx * c - car.vy * s) * look)) - cam.lx) * k;
+      cam.ly += (Math.max(-fy, Math.min(fy, (car.vx * s + car.vy * c) * look)) - cam.ly) * k;
+      cam.x = car.x + cam.lx * c + cam.ly * s; cam.y = car.y - cam.lx * s + cam.ly * c;
+    } else {
+      cam.r = 0; cam.fy = 0.5; cam.lx = cam.ly = 0;
+      const tx = car.x + Math.max(-mx, Math.min(mx, car.vx * look));
+      const ty = car.y + Math.max(-my, Math.min(my, car.vy * look));
+      cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k;
+    }
     const tz = baseZoom() * (1 - 0.12 * Math.min(1, car.speed / 500));
-    cam.z += (tz - cam.z) * (1 - Math.exp(-1.5 * dt));
+    cam.z += (tz - cam.z) * (snap ? 1 : 1 - Math.exp(-1.5 * dt));
   }
 
   // ---------- sound (synthesised, off by default) -----------------------------
@@ -832,7 +857,9 @@
   };
   function syncSoundButtons() {
     for (const b of [$('soundBtn'), $('soundBtn2')]) { b.textContent = 'Sound: ' + (Snd.on ? 'on' : 'off'); b.classList.toggle('on', Snd.on); }
+    for (const b of [$('camBtn'), $('camBtn2')]) { b.textContent = 'Camera: ' + (follow() ? 'Follow' : 'North-up'); b.classList.toggle('on', follow()); }
   }
+  function setCam(f) { save.cam = f ? 'follow' : 'north'; persist(); syncSoundButtons(); }
 
   // ---------- input ---------------------------------------------------------------
   const touches = new Map();
@@ -937,7 +964,9 @@
     c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, el.width, el.height); c.drawImage(miniBg, 0, 0);
     c.setTransform(d, 0, 0, d, 0, 0);
     if (ghost) { c.fillStyle = '#a9d2ff'; c.beginPath(); c.arc(...miniF(ghost.x, ghost.y), 2.6, 0, 7); c.fill(); }
-    c.fillStyle = '#ff5a5f'; c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.beginPath(); c.arc(...miniF(car.x, car.y), 3.4, 0, 7); c.fill(); c.stroke();
+    c.save(); c.translate(...miniF(car.x, car.y)); c.rotate(car.a); // north-up map, car as a heading arrow
+    c.fillStyle = '#ff5a5f'; c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(6, 0); c.lineTo(-4, -3.8); c.lineTo(-4, 3.8); c.closePath(); c.fill(); c.stroke(); c.restore();
   }
   const running = () => state === 'count' || state === 'race' || state === 'finishing';
   let carIdx = Math.max(0, GL.CARS.findIndex((c) => c.id === save.car));
@@ -1059,6 +1088,7 @@
   function resume() {
     sheet('pause', false);
     state = pausedFrom || 'race'; pausedFrom = null;
+    if (race) snapCamera(race.car);
     if (Snd.on) Snd.ensure();
     wake(true); startLoop();
   }
@@ -1157,7 +1187,7 @@
     const idx = firstCity >= 0 ? firstCity : CIRC[Math.min(i, CIRC.length - 1)];
     const Wd = world(idx);
     const c = GL.newCar(BUILT[idx], spec());
-    snapCamera(c); cam.z = baseZoom() * 1.1;
+    snapCamera(c); cam.r = 0; cam.fy = 0.5; cam.z = baseZoom() * 1.1;
     cam.y += vh * 0.18 / cam.z;
     render(Wd, c, null);
   }
@@ -1253,6 +1283,7 @@
   $('menuBtn').onclick = toMenu;
   $('soundBtn').onclick = () => Snd.set(!Snd.on);
   $('soundBtn2').onclick = () => Snd.set(!Snd.on);
+  $('camBtn').onclick = $('camBtn2').onclick = () => setCam(!follow());
 
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   window.addEventListener('pagehide', pause);
@@ -1282,7 +1313,8 @@
   }
 
   // test hook (read-only peek for the headless tests)
-  window.__ghostlap = { get state() { return state; }, get race() { return race; }, get save() { return save; }, get signs() { return signCount; }, startRace, toMenu };
+  window.__ghostlap = { get state() { return state; }, get race() { return race; }, get save() { return save; }, get signs() { return signCount; },
+    get view() { const c = race && race.car, [x, y] = c ? toScr(c.x, c.y) : [0, 0]; return { mode: save.cam, r: cam.r, x: x / vw, y: y / vh, a: c ? wrap(c.a + cam.r) : 0 }; }, startRace, toMenu };
 
   resize();
   buildMenu();

@@ -116,6 +116,11 @@ if (process.env.ROME_JS) {
       await p.evaluate((k) => window.__ghostlap.startRace(k), i);
       await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
       await p.waitForTimeout(1200);
+      if (i === cityIdx[0]) {
+        await p.screenshot({ path: SHOTS + '/29-city-race.png' });
+        const v = await p.evaluate(() => window.__ghostlap.view);
+        check('follow camera in Rome: car points up, sits low', v.mode === 'follow' && Math.abs(v.a + Math.PI / 2) < 0.6 && v.y > 0.5 && v.y < 0.75, JSON.stringify(v));
+      }
       const nav = await p.$eval('#navSt', (e) => e.textContent);
       const signs = await p.evaluate(() => window.__ghostlap.signs);
       const navOn = await p.$eval('#nav', (e) => getComputedStyle(e).display !== 'none');
@@ -150,20 +155,24 @@ if (process.env.ROME_JS) {
   await p2.waitForTimeout(500);
   await p2.evaluate(() => window.__ghostlap.startRace(0));
   await p2.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 6000 });
+  const v0 = await p2.evaluate(() => window.__ghostlap.view);
+  check('follow camera is the default: car heading is up the screen', v0.mode === 'follow' && Math.abs(v0.a + Math.PI / 2) < 0.05 && v0.y > 0.5 && v0.y < 0.7 && Math.abs(v0.x - 0.5) < 0.05, JSON.stringify(v0));
   const a0 = await p2.evaluate(() => window.__ghostlap.race.car.a);
   await p2.evaluate(() => { const c = document.getElementById('view'); c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 7, clientX: 60, clientY: 700, bubbles: true, pointerType: 'touch' })); });
   await p2.waitForTimeout(700);
   const a1 = await p2.evaluate(() => window.__ghostlap.race.car.a);
   await p2.evaluate(() => { window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 7, bubbles: true, pointerType: 'touch' })); });
   check('holding left half turns car left', a1 < a0 - 0.2, `a0=${a0.toFixed(2)} a1=${a1.toFixed(2)}`);
+  const vl = await p2.evaluate(() => window.__ghostlap.view);
+  check('follow camera turns with the car', Math.abs(vl.a + Math.PI / 2) < 0.5 && Math.abs(vl.r - v0.r) > 0.2, JSON.stringify(vl));
   // both halves = brake
-  const v0 = await p2.evaluate(() => window.__ghostlap.race.car.speed);
+  const sp0 = await p2.evaluate(() => window.__ghostlap.race.car.speed);
   await p2.evaluate(() => { const c = document.getElementById('view');
     c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 8, clientX: 60, clientY: 700, bubbles: true, pointerType: 'touch' }));
     c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 9, clientX: 330, clientY: 700, bubbles: true, pointerType: 'touch' })); });
   await p2.waitForTimeout(400);
   const v1 = await p2.evaluate(() => window.__ghostlap.race.car.speed);
-  check('both thumbs brake', v1 < v0 - 50, `v0=${v0.toFixed(0)} v1=${v1.toFixed(0)}`);
+  check('both thumbs brake', v1 < sp0 - 50, `v0=${sp0.toFixed(0)} v1=${v1.toFixed(0)}`);
   // keep holding both = reverse (after stopping), with a white reverse light and the R badge
   await p2.waitForTimeout(1300);
   const rv = await p2.evaluate(() => { const c = window.__ghostlap.race.car; return { rev: !!c.rev, vF: c.vx * Math.cos(c.a) + c.vy * Math.sin(c.a), badge: document.getElementById('gear').classList.contains('on') }; });
@@ -181,6 +190,27 @@ if (process.env.ROME_JS) {
   await p2.evaluate(() => { Object.defineProperty(document, 'hidden', { value: true, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
   check('backgrounding pauses', (await p2.evaluate(() => window.__ghostlap.state)) === 'paused');
   await p2.close();
+
+  // camera setting: North-up persists across a reload; switching back from the pause sheet snaps on resume
+  const p4 = await ctx.newPage();
+  p4.on('pageerror', (e) => errs.push('p4 pageerror: ' + e.message));
+  await p4.goto(base + '?game=drive');
+  await p4.waitForTimeout(500);
+  await p4.click('#camBtn');
+  await p4.reload();
+  await p4.waitForTimeout(500);
+  const cm = await p4.evaluate(() => ({ save: JSON.parse(localStorage.getItem('ghostlap-roma-v2')).cam, btn: document.getElementById('camBtn').textContent }));
+  await p4.evaluate(() => window.__ghostlap.startRace(0));
+  await p4.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 6000 });
+  const vn = await p4.evaluate(() => ({ ...window.__ghostlap.view, a0: window.__ghostlap.race.car.a }));
+  check('North-up persists across reload', cm.save === 'north' && cm.btn === 'Camera: North-up' && vn.mode === 'north' && vn.r === 0 && Math.abs(vn.y - 0.5) < 0.1, JSON.stringify({ ...cm, ...vn }));
+  await p4.click('#pauseBtn');
+  await p4.click('#camBtn2');
+  await p4.click('#resumeBtn');
+  await p4.waitForTimeout(100);
+  const vf = await p4.evaluate(() => window.__ghostlap.view);
+  check('Follow from the pause sheet snaps on resume', vf.mode === 'follow' && Math.abs(vf.a + Math.PI / 2) < 0.1, JSON.stringify(vf));
+  await p4.close();
 
   // offline reload
   await ctx.setOffline(true);
