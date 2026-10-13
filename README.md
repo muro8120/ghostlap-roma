@@ -72,6 +72,18 @@ per move, what you want, what to avoid, and what to do next. Lesson text lives i
   ahead and free take-backs. Each deviation counts as a correction. When the line is played out a sheet says *Line done*
   with your corrections, and offers **Play on**, **Again** or **Back to lesson**. The coach speaks in the kind voice
   throughout, and practice games are never saved: no history, patterns, accuracy or budget stats.
+- **Drills** (openings only, for whichever side the lesson is) are for getting the line into memory. Each sits under
+  Practice with a one-line status. *From memory* is Practice with Think ahead off and no note until you have played the
+  move: a book move is confirmed with its note, a wrong one stops you and shows the right move and its note. At the end
+  of the line it scores moves right first time out of your moves in the line, plus slips (*8/10 right first time. 2
+  slips.*), and keeps best, last, tries and date. *Position cards* needs no engine: every position in the line where it
+  is your move, flipped for Black, with the last move highlighted and *Your move?*. Tap a piece, then its square (or
+  *Show me*). Right shows the note and moves on; wrong draws the move as an arrow with its note and brings the card back
+  two cards later. Cards live in Leitner boxes: a first answer that is right moves a card up a box, a wrong one drops it
+  to box 1; box 1 comes back every session, box 2 every other session, box 3 every fourth (sessions with nothing due are
+  skipped). A session ends when every due card has been answered right once, with a summary of cards seen, first-try
+  rate and how many are in box 3. Drill progress is stored per lesson under `ghostlap-learn-v1`, apart from the chess
+  history, and the Learn list shows a small ring per opening once a drill has been done.
 
 ## Install on iPhone
 
@@ -88,7 +100,7 @@ Your times and ghosts are stored on the phone (localStorage). Nothing is sent an
 - `hub.js`: the launcher (Drive or Chess)
 - `engine.js`: Stockfish worker wrapper, move rating, coach lines, postgame analysis (runs under node too: `node tools/engine-test.js`)
 - `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen, patterns, game history
-- `lessons.js`, `learn.js`: opening lessons and the Learn screen
+- `lessons.js`, `learn.js`: opening lessons, the Learn screen and its drills
 - `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)
 - `vendor/`: chess.js, the Stockfish lite WASM engine, and the piece SVGs
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
