@@ -60,10 +60,17 @@ Two games in one offline iPhone app. Pick one on the launcher:
 
 ## Learn
 
-The third card on the launcher. Eleven lessons: three on basics (opening principles, what to do when you leave the book,
-how to read a position) and eight openings (Italian, Ruy Lopez, Queen's Gambit, London with White; Sicilian, French,
-Caro-Kann, King's Indian with Black). Each one has the idea in a paragraph, a line you step through on a board with a note
-per move, what you want, what to avoid, and what to do next. Lesson text lives in `lessons.js`; the screen is `learn.js`.
+The third card on the launcher. Nineteen lessons: three on basics (opening principles, what to do when you leave the book,
+how to read a position) and sixteen openings, each opening taught from both sides. With White: Italian, Ruy Lopez,
+Queen's Gambit and London, plus the Open Sicilian (English Attack), the Advance French, the Advance Caro-Kann (Short
+Variation) and the Classical King's Indian (Bayonet). With Black: Sicilian (Najdorf), French, Caro-Kann and King's Indian,
+plus the Two Knights against the Italian, the Morphy Defence (Chigorin) against the Ruy Lopez, the Slav against the
+Queen's Gambit, and ...c5, ...Bd6 against the London. The White and Black lists run in the same order, so each opening
+sits at the same place in both. Each lesson has the idea in a paragraph, a line you step through on a board with a note
+per move, what you want, what to avoid, and what to do next.
+Lesson text lives in `lessons.js`; the screen is `learn.js`. `node tools/engine-test.js`
+replays every lesson line through Stockfish at depth 12 and 14 (the live and review depths) and fails if any move rates a
+mistake or blunder; inaccuracies are printed as warnings (`--lessons` runs just that check, about a minute and a half).
 
 - **Practice** (openings only) is a strict tutor for learning the line, not a game. There is no assist budget, no Hint,
   Nudge or Resign; a **Back to lesson** button takes you back. Think ahead is always on whatever your Mode setting, and the
@@ -107,7 +114,8 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 
 - `index.html`: layout and styles (launcher, drive menu, race HUD, chess, review)
 - `hub.js`: the launcher (Drive or Chess)
-- `engine.js`: Stockfish worker wrapper, move rating, coach lines, postgame analysis (runs under node too: `node tools/engine-test.js`)
+- `engine.js`: Stockfish worker wrapper, move rating, coach lines, postgame analysis (runs under node too: `node tools/engine-test.js`,
+  which drives the vendored engine and also checks every lesson line)
 - `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen, patterns, game history
 - `lessons.js`, `learn.js`: opening lessons, the Learn screen and its drills
 - `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)

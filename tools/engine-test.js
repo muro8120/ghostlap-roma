@@ -1,12 +1,17 @@
-// Unit test for engine.js against the real Stockfish 19 Lite WASM under node.
-// Usage: node tools/engine-test.js [path/to/stockfish/npm/package]
-// The package path defaults to $STOCKFISH_PKG or a `stockfish` install resolvable from this repo.
+// Unit test for engine.js against the real Stockfish 19 Lite WASM under node, plus an engine check of every lesson line.
+// Usage: node tools/engine-test.js [--lessons] [path/to/stockfish.js]
+//   --lessons   run only the pure helpers and the lesson checks (skip the engine plumbing tests)
+//   path        a Stockfish build to drive instead of the vendored one (also $STOCKFISH_JS); it needs its .wasm beside it
 'use strict';
 const path = require('path');
+const fs = require('fs');
+const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const E = require(path.join(ROOT, 'engine.js'));
 const { Chess } = require(path.join(ROOT, 'vendor/chess.js'));
-const PKG = process.argv[2] || process.env.STOCKFISH_PKG || 'stockfish';
+const ARGS = process.argv.slice(2);
+const ONLY_LESSONS = ARGS.includes('--lessons');
+const SF_JS = path.resolve(ARGS.find((a) => !a.startsWith('--')) || process.env.STOCKFISH_JS || path.join(ROOT, 'vendor/stockfish-19-lite-single.js'));
 
 let fails = 0, passes = 0;
 function check(name, ok, info) {
@@ -16,11 +21,23 @@ function check(name, ok, info) {
 const timed = async (fn) => { const t = Date.now(); const r = await fn(); return [r, Date.now() - t]; };
 const legal = (fen, uci) => !!uci && !!new Chess(fen).move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
 
+// The vendored stockfish.js, required under node, exports a factory: the engine object takes UCI lines through
+// processCommand (queued until the wasm is ready) and prints through engine.listener. It also replays
+// process.argv as UCI commands when loaded, so it is loaded with our own arguments hidden. The module holds a single
+// engine, so one transport is made and shared by every test. 'quit' would call process.exit() from inside the wasm
+// and cut the run short, so terminate only detaches the listener; the process exits at the end of the run.
+let shared = null;
 function nodeTransport() {
-  const sf = require(PKG);
+  if (shared) return shared;
+  const argv = process.argv;
+  process.argv = argv.slice(0, 2);
+  let sf;
+  try { sf = require(SF_JS); } finally { process.argv = argv; }
+  const eng = sf();
   let cb = null;
-  const eng = sf('lite-single', (l) => { if (cb) cb(String(l)); });
-  return { send: (c) => eng.processCommand(c), onLine: (f) => { cb = f; }, terminate: () => { try { eng.processCommand('quit'); } catch (e) {} } };
+  eng.listener = (l) => { if (cb) cb(String(l)); };
+  shared = { send: (c) => eng.processCommand(c), onLine: (f) => { cb = f; }, terminate: () => { cb = null; } };
+  return shared;
 }
 
 // ---- pure helpers (no engine) ------------------------------------------------------------
@@ -75,8 +92,7 @@ function pureTests() {
 }
 
 // ---- engine tests -------------------------------------------------------------------------
-async function engineTests() {
-  const eng = E.create({ transport: nodeTransport() });
+async function engineTests(eng) {
   const [, tReady] = await timed(() => eng.ready());
   check('ready()', true, tReady + ' ms');
   const START = new Chess().fen();
@@ -148,13 +164,94 @@ async function engineTests() {
   for (const e of rep.moves) console.log(' ' + Math.ceil(e.ply / 2) + (e.color === 'w' ? '. ' : '... ') + e.san + ' [' + e.label + ' -' + (e.loss / 100).toFixed(1) + '] ' + e.jab);
   console.log(' summary: ' + rep.summary.replace('\n', ' / '));
   console.log(' lesson: ' + rep.lesson);
-  eng.terminate();
+}
+
+// ---- lessons: schema, legal SAN, and an engine check of every move ------------------------
+// Every move in a lesson line is rated exactly as the coach rates a move (E.rate on the eval before and after),
+// at depth 12 (the live strip during Practice) and depth 14 (the postgame review). A 'mistake' or 'blunder' at
+// either depth fails; an 'inaccuracy' is reported as a warning with the SAN so the author can decide.
+// The hash is cleared before every search, so each verdict depends only on the position and the depth: adding or
+// editing one lesson cannot change the verdicts on another, and repeated runs give the same numbers.
+const LESSON_DEPTHS = [12, 14];
+function loadLessons() {
+  const ctx = { window: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'lessons.js'), 'utf8'), ctx, { filename: 'lessons.js' });
+  return ctx.window.LESSONS || [];
+}
+// Schema and legality. Returns the lessons whose line replays, with their fens and uci moves.
+function lessonShapeTests(L) {
+  check('lessons: loaded', Array.isArray(L) && L.length > 0, L.length + ' lessons');
+  const ids = new Set(), titles = new Set(), ok = [];
+  const isText = (v) => typeof v === 'string' && v.trim().length > 0;
+  const isList = (v) => Array.isArray(v) && v.length > 0 && v.every(isText);
+  for (const l of L) {
+    const tag = 'lesson ' + (l.id || '?');
+    const probs = [];
+    if (!isText(l.id) || ids.has(l.id)) probs.push('id missing or duplicate');
+    if (!isText(l.title) || titles.has(l.title)) probs.push('title missing or duplicate');
+    ids.add(l.id); titles.add(l.title);
+    if (l.kind !== 'basics' && l.kind !== 'opening') probs.push('kind ' + l.kind);
+    if (l.kind === 'opening' && !(l.side === 'w' || l.side === 'b')) probs.push('side ' + l.side);
+    if (l.kind === 'opening' && !/^[A-E]\d\d$/.test(l.eco || '')) probs.push('eco ' + l.eco);
+    if (l.kind === 'opening' && !(l.line && l.line.length >= 14 && l.line.length <= 20)) probs.push('opening line should be 14 to 20 plies, is ' + (l.line || []).length);
+    for (const k of ['blurb', 'idea', 'then']) if (!isText(l[k])) probs.push(k + ' missing');
+    for (const k of ['line', 'notes', 'want', 'avoid']) if (!isList(l[k])) probs.push(k + ' missing or empty');
+    check(tag + ': schema', !probs.length, probs.join('; ') || null);
+    check(tag + ': one note per move', !!l.line && !!l.notes && l.notes.length === l.line.length, (l.notes || []).length + ' notes, ' + (l.line || []).length + ' moves');
+    // every SAN legal, and written the way chess.js writes it (so + and # are right and Practice matches)
+    const c = new Chess(), fens = [c.fen()], ucis = [];
+    let bad = null;
+    for (let i = 0; i < (l.line || []).length; i++) {
+      const s = l.line[i], m = c.move(s);
+      if (!m) { bad = 'ply ' + (i + 1) + ' ' + s + ' is illegal'; break; }
+      if (m.san !== s) { bad = 'ply ' + (i + 1) + ' ' + s + ' should be written ' + m.san; break; }
+      ucis.push(m.from + m.to + (m.promotion || '')); fens.push(c.fen());
+    }
+    check(tag + ': every move legal', !bad, bad);
+    if (!bad && l.line && l.line.length) ok.push({ l, fens, ucis });
+  }
+  return ok;
+}
+async function lessonEngineTests(eng, tr, playable) {
+  const ev = async (fen, depth) => { tr.send('ucinewgame'); return eng.evaluate(fen, { depth }); };
+  let warned = 0;
+  for (const { l, fens, ucis } of playable) {
+    const t = Date.now(), evals = {};
+    for (const d of LESSON_DEPTHS) { evals[d] = []; for (const f of fens) evals[d].push(await ev(f, d)); }
+    const bad = [], warn = [], shallow = [];
+    let worst = null;
+    for (let i = 0; i < ucis.length; i++) {
+      const color = i % 2 ? 'b' : 'w', mv = Math.floor(i / 2) + 1 + (color === 'w' ? '. ' : '... ') + l.line[i];
+      for (const d of LESSON_DEPTHS) {
+        const a = evals[d][i], b = evals[d][i + 1];
+        if ((a.best && a.depth < d) || (b.best && b.depth < d)) shallow.push(mv + ' d' + d);
+        const r = E.rate({ cpBefore: a.cp, cpAfter: b.cp, color, played: ucis[i], best: a.best, mateBefore: a.mate, mateAfter: b.mate });
+        const sc = new Chess(fens[i]), bm = a.best && sc.move({ from: a.best.slice(0, 2), to: a.best.slice(2, 4), promotion: a.best[4] });
+        const say = mv + ' ' + r.label + ' -' + (r.loss / 100).toFixed(2) + ' at depth ' + d + ', engine prefers ' + (bm ? bm.san : '?');
+        if (!worst || r.loss > worst.loss) worst = { loss: r.loss, say: mv + ' -' + (r.loss / 100).toFixed(2) + ' d' + d };
+        if (r.label === 'mistake' || r.label === 'blunder') bad.push(say);
+        else if (r.label === 'inaccuracy') warn.push(say);
+      }
+    }
+    for (const w of warn) { warned++; console.log('WARN lesson ' + l.id + ': inaccuracy in the line: ' + w); }
+    check('lesson ' + l.id + ': search reached full depth', !shallow.length, shallow.join(', ') || null);
+    check('lesson ' + l.id + ': no mistake or blunder in the line', !bad.length, bad.join(' | ') || (ucis.length + ' moves, worst ' + (worst ? worst.say : '-') + ', ' + (Date.now() - t) + ' ms'));
+  }
+  console.log('lessons: ' + playable.length + ' lines checked at depth ' + LESSON_DEPTHS.join(' and ') + ', ' + warned + ' inaccuracy warning' + (warned === 1 ? '' : 's'));
+}
+async function lessonTests(eng, tr) {
+  const playable = lessonShapeTests(loadLessons());
+  await eng.ready();
+  await lessonEngineTests(eng, tr, playable);
 }
 
 (async () => {
   const t0 = Date.now();
   pureTests();
-  try { await engineTests(); } catch (e) { check('engine tests threw', false, (e && e.stack) || JSON.stringify(e)); }
+  const tr = nodeTransport(), eng = E.create({ transport: tr });
+  if (!ONLY_LESSONS) { try { await engineTests(eng); } catch (e) { check('engine tests threw', false, (e && e.stack) || JSON.stringify(e)); } }
+  try { await lessonTests(eng, tr); } catch (e) { check('lesson tests threw', false, (e && e.stack) || JSON.stringify(e)); }
+  eng.terminate();
   console.log('\n' + passes + ' passed, ' + fails + ' failed, ' + (Date.now() - t0) + ' ms');
   process.exit(fails ? 1 : 0);
 })();
