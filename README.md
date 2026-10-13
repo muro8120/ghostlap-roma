@@ -15,7 +15,9 @@ Two games in one offline iPhone app. Pick one on the launcher:
 - **Camera:** three views, picked with the *Camera* pill on the drive menu or pause sheet (tap to cycle; the choice is saved).
   *Chase* (the default) is a 2.5D view from behind and above the car: the same 2D race drawn with real perspective by
   three.js, with the OpenStreetMap footprints round the route extruded into buildings (3 to 6 storeys, churches and monuments
-  taller and floodlit, lit windows), street lamps, the car's headlight and the night vignette. *Follow* is the flat top-down
+  taller and floodlit, lit windows), street lamps, the car's headlight and the night vignette. Streets get kerbs and paved
+  pavements, with parked cars, plane trees or bollards where the building line opens up, and parapets on the bridges; the
+  circuits are lit all the way round, lined with trees, with the city on the horizon. The ghost is pale blue glass. *Follow* is the flat top-down
   view with the car's heading up the screen, and *North-up* the fixed map view. In every view the left thumb turns the car left
   on screen, and the minimap stays north-up, with the car as an arrow. A phone without WebGL gets Follow instead of Chase.
   In Chase the map labels thin out to what you can read: at most six, nearest first, faded with distance, never overlapping,
