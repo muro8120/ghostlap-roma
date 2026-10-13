@@ -490,7 +490,7 @@
       const pr = g.practice, onLine = pr && !pr.off && !pr.done, bi = g.moves.length - 1, book = onLine ? pr.line[bi] : null, bookSan = book ? sanOf(fenBefore, book) : '';
       const tag = !book ? null : played === book ? 'book' : 'slip';
       if (tag === 'book') { rec.book = true; rec.jab = 'Book move. ' + (pr.notes[bi] || ''); }
-      else if (tag === 'slip') { pr.slips++; rec.jab = 'Not the line. The line goes ' + bookSan + ': ' + (pr.notes[bi] || ''); }
+      else if (tag === 'slip') { pr.slips++; pr.missed[bi] = 1; rec.jab = 'Not the line. The line goes ' + bookSan + ': ' + (pr.notes[bi] || ''); }
       lastRating = { uci: played, san: m.san, label: rating.label, loss: rating.loss, jab: rec.jab, bestSan, ply: g.moves.length, why: rec.why, tag };
       showRate(lastRating); renderMoves();
       if (tag === 'slip') {
@@ -502,12 +502,12 @@
         if (choice === 'back') {   // free: no counters, no record
           c.undo(); g.moves.pop(); g.streak = streak0; rec.label = null; lastRating = null;
           renderMoves(); showOpening($('opening'), g.moves.map((x) => x.san));
-          rateIdle('Back on the ' + pr.title + '. The move here is ' + bookSan + '; it is marked Book in Think ahead.');
+          rateIdle('Back on the ' + pr.title + '. The move here is ' + bookSan + (g.tutor ? '; it is marked Book in Think ahead.' : '. Play it from memory.'));
           g.think = thought; g.pick = null; setState('playing'); renderTutor(); drawGame();
           return lastRating;
         }
         pr.off = true;
-        $('rateJab').textContent = 'Off the line at move ' + Math.floor(bi / 2 + 1) + '. From here it is free play against the engine at ' + g.elo + ', with Think ahead still on.';
+        $('rateJab').textContent = 'Off the line at move ' + Math.floor(bi / 2 + 1) + '. From here it is free play against the engine at ' + g.elo + (g.tutor ? ', with Think ahead still on.' : '. The drill is not scored.');
       }
       if (c.game_over()) { thinking(false); gameOver(); return lastRating; }
       if (g.tutor && !tag && (rating.label === 'mistake' || rating.label === 'blunder' || rating.label === 'inaccuracy') && (pr || g.used + COST.takeback <= g.budget)) {
@@ -560,14 +560,18 @@
   }
   // the lesson line is played out: stop and offer to play on, go again, or go back to the lesson
   const slipTxt = (pr) => pr.slips ? 'You needed ' + pr.slips + ' correction' + (pr.slips > 1 ? 's' : '') + '.' : 'No corrections. Clean.';
+  const drillScore = (pr, you) => { const of = pr.line.filter((x, i) => i % 2 === (you === 'w' ? 0 : 1)).length; return { id: pr.id, drill: pr.drill, first: of - Object.keys(pr.missed).length, of, slips: pr.slips }; };
   function lineDone() {
     const g = game, pr = g.practice; pr.done = true; g.prompt = 'done';
     thinking(false);
-    $('ldTitle').textContent = 'Line done: the ' + pr.title; $('ldMsg').textContent = slipTxt(pr);
+    const sc = pr.drill ? drillScore(pr, g.you) : null, extra = sc && pr.opts.onDone ? pr.opts.onDone(sc) : '';
+    $('lineDone').querySelector('h3').textContent = pr.drill ? 'FROM MEMORY' : 'PRACTICE';
+    $('ldTitle').textContent = 'Line done: the ' + pr.title;
+    $('ldMsg').textContent = sc ? sc.first + '/' + sc.of + ' right first time. ' + (sc.slips ? sc.slips + ' slip' + (sc.slips > 1 ? 's' : '') + '.' : 'No slips.') + (extra ? ' ' + extra : '') : slipTxt(pr);
     sheet('lineDone', true);
     return new Promise((res) => { g.pending = res; }).then((v) => {
       sheet('lineDone', false); g.prompt = null;
-      if (game === g && v === 'on') rateIdle('Line done. ' + slipTxt(pr) + ' From here the engine plays its own moves at ' + g.elo + '. Think ahead stays on; nothing is recorded.');
+      if (game === g && v === 'on') rateIdle('Line done. ' + slipTxt(pr) + ' From here the engine plays its own moves at ' + g.elo + '.' + (g.tutor ? ' Think ahead stays on; nothing is recorded.' : ' Nothing is recorded.'));
       return v;
     });
   }
@@ -734,19 +738,21 @@
   }
   // practice an opening from the Learn screen: a strict tutor. No budget, Think ahead always on, the engine plays the book
   // line, a move off the line stops for a free take-back. Never recorded.
-  function practice(lesson) {
+  // opts.drill 'memory': the same, with Think ahead off; notes only after the move; scored, and opts.onDone(score) stores it.
+  function practice(lesson, opts) {
     if (!lesson || !lesson.line) return null;
+    opts = opts || {}; const drill = opts.drill === 'memory' ? 'memory' : null;
     const c = new Chess(), line = [];
     for (const san of lesson.line) { const m = c.move(san); if (!m) break; line.push(uciOf(m)); }
-    const g = newGame({ color: lesson.side || 'w', tutor: true, practice: { id: lesson.id, lesson, title: lesson.title, line, notes: lesson.notes || [], off: false, done: false, slips: 0 } });
-    if (g) rateIdle('Practice: the ' + lesson.title + '. Play the line you just stepped through; the book move is marked in Think ahead. Leave the line and I stop you.');
+    const g = newGame({ color: lesson.side || 'w', tutor: !drill, practice: { id: lesson.id, lesson, opts, drill, title: lesson.title, line, notes: lesson.notes || [], off: false, done: false, slips: 0, missed: {} } });
+    if (g) rateIdle(drill ? 'From memory: the ' + lesson.title + '. No Think ahead, and each note only once you have played the move. A wrong move stops you and shows the line.' : 'Practice: the ' + lesson.title + '. Play the line you just stepped through; the book move is marked in Think ahead. Leave the line and I stop you.');
     return g;
   }
   function practiceState() {
     const g = game, pr = g && g.practice; if (!pr) return null;
-    return { id: pr.id, title: pr.title, onLine: !pr.off && !pr.done, off: pr.off, done: pr.done, slips: pr.slips, ply: g.moves.length, length: pr.line.length, prompt: g.prompt || null, over: state === 'over' };
+    return { id: pr.id, title: pr.title, drill: pr.drill, score: pr.drill ? drillScore(pr, g.you) : null, onLine: !pr.off && !pr.done, off: pr.off, done: pr.done, slips: pr.slips, ply: g.moves.length, length: pr.line.length, prompt: g.prompt || null, over: state === 'over' };
   }
-  function again() { const pr = game && game.practice; return pr ? practice(pr.lesson) : null; }
+  function again() { const pr = game && game.practice; return pr ? practice(pr.lesson, pr.opts) : null; }
   function backToLesson() {
     const pr = game && game.practice;
     cancelAnalysis();

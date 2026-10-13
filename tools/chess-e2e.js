@@ -1,5 +1,5 @@
 // Headless check of the chess coach with the REAL Stockfish worker in Chromium (iPhone 13 viewport).
-// node tools/chess-e2e.js   (screenshots in $SHOTS or /tmp/ghostlap-shots)
+// node tools/chess-e2e.js   (screenshots in $SHOTS or /tmp/ghostlap-shots; PORT=8768 if 8767 is busy)
 const { chromium, devices } = require('/opt/node-tools/node_modules/playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
@@ -10,7 +10,7 @@ const srv = http.createServer((q, r) => {
   const f = path.join(ROOT, p);
   if (!f.startsWith(ROOT) || !fs.existsSync(f)) { r.writeHead(404); return r.end('nf'); }
   r.writeHead(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r);
-}).listen(8767);
+}).listen(+process.env.PORT || 8767);
 const results = [];
 const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, extra || '']); console.log((ok ? 'PASS ' : 'FAIL ') + name + (extra ? '  ' + extra : '')); };
 
@@ -21,7 +21,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   const errs = [];
   p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   p.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
-  const base = 'http://localhost:8767/';
+  const base = 'http://localhost:' + (+process.env.PORT || 8767) + '/';
   await p.goto(base);
   await p.waitForTimeout(500);
   await p.screenshot({ path: SHOTS + '/c0-hub.png' });
@@ -224,7 +224,76 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.click('#lessonBtn'); await p.waitForTimeout(200);
   const histAfter = await p.evaluate(() => ({ ids: window.__coach.history.map((g) => g.id).join(','), store: JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse.games.length }));
   check('practice games are not in history', histAfter.ids === histBefore && histAfter.store === histBefore.split(',').filter(Boolean).length, JSON.stringify({ before: histBefore.split(',').length, after: histAfter.ids.split(',').length }));
-  await p.click('#lessonBack'); await p.waitForTimeout(150); await p.click('#learnBack'); await p.waitForTimeout(200);
+  // drills: From memory (the strict practice without Think ahead, scored and stored under the learn key)
+  const learnStore = () => p.evaluate(() => (JSON.parse(localStorage.getItem('ghostlap-learn-v1') || '{}').jesse || {}));
+  const mine = Math.ceil(line.length / 2), frN = await p.evaluate(() => Math.floor(window.LESSONS.find((l) => l.id === 'french').line.length / 2));
+  const ds = await p.evaluate(() => ({ mem: document.getElementById('lMem').getClientRects().length > 0, cards: document.getElementById('lCards').getClientRects().length > 0, ms: document.getElementById('lMemStat').textContent, cs: document.getElementById('lCardsStat').textContent }));
+  check('lesson offers both drills with a status line', ds.mem && ds.cards && ds.ms.length > 10 && ds.cs.startsWith(mine + ' cards, ' + mine + ' due'), JSON.stringify(ds));
+  await p.click('#lMem');
+  await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
+  await p.waitForTimeout(1500);
+  const md = await p.evaluate(() => ({ tutor: document.getElementById('tutor').getClientRects().length > 0, opts: document.querySelectorAll('#tutorOpts .opt').length, think: window.__coach.think, st: window.__coach.practiceState(), jab: document.getElementById('rateJab').textContent }));
+  check('memory drill hides Think ahead and shows no note before the move', !md.tutor && md.opts === 0 && !md.think && md.st.drill === 'memory' && /^From memory/.test(md.jab) && !/Centre pawn/.test(md.jab), JSON.stringify(md).slice(0, 220));
+  await p.screenshot({ path: SHOTS + '/c19-memory.png' });
+  let memOk = true;
+  for (let i = 0; i < line.length; i += 2) {
+    await p.evaluate((u) => { window.__coach.move(u).catch(() => null); }, line[i]);
+    if (i + 1 >= line.length) break;
+    const ok = await p.waitForFunction((n) => window.__coach.game.moves.length >= n && window.__coach.state === 'playing', i + 2, { timeout: 30000 }).then(() => true).catch(() => false);
+    if (!ok) { memOk = false; break; }
+    if (i === 0) check('memory drill confirms a book move with its note', /^Book move\. Centre pawn/.test(await p.$eval('#rateJab', (e) => e.textContent)), await p.$eval('#rateJab', (e) => e.textContent.slice(0, 80)));
+  }
+  const mdone = await p.waitForSelector('#lineDone.on', { timeout: 30000 }).then(() => true).catch(() => false);
+  const mld = await p.evaluate(() => ({ h: document.querySelector('#lineDone h3').textContent, msg: document.getElementById('ldMsg').textContent, sc: window.__coach.practiceState().score }));
+  const ls1 = await learnStore();
+  check('memory drill scores a clean line', memOk && mdone && mld.h === 'FROM MEMORY' && mld.msg.startsWith(mine + '/' + mine + ' right first time. No slips.') && mld.sc.first === mine && mld.sc.of === mine, JSON.stringify(mld));
+  check('memory score stored under the learn key', !!(ls1.italian && ls1.italian.mem && ls1.italian.mem.tries === 1 && ls1.italian.mem.best.first === mine && ls1.italian.mem.last.of === mine && ls1.italian.mem.date), JSON.stringify(ls1.italian));
+  await p.screenshot({ path: SHOTS + '/c20-memory-done.png' });
+  await p.click('#ldLesson'); await p.waitForTimeout(200);
+  const ms1 = await p.$eval('#lMemStat', (e) => e.textContent);
+  check('lesson shows the memory best', ms1.startsWith('Best ' + mine + '/' + mine + ' · 1 try'), ms1);
+  check('memory drill is not in the chess history', (await p.evaluate(() => window.__coach.history.map((g) => g.id).join(','))) === histBefore);
+  // drills: Position cards, as Black (flipped board), no engine
+  await p.evaluate(() => window.__learn.show('french')); await p.waitForTimeout(150);
+  await p.click('#lCards'); await p.waitForTimeout(200);
+  const c0 = await p.evaluate(() => ({ on: document.getElementById('drill').classList.contains('on'), d: window.__learn.drill, q: document.getElementById('dQ').textContent, corner: document.querySelector('#dBoard .sq').dataset.sq }));
+  check('position cards: first card asks for your move on a flipped board', c0.on && c0.d.phase === 'ask' && c0.d.seen === frN && c0.q === 'Your move?' && c0.corner === 'h1' && c0.d.card.san === 'e6', JSON.stringify(c0).slice(0, 220));
+  await p.screenshot({ path: SHOTS + '/c21-cards.png' });
+  const dtap = async (sq) => { await p.tap('#dBoard [data-sq="' + sq + '"]'); await p.waitForTimeout(120); };
+  await dtap(c0.d.card.from); await dtap(c0.d.card.to);
+  const c1 = await p.evaluate(() => ({ d: window.__learn.drill, q: document.getElementById('dQ').textContent, note: document.getElementById('dNote').textContent }));
+  check('position cards: two taps, right answer shows the note', c1.d.phase === 'right' && c1.d.first === 1 && c1.d.card.box === 2 && c1.q === 'Right: e6' && /^The French/.test(c1.note), JSON.stringify(c1).slice(0, 220));
+  await p.screenshot({ path: SHOTS + '/c22-cards-right.png' });
+  await p.evaluate(() => window.__learn.next());
+  const wr = await p.evaluate(() => { const d = window.__learn.drill, m = new Chess(d.card.fen).moves({ verbose: true }).find((x) => x.san !== d.card.san); return window.__learn.answer(m.from, m.to); });
+  const c2 = await p.evaluate(() => ({ d: window.__learn.drill, arrows: document.querySelectorAll('#dBoard .arrow line').length, note: document.getElementById('dNote').textContent }));
+  check('position cards: wrong answer shows the move with an arrow and repeats the card later', wr && wr.ok === false && c2.d.phase === 'wrong' && c2.arrows === 1 && /^You played .*The challenge/.test(c2.note) && c2.d.queue.includes(3) && c2.d.queue[0] !== 3 && c2.d.card.box === 1, JSON.stringify({ wr, c2 }).slice(0, 260));
+  await p.screenshot({ path: SHOTS + '/c23-cards-wrong.png' });
+  await p.reload(); await p.waitForTimeout(600);
+  const rl = await p.evaluate(() => ({ box: JSON.parse(localStorage.getItem('ghostlap-learn-v1')).jesse.french.cards, due: window.__learn.due('french') }));
+  check('position cards: boxes persist across reload', rl.box.box['1:e6'] === 2 && rl.box.box['3:d5'] === 1 && rl.box.sessions === 1 && rl.due.due === frN - 1, JSON.stringify(rl));
+  await p.evaluate(() => { window.__learn.show('french'); window.__learn.cards(); }); await p.waitForTimeout(150);
+  for (let n = 0; n < 60; n++) {
+    const s = await p.evaluate(() => window.__learn.drill); if (!s || s.phase === 'done') break;
+    if (s.phase === 'ask') await p.evaluate((c) => window.__learn.answer(c.from, c.to), s.card); else await p.evaluate(() => window.__learn.next());
+  }
+  const sum = await p.evaluate(() => ({ d: window.__learn.drill, on: document.getElementById('dSum').getClientRects().length > 0, seen: document.getElementById('dSeen').textContent, first: document.getElementById('dFirst').textContent, box: JSON.parse(localStorage.getItem('ghostlap-learn-v1')).jesse.french.cards.box }));
+  check('position cards: session summary', sum.d.phase === 'done' && sum.on && sum.seen === String(frN - 1) && sum.first === '100%' && Object.values(sum.box).filter((b) => b === 2).length === frN, JSON.stringify(sum).slice(0, 260));
+  await p.screenshot({ path: SHOTS + '/c24-cards-summary.png' });
+  await p.click('#dDone'); await p.waitForTimeout(200);
+  const cs1 = await p.evaluate(() => ({ on: document.getElementById('lesson').classList.contains('on'), drill: document.getElementById('drill').classList.contains('on'), st: document.getElementById('lCardsStat').textContent }));
+  check('Done goes back to the lesson with the cards status', cs1.on && !cs1.drill && cs1.st.startsWith(frN + ' cards, ' + frN + ' due'), JSON.stringify(cs1));
+  await p.click('#lessonBack'); await p.waitForTimeout(200);
+  const glyph = await p.$$eval('#learnList .lcard', (e) => e.filter((c) => c.querySelector('.lprog')).map((c) => c.querySelector('.t').textContent));
+  check('learn list marks drilled openings', glyph.length === 2 && glyph.some((t) => /Italian/.test(t)) && glyph.some((t) => /French/.test(t)), glyph.join(' | '));
+  await p.screenshot({ path: SHOTS + '/c25-learn-progress.png' });
+  await p.evaluate(() => { window.__coach.setPlayer('j'); window.__learn.open(); }); await p.waitForTimeout(150);
+  const jv = await p.evaluate(() => { const rings = document.querySelectorAll('#learnList .lprog').length; window.__learn.show('italian');
+    return { rings, who: window.__learn.player, ms: document.getElementById('lMemStat').textContent, cs: document.getElementById('lCardsStat').textContent, prog: window.__learn.progress('french') }; });
+  check('drill progress is per player: J sees none of Jesse\'s', jv.who === 'j' && jv.rings === 0 && !/^Best/.test(jv.ms) && jv.cs.startsWith(mine + ' cards, ' + mine + ' due') && !jv.prog.cards, JSON.stringify(jv).slice(0, 220));
+  await p.evaluate(() => { window.__coach.setPlayer('jesse'); window.__learn.open(); }); await p.waitForTimeout(150);
+  check('switching back to Jesse brings his rings back', (await p.$$eval('#learnList .lprog', (e) => e.length)) === 2);
+  await p.click('#learnBack'); await p.waitForTimeout(200);
   check('back returns to hub', await p.$eval('#hub', (e) => e.classList.contains('on')));
   check('no page errors', errs.length === 0, errs.join(' | ').slice(0, 300));
   await b.close(); srv.close();

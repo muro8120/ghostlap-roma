@@ -214,10 +214,10 @@
     border-radius: 8px; overflow: hidden; touch-action: none; flex: none; }
   .board.busy { pointer-events: none; }
   .sq { position: relative; display: grid; place-items: center; font-size: calc(var(--sq) * .78); line-height: 1; }
-  #chess, #review, #lesson { --sqL: #9aa7b8; --sqD: #4a5568; --crL: #2b3340; --crD: #c7d0dc; }
-  [data-theme="wood"] #chess, [data-theme="wood"] #review, [data-theme="wood"] #lesson { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; }
-  [data-theme="modern"] #chess, [data-theme="modern"] #review, [data-theme="modern"] #lesson { --sqL: #eeeed2; --sqD: #769656; --crL: #6b7a4a; --crD: #eeeed2; }
-  [data-theme="mono"] #chess, [data-theme="mono"] #review, [data-theme="mono"] #lesson { --sqL: #d5d8de; --sqD: #6e7480; --crL: #4a505c; --crD: #e4e7ec; }
+  #chess, #review, #lesson, #drill { --sqL: #9aa7b8; --sqD: #4a5568; --crL: #2b3340; --crD: #c7d0dc; }
+  [data-theme="wood"] #chess, [data-theme="wood"] #review, [data-theme="wood"] #lesson, [data-theme="wood"] #drill { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; }
+  [data-theme="modern"] #chess, [data-theme="modern"] #review, [data-theme="modern"] #lesson, [data-theme="modern"] #drill { --sqL: #eeeed2; --sqD: #769656; --crL: #6b7a4a; --crD: #eeeed2; }
+  [data-theme="mono"] #chess, [data-theme="mono"] #review, [data-theme="mono"] #lesson, [data-theme="mono"] #drill { --sqL: #d5d8de; --sqD: #6e7480; --crL: #4a505c; --crD: #e4e7ec; }
   .sq.l { background: var(--sqL); } .sq.d { background: var(--sqD); }
   .themes { display: flex; gap: 8px; }
   .themes button { width: 40px; height: 40px; border-radius: 10px; border: 2px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; overflow: hidden; padding: 0; }
@@ -257,12 +257,26 @@
   .opt.warn { border-color: rgba(255,90,95,.5); } .opt.warn span { color: var(--red); }
   .opt.book { border-color: rgba(61,214,140,.55); } .opt.book i { color: var(--green); } .opt.book.on { border-color: var(--amber); }
   [data-label=book] { --lc: var(--green); } [data-label=slip] { --lc: var(--amber); }
-  #learn, #lesson { overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; background: var(--bg);
+  #learn, #lesson, #drill { overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; background: var(--bg);
     padding: calc(var(--st) + 10px) calc(var(--sr) + 16px) calc(var(--sb) + 28px) calc(var(--sl) + 16px); --sq: calc(min(100vw - 32px, 52vh) / 8); }
+  #lesson [hidden], #drill [hidden] { display: none !important; }
   .lcard { grid-template-columns: 44px 1fr auto; }
   .lcard .cap { font-size: 28px; text-align: center; }
+  .lprog { display: inline-block; width: 13px; height: 13px; border-radius: 50%; margin-left: 8px; vertical-align: -1px; border: 1.5px solid var(--green);
+    background: conic-gradient(var(--green) var(--p, 0%), transparent 0); }
   .lidea { font-size: 15px; line-height: 1.5; color: var(--text); margin: 8px 0 12px; }
-  #lesson .brow { justify-content: center; margin-top: 4px; }
+  #lesson .brow, #drill .brow { justify-content: center; margin-top: 4px; }
+  #lDrills { margin-top: 4px; } #lDrills .btn { width: 100%; }
+  .dstat { text-align: center; margin: 6px 4px 2px; font-size: 12px; }
+  .dhead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 8px 0; }
+  #dQ { font-size: 22px; font-weight: 800; color: var(--lc, var(--text)); min-width: 0; }
+  #dPos { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  #drill .bar { margin-bottom: 4px; } #drill .bar b { transition: width .3s; }
+  #dNote { border-left-color: var(--lc, var(--line)); }
+  .dstats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 12px; }
+  .dstats div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 2px 8px; text-align: center; }
+  .dstats b { display: block; font-size: 24px; font-weight: 800; } .dstats div:nth-child(2) b { color: var(--green); }
+  .dstats small { font-size: 10px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; font-weight: 700; }
   .lnote { margin-top: 10px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 14px; padding: 10px 12px; font-size: 16px; line-height: 1.4; min-height: 64px; }
   .llist { margin: 0; padding-left: 18px; color: var(--text); font-size: 14px; line-height: 1.5; }
   .llist li { margin-bottom: 4px; }
@@ -487,7 +501,7 @@
 <section id="learn" class="screen">
   <div class="wrap">
     <div class="cbar"><button class="back" id="learnBack" aria-label="Back">&#8249;</button><h1>LEARN</h1></div>
-    <p class="chint">The names at the top of your games, explained. Each lesson is a line you can step through, with what to aim for and what to avoid. Openings come with a Practice button: the coach walks you through the line move by move and stops you when you leave it.</p>
+    <p class="chint">The names at the top of your games, explained. Each lesson is a line you can step through, with what to aim for and what to avoid. Openings come with a Practice button: the coach walks you through the line move by move and stops you when you leave it. Then drill it from memory and with position cards until it sticks.</p>
     <div id="learnList"></div>
   </div>
 </section>
@@ -504,7 +518,31 @@
     <h2>What you want</h2><ul class="llist" id="lWant"></ul>
     <h2>Watch out for</h2><ul class="llist" id="lAvoid"></ul>
     <h2>Then what</h2><p class="lidea" id="lThen"></p>
-    <div class="btns" style="margin-top:14px"><button class="btn primary" id="lPractice">Practice this opening</button></div>
+    <div class="btns" style="margin-top:14px"><button class="btn primary" id="lPractice">Practice this opening</button>
+      <div class="btns" id="lDrills">
+        <div><button class="btn" id="lMem">Drill: from memory</button><p class="chint dstat" id="lMemStat"></p></div>
+        <div><button class="btn" id="lCards">Drill: position cards</button><p class="chint dstat" id="lCardsStat"></p></div>
+      </div></div>
+  </div>
+</section>
+
+<section id="drill" class="screen">
+  <div class="wrap">
+    <div class="cbar"><button class="back" id="drillBack" aria-label="Back">&#8249;</button><h1>CARDS</h1></div>
+    <div class="opening" id="dLesson"></div>
+    <div id="dPlay">
+      <div class="bar"><b id="dBar" style="width:0"></b></div>
+      <div class="dhead"><div id="dQ">Your move?</div><div id="dPos"></div></div>
+      <div class="brow"><div class="board" id="dBoard"></div></div>
+      <div class="lnote" id="dNote"></div>
+      <div class="btns" style="margin-top:12px"><button class="btn" id="dNext">Show me</button></div>
+    </div>
+    <div id="dSum" hidden>
+      <div class="endT" id="dSumT">Session done</div>
+      <div class="dstats"><div><b id="dSeen"></b><small>Cards</small></div><div><b id="dFirst"></b><small>First try</small></div><div><b id="dLearned"></b><small>In box 3</small></div></div>
+      <p class="chint" id="dSumMsg"></p>
+      <div class="btns" style="margin-top:16px"><button class="btn primary" id="dDone">Done</button></div>
+    </div>
   </div>
 </section>
 
