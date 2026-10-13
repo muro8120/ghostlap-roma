@@ -544,6 +544,14 @@
   </div>
 </div>
 
+<script>
+  // Native iOS app (Capacitor, see TESTFLIGHT.md): the files ship inside the app, so no service worker is needed.
+  // Hiding navigator.serviceWorker makes the offline check in game.js stop before it registers sw.js; hub.js then says Ready.
+  // On the web window.Capacitor is undefined and nothing here runs.
+  if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+    try { delete Navigator.prototype.serviceWorker; } catch (e) { /* the badge still works via hub.js */ }
+  }
+</script>
 <script src="vendor/chess.js"></script>
 <script src="core.js"></script>
 <script src="rome.js"></script>

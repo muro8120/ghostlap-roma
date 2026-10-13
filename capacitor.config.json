@@ -1,0 +1,12 @@
+{
+  "appId": "com.muro8120.ghostlap",
+  "appName": "Ghostlap Roma",
+  "webDir": "www",
+  "backgroundColor": "#0b0d12",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0b0d12",
+    "scrollEnabled": false,
+    "allowsLinkPreview": false
+  }
+}

@@ -16,6 +16,10 @@
   $('toHub').onclick = show;
   // mirror the offline badge from the drive menu so the hub says when the whole app is cached
   const src = $('offline'), dst = $('hubOffline');
+  // native iOS app (Capacitor): everything is bundled in the app, so it is always ready, no cache to wait for
+  if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+    src.textContent = '✓ Ready'; src.classList.add('ok');
+  }
   new MutationObserver(() => { dst.textContent = src.textContent; dst.style.color = src.classList.contains('ok') ? 'var(--green)' : ''; }).observe(src, { childList: true, characterData: true, subtree: true });
   dst.textContent = src.textContent;
   // deep link: ?game=chess or ?game=drive opens that game straight away (used by the tests too)
