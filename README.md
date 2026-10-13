@@ -12,8 +12,12 @@ Two games in one offline iPhone app. Pick one on the launcher:
   to the hotel, the next stop and the nearest of your Andiamo places (gold stars). Map data © OpenStreetMap contributors (ODbL).
 - **Garage:** Cinquecento, Maranello 12, Modena GT, San Cesario, Sant'Agata. These are homages named after towns, not brands.
 - **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake; keep holding to reverse.
-- **Camera:** follows the car with its heading up the screen, so the left thumb always turns the car left on screen. *Camera: North-up*
-  on the drive menu or pause sheet brings back the fixed map view. The minimap stays north-up, with the car as an arrow.
+- **Camera:** three views, picked with the *Camera* pill on the drive menu or pause sheet (tap to cycle; the choice is saved).
+  *Chase* (the default) is a 2.5D view from behind and above the car: the same 2D race drawn with real perspective by
+  three.js, with the OpenStreetMap footprints round the route extruded into buildings (3 to 6 storeys, churches and monuments
+  taller and floodlit, lit windows), street lamps, the car's headlight and the night vignette. *Follow* is the flat top-down
+  view with the car's heading up the screen, and *North-up* the fixed map view. In every view the left thumb turns the car left
+  on screen, and the minimap stays north-up, with the car as an arrow. A phone without WebGL gets Follow instead of Chase.
 - **Offline:** a service worker caches everything, so after one online visit it runs in airplane mode.
 
 ## Chess coach
@@ -74,7 +78,7 @@ Two games in one offline iPhone app. Pick one on the launcher:
   only; the racer keeps its look.
 - **History:** your last 20 games and their reports are kept on the phone. Promotion is always to a queen.
 - Credits: [Stockfish](https://stockfishchess.org) (GPL-3.0, `vendor/STOCKFISH-LICENSE.txt`) via
-  [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause); piece set by Colin M.L. Burnett (GPLv2+, from lichess,
+  [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause); [three.js](https://threejs.org) r184 for the chase camera (MIT, `vendor/three/LICENSE`); piece set by Colin M.L. Burnett (GPLv2+, from lichess,
   `vendor/pieces/`); the Stone pieces in `vendor/pieces-stone/` are original drawings for this app; opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
 
 ## Learn
@@ -138,9 +142,10 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen and feedback cards, patterns and escalation, level check, game history
 - `lessons.js`, `learn.js`: opening lessons, the Learn screen and its drills
 - `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)
-- `vendor/`: chess.js, the Stockfish lite WASM engine, and the piece SVGs
+- `vendor/`: chess.js, the Stockfish lite WASM engine, the piece SVGs, and three.js (`vendor/three/`, the ES module build, loaded by `chase.js`)
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
 - `game.js`: rendering, input, menus, sound, saving, offline status
+- `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `dispose`, `info`)
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `tools/`: OSM fetch and build scripts, synthetic test map, headless test (`tools/e2e.js`)

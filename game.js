@@ -10,10 +10,15 @@
   // ---------- saving --------------------------------------------------------
   // v2: cars got 15% slower (Oct 2026), so old times and ghosts were reset; car and sound carry over
   const KEY = 'ghostlap-roma-v2';
-  let save = { car: 'maranello', sound: false, help: true, cam: 'follow', tracks: {} };
+  // cam: 'chase' (3D, the default) | 'follow' | 'north'. camV 1: a saved 'follow' (the old default) moved to chase once
+  let save = { car: 'maranello', sound: false, help: true, cam: 'chase', camV: 1, tracks: {} };
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) save = Object.assign(save, JSON.parse(raw));
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (!s.camV) { if (!s.cam || s.cam === 'follow') s.cam = 'chase'; s.camV = 1; }
+      save = Object.assign(save, s);
+    }
     else {
       const old = JSON.parse(localStorage.getItem('ghostlap-roma-v1') || 'null');
       if (old) { save.car = old.car || save.car; save.sound = !!old.sound; localStorage.removeItem('ghostlap-roma-v1'); }
@@ -199,7 +204,7 @@
     for (const a of ROME.anchors) {
       const [sx, sy] = toScr(a[0], a[1]);
       if (sx < -90 || sx > vw + 90 || sy < -20 || sy > vh + 20 || underHud(sx, sy, hud)) continue;
-      const t = ROME.names[a[3]], ra = wrap(a[2] / 100 + cam.r); // keep the text upright
+      const t = ROME.names[a[3]], ra = chaseView ? scrAngle(a[0], a[1], a[2] / 100, sx, sy) : wrap(a[2] / 100 + cam.r); // keep the text upright
       g.save(); g.translate(sx, sy); g.rotate(ra > Math.PI / 2 ? ra - Math.PI : ra < -Math.PI / 2 ? ra + Math.PI : ra);
       g.lineWidth = 3; g.strokeStyle = 'rgba(12,13,17,.9)'; g.strokeText(t, 0, 0);
       g.fillStyle = 'rgba(200,206,216,.62)'; g.fillText(t, 0, 0);
@@ -251,7 +256,7 @@
   // each with its straight-line distance, so you learn which way things are from wherever you are.
   let signCount = 0;
   function drawSigns(hud) {
-    const T = race.T, c = race.car, S = ROME.S, z = cam.z;
+    const T = race.T, c = race.car, S = ROME.S;
     const [cx, cy] = toScr(c.x, c.y);
     const targets = [];
     const home = ROME.places.find((p) => p.k === 'hotel');
@@ -273,7 +278,9 @@
     for (const tg of targets) {
       const [sx, sy] = toScr(tg.x, tg.y);
       if (sx > box.l + 30 && sx < box.r - 30 && sy > box.t + 20 && sy < box.b - 20) continue; // visible already
-      const dx = sx - cx, dy = sy - cy, m = Math.hypot(dx, dy) / z / S;
+      const wx = tg.x - c.x, wy = tg.y - c.y, m = Math.hypot(wx, wy) / S;
+      let dx = sx - cx, dy = sy - cy;
+      if (chaseView) { const r = -(Chase.yaw + Math.PI / 2); dx = wx * Math.cos(r) - wy * Math.sin(r); dy = wx * Math.sin(r) + wy * Math.cos(r); } // map-style bearing
       const text = tg.t + ' \u00b7 ' + (m < 950 ? Math.round(m / 10) * 10 + ' m' : (m / 1000).toFixed(1) + ' km');
       const w = g.measureText(text).width + 32;
       const kx = dx > 0 ? (box.r - cx) / dx : dx < 0 ? (box.l - cx) / dx : Infinity;
@@ -675,10 +682,15 @@
   const follow = () => save.cam !== 'north';
   const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   function camFrame() { cam.ax = vw / 2; cam.ay = vh * cam.fy; cam.c = Math.cos(cam.r); cam.s = Math.sin(cam.r); }
+  // chase mode: labels, signs and picks go through the 3D camera; off screen (behind, or too far to read) when it can't see them
+  let chaseView = false;
+  const OFF = [-1e5, -1e5];
   function toScr(x, y) {
+    if (chaseView) { const p = Chase.toScreen(x, y, 0); return p && p[2] < 1100 ? p : OFF; }
     const dx = (x - cam.x) * cam.z, dy = (y - cam.y) * cam.z;
     return [cam.ax + dx * cam.c - dy * cam.s, cam.ay + dx * cam.s + dy * cam.c];
   }
+  function scrAngle(x, y, a, sx, sy) { const p = toScr(x + Math.cos(a) * 20, y + Math.sin(a) * 20); return Math.atan2(p[1] - sy, p[0] - sx); }
   function toWorld(sx, sy) {
     const dx = (sx - cam.ax) / cam.z, dy = (sy - cam.ay) / cam.z;
     return [cam.x + dx * cam.c + dy * cam.s, cam.y - dx * cam.s + dy * cam.c];
@@ -687,6 +699,7 @@
   function resize() {
     vw = window.innerWidth; vh = window.innerHeight; dpr = dprCap; hudCache = null;
     view.width = Math.round(vw * dpr); view.height = Math.round(vh * dpr);
+    if (window.Chase && Chase.ready) Chase.resize(vw, vh, dpr);
     if (!running()) drawStill();
   }
 
@@ -707,6 +720,7 @@
 
   function render(W, car, ghost) {
     const T = W.T;
+    chaseView = false; show3d(false);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = W.ground; g.fillRect(0, 0, vw, vh);
     const z = cam.z;
@@ -776,14 +790,36 @@
     g.fillStyle = '#fff1cf';
     for (const l of W.lamps) if (Math.abs(l.x - wx) < hx && Math.abs(l.y - wy) < hy) { g.beginPath(); g.arc(l.x, l.y, 4, 0, 7); g.fill(); }
     g.restore();
-    // night vignette
+    vignette();
+    if (W.labels) W.labels();
+  }
+  function vignette() { // night vignette
     const vg = g.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.32, vw / 2, vh / 2, Math.max(vw, vh) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)');
     g.fillStyle = vg; g.fillRect(0, 0, vw, vh);
+  }
+
+  // ---------- chase camera (chase.js, three.js on #view3d under the 2D canvas) ------------------
+  // Falls back to Follow while chase.js is still loading or if WebGL is unavailable.
+  const view3d = $('view3d');
+  let chaseBad = false;
+  function chaseNow() {
+    if (save.cam !== 'chase' || chaseBad || !window.Chase) return false;
+    if (!Chase.ready && !Chase.init(view3d, dpr)) { chaseBad = true; return false; }
+    return true;
+  }
+  function show3d(on) { if (view3d.classList.contains('on') !== on) view3d.classList.toggle('on', on); }
+  function renderChase(W, car, ghost, dt) {
+    show3d(true);
+    Chase.build(W, W.T, W.T.def);
+    Chase.render(car, ghost, dt);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, vw, vh);
+    vignette();
+    chaseView = true;
     if (W.labels) W.labels();
   }
 
-  const snapCamera = (car) => moveCamera(car, 0, true);
+  const snapCamera = (car) => { moveCamera(car, 0, true); if (window.Chase && Chase.ready) Chase.snap(car); };
   function moveCamera(car, dt, snap) {
     const look = 0.42, k = snap ? 1 : 1 - Math.exp(-4.5 * dt);
     const mx = (vw / 2 / cam.z) * 0.42, my = (vh / 2 / cam.z) * 0.42;
@@ -857,9 +893,10 @@
   };
   function syncSoundButtons() {
     for (const b of [$('soundBtn'), $('soundBtn2')]) { b.textContent = 'Sound: ' + (Snd.on ? 'on' : 'off'); b.classList.toggle('on', Snd.on); }
-    for (const b of [$('camBtn'), $('camBtn2')]) { b.textContent = 'Camera: ' + (follow() ? 'Follow' : 'North-up'); b.classList.toggle('on', follow()); }
+    for (const b of [$('camBtn'), $('camBtn2')]) { b.textContent = 'Camera: ' + CAM_NAME[save.cam]; b.classList.toggle('on', follow()); }
   }
-  function setCam(f) { save.cam = f ? 'follow' : 'north'; persist(); syncSoundButtons(); }
+  const CAMS = ['chase', 'follow', 'north'], CAM_NAME = { chase: 'Chase', follow: 'Follow', north: 'North-up' };
+  function setCam(m) { save.cam = m; persist(); syncSoundButtons(); }
 
   // ---------- input ---------------------------------------------------------------
   const touches = new Map();
@@ -1122,7 +1159,8 @@
       const p = GL.ghostAt(ghostRec, 0.001);
       if (p) { p.spec = ghostSpec; gpose = p; }
     }
-    render(W, race.car, gpose);
+    if (chaseNow()) renderChase(W, race.car, gpose, real * FAST);
+    else render(W, race.car, gpose);
     drawMini(race.car, gpose);
   }
 
@@ -1154,7 +1192,7 @@
         if (race.T.def.city) checkMark(s0, c.s);
         if (ev) onEvent(ev);
       }
-      addSkids(c);
+      if (!chaseView) addSkids(c);
       if (race.T.def.city) updateNav(c);
       if (c.zone && c.zdone !== c.zone && c.zone !== lastZoneCue) { banner('\u21ba TURN ROUND', false, 1.8); lastZoneCue = c.zone; }
       if (!c.zone && c.zdone == null) lastZoneCue = null;
@@ -1283,7 +1321,7 @@
   $('menuBtn').onclick = toMenu;
   $('soundBtn').onclick = () => Snd.set(!Snd.on);
   $('soundBtn2').onclick = () => Snd.set(!Snd.on);
-  $('camBtn').onclick = $('camBtn2').onclick = () => setCam(!follow());
+  $('camBtn').onclick = $('camBtn2').onclick = () => setCam(CAMS[(CAMS.indexOf(save.cam) + 1) % CAMS.length]);
 
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   window.addEventListener('pagehide', pause);
@@ -1292,7 +1330,7 @@
 
   // ---------- offline ------------------------------------------------------------------
   const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'hub.js', 'engine.js', 'coach.js', 'vendor/chess.js', 'vendor/stockfish-19-lite-single.js',
-    'vendor/stockfish-19-lite-single.wasm', 'openings.js', 'lessons.js', 'learn.js',
+    'vendor/stockfish-19-lite-single.wasm', 'openings.js', 'lessons.js', 'learn.js', 'chase.js', 'vendor/three/three.module.min.js', 'vendor/three/three.core.min.js',
     'vendor/pieces/wK.svg', 'vendor/pieces/wQ.svg', 'vendor/pieces/wR.svg', 'vendor/pieces/wB.svg', 'vendor/pieces/wN.svg', 'vendor/pieces/wP.svg', 'vendor/pieces/bK.svg', 'vendor/pieces/bQ.svg', 'vendor/pieces/bR.svg', 'vendor/pieces/bB.svg', 'vendor/pieces/bN.svg', 'vendor/pieces/bP.svg', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'].concat(ROME ? ['rome.js'] : []);
   async function offline() {
     const el = $('offline');
@@ -1314,7 +1352,11 @@
 
   // test hook (read-only peek for the headless tests)
   window.__ghostlap = { get state() { return state; }, get race() { return race; }, get save() { return save; }, get signs() { return signCount; },
-    get view() { const c = race && race.car, [x, y] = c ? toScr(c.x, c.y) : [0, 0]; return { mode: save.cam, r: cam.r, x: x / vw, y: y / vh, a: c ? wrap(c.a + cam.r) : 0 }; }, startRace, toMenu };
+    get view() {
+      const c = race && race.car, [x, y] = c ? toScr(c.x, c.y) : [0, 0], r = chaseView ? -(Chase.yaw + Math.PI / 2) : cam.r;
+      return { mode: save.cam, chase: chaseView, r, x: x / vw, y: y / vh, a: c ? wrap(c.a + r) : 0 };
+    },
+    get chase() { return window.Chase && Chase.ready ? Chase.info() : null; }, setCam, startRace, toMenu };
 
   resize();
   buildMenu();

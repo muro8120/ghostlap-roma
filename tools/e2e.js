@@ -2,6 +2,7 @@ const { chromium, devices } = require('/opt/node-tools/node_modules/playwright')
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const SHOTS = process.env.SHOTS || '/tmp/ghostlap-shots'; fs.mkdirSync(SHOTS, { recursive: true });
+const PORT = +process.env.PORT || 8765;
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.webmanifest': 'application/manifest+json' };
 const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(new URL(q.url, 'http://x').pathname); if (p.endsWith('/')) p += 'index.html';
@@ -9,7 +10,7 @@ const srv = http.createServer((q, r) => {
   const f = path.join(ROOT, p);
   if (false && !f.startsWith(ROOT) || !fs.existsSync(f)) { r.writeHead(404); return r.end('nf'); }
   r.writeHead(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r);
-}).listen(8765);
+}).listen(PORT);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, extra || '']); };
@@ -39,13 +40,15 @@ if (process.env.ROME_JS) {
 }
 
 (async () => {
-  const b = await chromium.launch();
+  // The chase camera needs WebGL: headless Chromium falls back to SwiftShader (software) for it, which this flag allows
+  // without a warning. Forcing --use-angle=swiftshader also moves the 2D canvas onto SwiftShader and makes Follow 5x slower.
+  const b = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] });
   const ctx = await b.newContext({ ...devices['iPhone 13'] });
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   p.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
-  const base = 'http://localhost:8765/';
+  const base = 'http://localhost:' + PORT + '/';
   await ctx.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1');
     localStorage.setItem('ghostlap-roma-v1', JSON.stringify({ car: 'cinque', sound: false, tracks: { circo: { best: 40 } } })); } });
   await p.goto(base + '?bot=1&fast=6&game=drive');
@@ -70,6 +73,8 @@ if (process.env.ROME_JS) {
   await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
   await p.waitForTimeout(1500);
   await p.screenshot({ path: SHOTS + '/04-race.png' });
+  const vc = await p.evaluate(() => ({ ...window.__ghostlap.view, info: window.__ghostlap.chase }));
+  check('chase is the default camera: circuit in 3D, car in the lower middle', vc.mode === 'chase' && vc.chase && Math.abs(vc.x - 0.5) < 0.15 && vc.y > 0.55 && vc.y < 0.85 && vc.info && vc.info.calls > 3 && !vc.info.error, JSON.stringify(vc));
   await p.waitForSelector('#finish.on', { timeout: 60000 });
   await p.waitForTimeout(300);
   await p.screenshot({ path: SHOTS + '/05-finish.png' });
@@ -116,10 +121,21 @@ if (process.env.ROME_JS) {
       await p.evaluate((k) => window.__ghostlap.startRace(k), i);
       await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
       await p.waitForTimeout(1200);
-      if (i === cityIdx[0]) {
-        await p.screenshot({ path: SHOTS + '/29-city-race.png' });
-        const v = await p.evaluate(() => window.__ghostlap.view);
-        check('follow camera in Rome: car points up, sits low', v.mode === 'follow' && Math.abs(v.a + Math.PI / 2) < 0.6 && v.y > 0.5 && v.y < 0.75, JSON.stringify(v));
+      if (i === cityIdx[0]) { // chase is the default: the 3D view, car ahead of the camera in the lower middle
+        await p.waitForTimeout(1500);
+        await p.screenshot({ path: SHOTS + '/29-city-race-chase.png' });
+        const v = await p.evaluate(() => ({ ...window.__ghostlap.view, on: document.getElementById('view3d').classList.contains('on') }));
+        check('chase camera in Rome: 3D view on, car in the lower middle, pointing away', v.mode === 'chase' && v.chase && v.on && Math.abs(v.x - 0.5) < 0.15 && v.y > 0.55 && v.y < 0.85 && Math.abs(v.a + Math.PI / 2) < 0.8, JSON.stringify(v));
+        const info = await p.evaluate(() => window.__ghostlap.chase);
+        check('chase renderer numbers are sane (Rome)', info && !info.error && info.calls >= 5 && info.calls <= 150 && info.triangles > 5000 && info.triangles < 600000 && info.buildings > 200 && info.revision >= 160, JSON.stringify(info));
+        console.log('chase renderer, Rome ' + JSON.stringify(info));
+      }
+      if (i === cityIdx[1]) {
+        await p.evaluate(() => window.__ghostlap.setCam('follow'));
+        await p.waitForTimeout(300);
+        await p.screenshot({ path: SHOTS + '/29-city-race-follow.png' });
+        const v = await p.evaluate(() => ({ ...window.__ghostlap.view, on: document.getElementById('view3d').classList.contains('on') }));
+        check('follow camera in Rome: car points up, sits low', v.mode === 'follow' && !v.chase && !v.on && Math.abs(v.a + Math.PI / 2) < 0.6 && v.y > 0.5 && v.y < 0.75, JSON.stringify(v));
       }
       const nav = await p.$eval('#navSt', (e) => e.textContent);
       const signs = await p.evaluate(() => window.__ghostlap.signs);
@@ -133,6 +149,7 @@ if (process.env.ROME_JS) {
       check(id + ' completes, shows street + stops + signs + route list', done && navOn && nav.length > 2 && signs >= 1 && via.includes('MIN ON FOOT') && banners.length >= 2,
         `nav="${nav}" signs=${signs} banners=${JSON.stringify(banners)}`);
       if (i === cityIdx[0]) await p.screenshot({ path: SHOTS + '/30-city-finish.png' });
+      if (i === cityIdx[1]) await p.evaluate(() => window.__ghostlap.setCam('chase'));
       await p.click('#menuBtn');
     }
     await p.evaluate(() => document.getElementById('menu').scrollTo(0, 560));
@@ -154,9 +171,14 @@ if (process.env.ROME_JS) {
   await p2.goto(base);
   await p2.waitForTimeout(500);
   await p2.evaluate(() => window.__ghostlap.startRace(0));
-  await p2.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 6000 });
+  await p2.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
+  await p2.waitForFunction(() => window.__ghostlap.view.chase, null, { timeout: 8000 }).catch(() => {});
+  const vch = await p2.evaluate(() => window.__ghostlap.view);
+  check('chase camera is the default: straight behind the car, low in the middle', vch.mode === 'chase' && vch.chase && Math.abs(vch.a + Math.PI / 2) < 0.1 && vch.y > 0.55 && vch.y < 0.8 && Math.abs(vch.x - 0.5) < 0.05, JSON.stringify(vch));
+  await p2.evaluate(() => { window.__ghostlap.setCam('follow'); window.__ghostlap.startRace(0); });
+  await p2.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
   const v0 = await p2.evaluate(() => window.__ghostlap.view);
-  check('follow camera is the default: car heading is up the screen', v0.mode === 'follow' && Math.abs(v0.a + Math.PI / 2) < 0.05 && v0.y > 0.5 && v0.y < 0.7 && Math.abs(v0.x - 0.5) < 0.05, JSON.stringify(v0));
+  check('follow camera: car heading is up the screen', v0.mode === 'follow' && Math.abs(v0.a + Math.PI / 2) < 0.05 && v0.y > 0.5 && v0.y < 0.7 && Math.abs(v0.x - 0.5) < 0.05, JSON.stringify(v0));
   const a0 = await p2.evaluate(() => window.__ghostlap.race.car.a);
   await p2.evaluate(() => { const c = document.getElementById('view'); c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 7, clientX: 60, clientY: 700, bubbles: true, pointerType: 'touch' })); });
   await p2.waitForTimeout(700);
@@ -189,6 +211,7 @@ if (process.env.ROME_JS) {
   // hidden page pauses
   await p2.evaluate(() => { Object.defineProperty(document, 'hidden', { value: true, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
   check('backgrounding pauses', (await p2.evaluate(() => window.__ghostlap.state)) === 'paused');
+  await p2.evaluate(() => window.__ghostlap.setCam('chase'));
   await p2.close();
 
   // camera setting: North-up persists across a reload; switching back from the pause sheet snaps on resume
@@ -196,14 +219,28 @@ if (process.env.ROME_JS) {
   p4.on('pageerror', (e) => errs.push('p4 pageerror: ' + e.message));
   await p4.goto(base + '?game=drive');
   await p4.waitForTimeout(500);
+  // an old save on Follow (the old default) moves to Chase once; choosing Follow again afterwards sticks
+  await p4.evaluate(() => { const s = JSON.parse(localStorage.getItem('ghostlap-roma-v2')); s.cam = 'follow'; delete s.camV; localStorage.setItem('ghostlap-roma-v2', JSON.stringify(s)); });
+  await p4.reload(); await p4.waitForTimeout(400);
+  const mg1 = await p4.evaluate(() => ({ cam: window.__ghostlap.save.cam, btn: document.getElementById('camBtn').textContent }));
+  await p4.click('#camBtn');
+  await p4.reload(); await p4.waitForTimeout(400);
+  const mg2 = await p4.evaluate(() => ({ cam: window.__ghostlap.save.cam, btn: document.getElementById('camBtn').textContent }));
+  check('old Follow save moves to Chase once, then Follow sticks', mg1.cam === 'chase' && mg1.btn === 'Camera: Chase' && mg2.cam === 'follow' && mg2.btn === 'Camera: Follow', JSON.stringify({ mg1, mg2 }));
   await p4.click('#camBtn');
   await p4.reload();
   await p4.waitForTimeout(500);
   const cm = await p4.evaluate(() => ({ save: JSON.parse(localStorage.getItem('ghostlap-roma-v2')).cam, btn: document.getElementById('camBtn').textContent }));
   await p4.evaluate(() => window.__ghostlap.startRace(0));
-  await p4.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 6000 });
+  await p4.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
   const vn = await p4.evaluate(() => ({ ...window.__ghostlap.view, a0: window.__ghostlap.race.car.a }));
   check('North-up persists across reload', cm.save === 'north' && cm.btn === 'Camera: North-up' && vn.mode === 'north' && vn.r === 0 && Math.abs(vn.y - 0.5) < 0.1, JSON.stringify({ ...cm, ...vn }));
+  await p4.click('#pauseBtn');
+  await p4.click('#camBtn2');
+  await p4.click('#resumeBtn');
+  await p4.waitForFunction(() => window.__ghostlap.view.chase, null, { timeout: 8000 }).catch(() => {});
+  const vcs = await p4.evaluate(() => window.__ghostlap.view);
+  check('Chase from the pause sheet snaps on resume', vcs.mode === 'chase' && vcs.chase && Math.abs(vcs.a + Math.PI / 2) < 0.15, JSON.stringify(vcs));
   await p4.click('#pauseBtn');
   await p4.click('#camBtn2');
   await p4.click('#resumeBtn');
@@ -223,8 +260,10 @@ if (process.env.ROME_JS) {
   check('loads in airplane mode', ok === true && hubOn && cards >= 4, `ok=${ok} hub=${hubOn} cards=${cards}`);
   const chessOff = await p3.evaluate(() => Promise.all(['coach.js', 'engine.js', 'openings.js', 'vendor/stockfish-19-lite-single.wasm', 'vendor/pieces/wK.svg'].map((a) => caches.match(a).then((r) => !!r)))).catch(() => []);
   check('chess files cached for offline', chessOff.length === 5 && chessOff.every(Boolean), JSON.stringify(chessOff));
+  const chaseOff = await p3.evaluate(() => Promise.all(['chase.js', 'vendor/three/three.module.min.js', 'vendor/three/three.core.min.js'].map((a) => caches.match(a).then((r) => !!r)))).catch(() => []);
+  check('chase camera files cached for offline', chaseOff.length === 3 && chaseOff.every(Boolean), JSON.stringify(chaseOff));
   await p3.screenshot({ path: SHOTS + '/10-offline.png' });
   check('no JS errors', errs.length === 0, errs.slice(0, 5).join(' | '));
   await b.close(); srv.close();
   for (const r of results) console.log(r.join('  '));
-})().catch((e) => { console.error(e); srv.close(); process.exit(1); });
+})().catch((e) => { console.error(e); for (const r of results) console.log(r.join('  ')); srv.close(); process.exit(1); });
