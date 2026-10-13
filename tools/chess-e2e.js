@@ -32,6 +32,7 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   const errs = [];
   p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   p.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+  const stoneRes = {}; p.on('response', (r) => { const m = /pieces-stone\/(\w+\.svg)/.exec(r.url()); if (m) stoneRes[m[1]] = r.status(); });
   const base = 'http://localhost:' + (+process.env.PORT || 8767) + '/';
   await p.goto(base);
   await p.waitForTimeout(500);
@@ -112,6 +113,23 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1600 })); await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
   await p.waitForTimeout(300); await p.screenshot({ path: SHOTS + '/c9b-wood.png' });
   check('wood squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(181, 136, 99)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
+  // Stone: own piece folder, all twelve load, the piece is named on pick-up, persists across reload, per player
+  await p.evaluate(() => document.querySelector('#themeRow button[data-theme="stone"]').click()); await p.waitForTimeout(600);
+  const srcs = await p.$$eval('#board .pc.svg', (e) => [...new Set(e.map((x) => getComputedStyle(x).backgroundImage.replace(/^.*\/vendor\//, '').replace(/"?\)$/, '')))].sort());
+  check('stone switches pieces to vendor/pieces-stone', srcs.length === 12 && srcs.every((u) => /^pieces-stone\/[wb][KQRBNP]\.svg$/.test(u)), srcs.join(' '));
+  check('all twelve stone pieces load', Object.keys(stoneRes).length === 12 && Object.values(stoneRes).every((v) => v === 200), JSON.stringify(stoneRes));
+  check('stone squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(205, 200, 191)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
+  await tap('g1');
+  check('stone names the picked-up piece', (await p.$eval('#youName', (e) => e.parentNode.dataset.pc)) === 'Knight' && (await p.$$eval('#board .sq.tgt', (e) => e.length)) === 2);
+  await p.screenshot({ path: SHOTS + '/c9c-stone.png' });
+  await p.waitForTimeout(1400); check('piece name fades', (await p.$eval('#youName', (e) => e.parentNode.dataset.pc)) === undefined);
+  await tap('g1');
+  await p.reload(); await p.waitForTimeout(500); await p.click('#pickChess'); await p.waitForTimeout(300);
+  check('stone persists across reload', (await p.evaluate(() => document.documentElement.dataset.theme + '/' + window.__coach.theme)) === 'stone/stone');
+  await p.evaluate(() => window.__coach.setPlayer('j'));
+  const jt = await p.evaluate(() => document.documentElement.dataset.theme + '/' + window.__coach.theme);
+  await p.evaluate(() => window.__coach.setPlayer('jesse'));
+  check('theme is per player', jt === 'night/night' && (await p.evaluate(() => document.documentElement.dataset.theme)) === 'stone', jt);
   // J's profile: kind coach by default, separate history; switched to quiet here to check the quiet voice
   await p.evaluate(() => window.__coach.setPlayer('j'));
   check('J starts with no games, on the Kind voice', (await p.$$eval('#chessHist button', (e) => e.length)) === 0 && (await p.$eval('#voiceBtn', (e) => e.textContent)) === 'Kind');
@@ -372,9 +390,9 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   const e1 = await q.evaluate(() => ({ btn: document.getElementById('endNew').textContent, msg: document.getElementById('endMsg').textContent, next: window.__coach.calib.next }));
   check('end sheet offers the next level-check game at the adjusted strength', e1.btn === 'Game 2 of 3' && e1.msg.endsWith('Next game at ' + e1.next + '.'), JSON.stringify(e1));
   await q.click('#endHome'); await q.waitForTimeout(200);
-  const c2 = await q.evaluate(() => ({ head: document.getElementById('calibHead').textContent, cal: window.__coach.calib, hist: document.querySelector('#chessHist small').textContent }));
-  check('card progresses to Game 2 of 3 (accuracy counted)', /Game 2 of 3/.test(c2.head) && c2.cal.progress.games.length === 1 && c2.cal.progress.games[0].acc != null, JSON.stringify(c2.cal.progress));
-  check('history line tags the level check', /level check/.test(c2.hist), c2.hist);
+  const k2 = await q.evaluate(() => ({ head: document.getElementById('calibHead').textContent, cal: window.__coach.calib, hist: document.querySelector('#chessHist small').textContent }));
+  check('card progresses to Game 2 of 3 (accuracy counted)', /Game 2 of 3/.test(k2.head) && k2.cal.progress.games.length === 1 && k2.cal.progress.games[0].acc != null, JSON.stringify(k2.cal.progress));
+  check('history line tags the level check', /level check/.test(k2.hist), k2.hist);
   await q.screenshot({ path: SHOTS + '/c19-calib-progress.png' });
   // leaving mid-way survives a reload
   await q.reload(); await q.waitForTimeout(300); await q.click('#pickChess'); await q.waitForTimeout(200);
@@ -383,9 +401,9 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await q.waitForFunction(() => { const c = window.__coach.calib.progress; return c && c.games[1] && c.games[1].acc != null; }, null, { timeout: 120000 }).catch(() => {});
   await q.click('#endHome'); await q.waitForTimeout(200);
   await calibGame(3);
-  const done = await q.waitForSelector('#calibDone.on', { timeout: 120000 }).then(() => true).catch(() => false);
+  const lvlDone = await q.waitForSelector('#calibDone.on', { timeout: 120000 }).then(() => true).catch(() => false);
   const fin = await q.evaluate(() => ({ title: document.getElementById('calibTitle').textContent, msg: document.getElementById('calibMsg').textContent, cal: window.__coach.calib, hist: window.__coach.history.filter((g) => g.calib).length }));
-  check('after game 3 the level is set', done && fin.cal.calibrated && !fin.cal.progress && fin.title === 'Your level: ~' + fin.cal.elo && fin.cal.elo % 50 === 0 && fin.cal.elo >= 800 && fin.cal.elo <= 2850
+  check('after game 3 the level is set', lvlDone && fin.cal.calibrated && !fin.cal.progress && fin.title === 'Your level: ~' + fin.cal.elo && fin.cal.elo % 50 === 0 && fin.cal.elo >= 800 && fin.cal.elo <= 2850
     && /will play at that strength/.test(fin.msg) && fin.hist === 3, JSON.stringify(fin));
   await q.screenshot({ path: SHOTS + '/c20-calib-done.png' });
   await q.click('#calibOk'); await q.waitForTimeout(150);
