@@ -60,6 +60,10 @@ if (process.env.ROME_JS) {
   await p.screenshot({ path: SHOTS + '/02-menu-scrolled.png' });
   const mig = await p.evaluate(() => ({ v1: localStorage.getItem('ghostlap-roma-v1'), car: window.__ghostlap.save.car, tracks: Object.keys(window.__ghostlap.save.tracks).length }));
   check('old save: car kept, times reset', mig.v1 === null && mig.car === 'cinque' && mig.tracks === 0, JSON.stringify(mig));
+  const q0 = await p.evaluate(() => ({ q: window.__ghostlap.save.quality, fps: window.__ghostlap.save.fps, btn: document.getElementById('qBtn').textContent }));
+  check('quality defaults to Auto, fps readout off', q0.q === 'auto' && q0.fps === false && q0.btn === 'Quality: Auto', JSON.stringify(q0));
+  // SwiftShader draws far below 45 fps, so Auto would step down in every race here: pin High (Auto has its own test below, with fake frame times)
+  await p.evaluate(() => window.__ghostlap.setQuality('high'));
   await p.evaluate(() => { document.getElementById('carNext').click(); });
   // locked cards
   const locked = await p.$$eval('#trackList .card.locked', (e) => e.length);
@@ -145,8 +149,15 @@ if (process.env.ROME_JS) {
       const poll = setInterval(async () => { try { const b = await p.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b && !banners.includes(b)) banners.push(b); } catch (e) {} }, 150);
       const labs = []; // chase mode: the last frame's label layout, sampled through the run
       const lpoll = setInterval(async () => { try { const L = await p.evaluate(() => window.__ghostlap.labels); if (L) labs.push(L); } catch (e) {} }, 300);
+      const sboxes = []; // Follow: the direction signs' boxes, sampled through the run
+      const spoll = i === cityIdx[1] && setInterval(async () => { try { const S = await p.evaluate(() => window.__ghostlap.signBoxes); if (S && S.length) sboxes.push(S); } catch (e) {} }, 100);
       const done = await p.waitForSelector('#finish.on', { timeout: 120000 }).then(() => true).catch(() => false);
-      clearInterval(poll); clearInterval(lpoll);
+      clearInterval(poll); clearInterval(lpoll); if (spoll) clearInterval(spoll);
+      if (spoll) {
+        const hit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1], bad = [];
+        for (const S of sboxes) S.forEach((a, k) => { for (const o of S.slice(k + 1)) if (hit(a.box, o.box)) bad.push(a.t + ' / ' + o.t + ' ' + JSON.stringify([a.box, o.box])); });
+        check('follow camera in Rome: direction signs never overlap (corners included)', sboxes.length > 20 && !bad.length, `samples=${sboxes.length} ${[...new Set(bad)].slice(0, 3).join(' | ')}`);
+      }
       const via = await p.$eval('.via', (e) => e.textContent).catch(() => '');
       const id = await p.evaluate((k) => window.GL.TRACKS[k].id, i);
       check(id + ' completes, shows street + stops + signs + route list', done && navOn && nav.length > 2 && signs >= 1 && via.includes('MIN ON FOOT') && banners.length >= 2,
@@ -273,6 +284,87 @@ if (process.env.ROME_JS) {
   const vf = await p4.evaluate(() => window.__ghostlap.view);
   check('Follow from the pause sheet snaps on resume', vf.mode === 'follow' && Math.abs(vf.a + Math.PI / 2) < 0.1, JSON.stringify(vf));
   await p4.close();
+
+  // the fps readout and the Quality setting
+  const p5 = await ctx.newPage();
+  p5.on('pageerror', (e) => errs.push('p5 pageerror: ' + e.message));
+  await p5.goto(base + '?game=drive&bot=1');
+  await p5.waitForTimeout(500);
+  await p5.evaluate(() => { window.__ghostlap.fakeMs = 16; window.__ghostlap.setCam('chase'); }); // a steady 60 fps, so nothing steps down on its own
+  await p5.evaluate(() => window.__ghostlap.startRace(0));
+  await p5.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
+  const f0 = await p5.evaluate(() => window.__ghostlap.fps.shown);
+  await p5.click('#pauseBtn'); await p5.click('#fpsBtn'); await p5.click('#resumeBtn');
+  await p5.waitForTimeout(800);
+  const f1 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, saved: JSON.parse(localStorage.getItem('ghostlap-roma-v2')).fps }));
+  await p5.screenshot({ path: SHOTS + '/40-fps-readout.png' });
+  await p5.screenshot({ path: SHOTS + '/41-fps-readout-zoom.png', clip: { x: 0, y: 0, width: 200, height: 110 } });
+  check('Show fps: readout appears with fps, scale and draw calls, and is saved', !f0 && f1.shown && f1.saved === true && /^\d+ fps · 2\.0x · \d+ calls$/.test(f1.text), JSON.stringify({ f0, ...f1 }));
+  await p5.reload(); await p5.waitForTimeout(400);
+  await p5.evaluate(() => { window.__ghostlap.fakeMs = 16; window.__ghostlap.setCam('follow'); window.__ghostlap.startRace(0); });
+  await p5.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
+  await p5.waitForTimeout(600);
+  const f2 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, btn: document.getElementById('fpsBtn').classList.contains('on') }));
+  await p5.click('#pauseBtn'); await p5.click('#fpsBtn'); await p5.click('#resumeBtn');
+  const f3 = await p5.evaluate(() => ({ shown: window.__ghostlap.fps.shown, saved: JSON.parse(localStorage.getItem('ghostlap-roma-v2')).fps }));
+  check('fps readout persists across reload (Follow: no draw calls), and hides again', f2.shown && f2.btn && /^\d+ fps · 2\.0x$/.test(f2.text) && !f3.shown && f3.saved === false, JSON.stringify({ f2, f3 }));
+  // the pill cycles Auto, Low, High and is saved
+  await p5.evaluate(() => { window.__ghostlap.toMenu(); window.__ghostlap.setCam('chase'); });
+  const qs = [];
+  for (let k = 0; k < 3; k++) { await p5.click('#qBtn'); qs.push(await p5.evaluate(() => [document.getElementById('qBtn').textContent, document.getElementById('qBtn2').textContent, JSON.parse(localStorage.getItem('ghostlap-roma-v2')).quality])); }
+  await p5.reload(); await p5.waitForTimeout(400);
+  const qr = await p5.evaluate(() => [document.getElementById('qBtn').textContent, window.__ghostlap.save.quality]);
+  check('Quality pill cycles Auto, Low, High and persists', JSON.stringify(qs) === JSON.stringify([['Quality: Auto', 'Quality: Auto', 'auto'], ['Quality: Low', 'Quality: Low', 'low'], ['Quality: High', 'Quality: High', 'high']]) && qr[0] === 'Quality: High' && qr[1] === 'high', JSON.stringify({ qs, qr }));
+  // Low: fewer buildings (Rome) and lights, pixel ratio 1; switched from the pause sheet, the rest applies by the next race at the latest
+  const qTrack = await p5.evaluate(() => { const k = window.GL.TRACKS.findIndex((t) => t.city); return k >= 0 ? k : 0; });
+  await p5.evaluate((k) => { window.__ghostlap.fakeMs = 16; window.__ghostlap.startRace(k); }, qTrack);
+  await p5.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
+  await p5.waitForTimeout(500);
+  const qH = await p5.evaluate(() => window.__ghostlap.chase);
+  await p5.click('#pauseBtn'); await p5.click('#qBtn2'); await p5.click('#qBtn2');
+  const qP = await p5.evaluate(() => ({ ...window.__ghostlap.chase, btn: document.getElementById('qBtn2').textContent }));
+  await p5.click('#restartBtn');
+  await p5.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
+  await p5.waitForTimeout(500);
+  const qL = await p5.evaluate(() => ({ ...window.__ghostlap.chase, dprCap: window.__ghostlap.fps.dprCap }));
+  const fewer = qTrack ? qL.buildings < qH.buildings * 0.85 && qL.parked < qH.parked : true;
+  check('Quality Low: fewer buildings and lights, pixel ratio 1, live from the pause sheet', qH.quality === 'high' && qP.btn === 'Quality: Low' && qP.quality === 'low' && qP.dpr === 1 && qP.lights === 2 &&
+    qL.built === 'low' && fewer && qL.lights < qH.lights && qL.dpr < qH.dpr && qL.dpr === 1 && qL.dprCap === 1 && !qL.error,
+    JSON.stringify({ high: [qH.buildings, qH.parked, qH.lights, qH.dpr, qH.calls, qH.buildMs], paused: [qP.built, qP.lights, qP.dpr], low: [qL.buildings, qL.parked, qL.lights, qL.dpr, qL.calls, qL.buildMs] }));
+  await p5.screenshot({ path: SHOTS + '/42-quality-low.png' });
+  // Auto: under 45 fps for 3 s of a race steps down to Low for the session, with a one-time notice; never back up
+  await p5.evaluate(() => { window.__ghostlap.toMenu(); window.__ghostlap.setQuality('auto'); window.__ghostlap.save.qToast = false; window.__ghostlap.fakeMs = 16; window.__ghostlap.startRace(0); });
+  await p5.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
+  await p5.waitForTimeout(1200);
+  const u0 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality }));
+  const toasts = [], tpoll = setInterval(async () => { try { const b = await p5.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b) toasts.push(b); } catch (e) {} }, 100);
+  await p5.evaluate(() => { window.__ghostlap.fakeMs = 40; }); // 25 fps
+  const stepped = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 30000 }).then(() => true).catch(() => false);
+  await p5.waitForTimeout(300);
+  await p5.screenshot({ path: SHOTS + '/43-auto-toast.png' });
+  const u1 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality, dpr: window.__ghostlap.chase.dpr, save: window.__ghostlap.save.quality, toast: window.__ghostlap.save.qToast }));
+  await p5.evaluate(() => { window.__ghostlap.fakeMs = 8; }); // 125 fps, and a second more of it
+  await p5.waitForFunction(() => window.__ghostlap.fps.fps > 100, null, { timeout: 30000 }).catch(() => {});
+  await p5.waitForTimeout(1000);
+  const u2 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality }));
+  clearInterval(tpoll);
+  const notice = 'Lowered graphics to keep it smooth';
+  check('Auto steps down to Low under 45 fps, says so once, never steps back up', !u0.low && u0.q === 'high' && stepped && u1.low && u1.q === 'low' && u1.dpr === 1 && u1.dprCap === 1 && u1.save === 'auto' && u1.toast === true &&
+    toasts.includes(notice) && u2.low && u2.q === 'low' && u2.fps > 100, JSON.stringify({ u0: [u0.low, u0.q, u0.fps], u1: [u1.low, u1.q, u1.dpr, u1.save, u1.toast], u2: [u2.low, u2.q, u2.fps], toasts: [...new Set(toasts)] }));
+  // a new session starts High again and can step down again, but the notice is not repeated
+  await p5.reload(); await p5.waitForTimeout(400);
+  await p5.evaluate(() => { window.__ghostlap.fakeMs = 16; window.__ghostlap.startRace(0); });
+  await p5.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
+  await p5.waitForTimeout(1200);
+  const b0 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality }));
+  const toasts2 = [], tpoll2 = setInterval(async () => { try { const b = await p5.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b) toasts2.push(b); } catch (e) {} }, 100);
+  await p5.evaluate(() => { window.__ghostlap.fakeMs = 40; });
+  const stepped2 = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 30000 }).then(() => true).catch(() => false);
+  await p5.waitForTimeout(1500);
+  clearInterval(tpoll2);
+  check('Auto: a new session starts High; a second step-down shows no notice', !b0.low && b0.q === 'high' && stepped2 && !toasts2.includes(notice), JSON.stringify({ b0: [b0.low, b0.q], stepped2, toasts2: [...new Set(toasts2)] }));
+  await p5.evaluate(() => { window.__ghostlap.fakeMs = null; window.__ghostlap.toMenu(); window.__ghostlap.setQuality('high'); });
+  await p5.close();
 
   // offline reload
   await ctx.setOffline(true);

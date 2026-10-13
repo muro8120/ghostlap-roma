@@ -22,6 +22,18 @@ Two games in one offline iPhone app. Pick one on the launcher:
   on screen, and the minimap stays north-up, with the car as an arrow. A phone without WebGL gets Follow instead of Chase.
   In Chase the map labels thin out to what you can read: at most six, nearest first, faded with distance, never overlapping,
   kept off the car and the road, and never repeating the street at the top; the gold stars always show.
+- **Quality:** the *Quality* pill next to Camera (drive menu and pause sheet, saved) sets how much the Chase view draws.
+  *High* is the full scene: pixel ratio up to 2, buildings up to 1100 units either side of the route, four street lamps that
+  really light the road, the full fog distance. *Low* draws at 1x (in every view), builds buildings only 40% as far out, keeps
+  one real lamp light plus the headlight, pulls the fog (and in town the far plane) in, halves the parked cars, trees and
+  bollards, and uses plain windows; on a phone that starts on Low there is no MSAA either. *Auto* (the default) starts on
+  High and, if a race runs under about 45 fps for 3 seconds, drops to Low for the rest of the session (never back up mid-way),
+  saying "Lowered graphics to keep it smooth" the first time it ever happens. Lights, pixel ratio, fog and windows change at
+  once; the buildings and furniture are rebuilt at the next race (or straight away from the pause sheet when that takes
+  under about 300 ms). The old automatic resolution drop still works on High and Auto.
+- **Frame rate:** *Show fps* on the pause sheet (off by default, saved) puts a small readout under the lap counter: the
+  frame rate averaged over the last second and the render scale, e.g. "58 fps · 2.0x", plus the draw calls in Chase. Labels
+  keep clear of it.
 - **Offline:** a service worker caches everything, so after one online visit it runs in airplane mode.
 
 ## Chess coach
@@ -149,7 +161,7 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `vendor/`: chess.js, the Stockfish lite WASM engine, the piece SVGs, and three.js (`vendor/three/`, the ES module build, loaded by `chase.js`)
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
 - `game.js`: rendering, input, menus, sound, saving, offline status
-- `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `dispose`, `info`)
+- `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`)
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `tools/`: OSM fetch and build scripts, synthetic test map, headless test (`tools/e2e.js`)
