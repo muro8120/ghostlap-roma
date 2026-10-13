@@ -218,6 +218,7 @@
   [data-theme="wood"] #chess, [data-theme="wood"] #review, [data-theme="wood"] #lesson { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; }
   [data-theme="modern"] #chess, [data-theme="modern"] #review, [data-theme="modern"] #lesson { --sqL: #eeeed2; --sqD: #769656; --crL: #6b7a4a; --crD: #eeeed2; }
   [data-theme="mono"] #chess, [data-theme="mono"] #review, [data-theme="mono"] #lesson { --sqL: #d5d8de; --sqD: #6e7480; --crL: #4a505c; --crD: #e4e7ec; }
+  [data-theme="stone"] #chess, [data-theme="stone"] #review, [data-theme="stone"] #lesson { --sqL: #e6e2da; --sqD: #cdc8bf; --crL: #8f897f; --crD: #f6f3ee; --mint: 72,196,140; }
   .sq.l { background: var(--sqL); } .sq.d { background: var(--sqD); }
   .themes { display: flex; gap: 8px; }
   .themes button { width: 40px; height: 40px; border-radius: 10px; border: 2px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; overflow: hidden; padding: 0; }
@@ -288,6 +289,24 @@
   .board .arrow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
   .board .arrow line { stroke: rgba(242,178,76,.9); stroke-width: .22; stroke-linecap: round; }
   .board .arrow polygon { fill: rgba(242,178,76,.9); }
+  /* Stone: original abstract piece set on a pale board, mint glow for the selection and legal moves */
+  [data-theme="stone"] .pc.svg.cw.tk { background-image: url(vendor/pieces-stone/wK.svg); } [data-theme="stone"] .pc.svg.cw.tq { background-image: url(vendor/pieces-stone/wQ.svg); } [data-theme="stone"] .pc.svg.cw.tr { background-image: url(vendor/pieces-stone/wR.svg); }
+  [data-theme="stone"] .pc.svg.cw.tb { background-image: url(vendor/pieces-stone/wB.svg); } [data-theme="stone"] .pc.svg.cw.tn { background-image: url(vendor/pieces-stone/wN.svg); } [data-theme="stone"] .pc.svg.cw.tp { background-image: url(vendor/pieces-stone/wP.svg); }
+  [data-theme="stone"] .pc.svg.cb.tk { background-image: url(vendor/pieces-stone/bK.svg); } [data-theme="stone"] .pc.svg.cb.tq { background-image: url(vendor/pieces-stone/bQ.svg); } [data-theme="stone"] .pc.svg.cb.tr { background-image: url(vendor/pieces-stone/bR.svg); }
+  [data-theme="stone"] .pc.svg.cb.tb { background-image: url(vendor/pieces-stone/bB.svg); } [data-theme="stone"] .pc.svg.cb.tn { background-image: url(vendor/pieces-stone/bN.svg); } [data-theme="stone"] .pc.svg.cb.tp { background-image: url(vendor/pieces-stone/bP.svg); }
+  [data-theme="stone"] .pc.svg { filter: drop-shadow(0 1px 1px rgba(0,0,0,.18)); }
+  [data-theme="stone"] .sq { box-shadow: inset 0 0 0 .5px rgba(255,255,255,.6); }
+  [data-theme="stone"] .sq.last::before { background: rgba(236,166,52,.4); }
+  [data-theme="stone"] .sq.sel::before { background: rgba(var(--mint),.28); box-shadow: inset 0 0 0 3px rgb(var(--mint)), inset 0 0 12px rgba(var(--mint),.9); }
+  [data-theme="stone"] .sq.tgt::after { background: rgba(var(--mint),.85); box-shadow: 0 0 8px 2px rgba(var(--mint),.7); }
+  [data-theme="stone"] .sq.cap::after { background: none; border-color: rgba(var(--mint),.9); box-shadow: 0 0 8px rgba(var(--mint),.7), inset 0 0 8px rgba(var(--mint),.6); }
+  [data-theme="stone"] .board .arrow line { stroke: rgba(222,140,20,.9); } [data-theme="stone"] .board .arrow polygon { fill: rgba(222,140,20,.9); }
+  [data-theme="stone"] .board .arrow line.red { stroke: rgba(220,50,60,.85); } [data-theme="stone"] .board .arrow polygon.red { fill: rgba(220,50,60,.85); }
+  [data-theme="stone"] .board .arrow line.ghost { stroke: rgba(60,120,210,.85); } [data-theme="stone"] .board .arrow polygon.ghost { fill: rgba(60,120,210,.85); }
+  [data-theme="stone"] .board .arrow line.sand { stroke: rgba(84,92,106,.9); } [data-theme="stone"] .board .arrow polygon.sand { fill: rgba(84,92,106,.9); }
+  .prow { position: relative; }
+  .prow[data-pc]::after { content: attr(data-pc); position: absolute; left: 50%; top: 50%; transform: translate(-50%, -55%); padding: 2px 10px; border-radius: 999px;
+    background: rgba(72,196,140,.16); border: 1px solid rgba(72,196,140,.55); color: #9fe6c4; font-size: 12px; font-weight: 700; letter-spacing: .06em; pointer-events: none; }
   /* label colours, shared by the rating strip, the move lists and the review panels */
   [data-label=best], [data-label=great], .l-best, .l-great { --lc: var(--green); }
   [data-label=good], .l-good { --lc: var(--ghost); }

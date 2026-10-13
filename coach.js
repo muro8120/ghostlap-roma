@@ -6,7 +6,7 @@
 
   // ---------- saving --------------------------------------------------------
   const KEY = 'ghostlap-chess-v1';
-  const THEMES = { night: ['#9aa7b8', '#4a5568'], wood: ['#f0d9b5', '#b58863'], modern: ['#eeeed2', '#769656'], mono: ['#d5d8de', '#6e7480'] };
+  const THEMES = { night: ['#9aa7b8', '#4a5568'], wood: ['#f0d9b5', '#b58863'], modern: ['#eeeed2', '#769656'], mono: ['#d5d8de', '#6e7480'], stone: ['#e6e2da', '#cdc8bf'] };
   const VOICES = ['tough', 'kind', 'quiet'];
   const clampElo = (e) => Math.max(800, Math.min(2850, Math.round((+e || 1600) / 50) * 50));
   const DEF = (name, voice) => ({ name, elo: 1600, color: 'w', theme: 'night', mode: 'play', voice: voice || 'tough', games: [] });
@@ -387,6 +387,7 @@
     if (p && p.color === game.you && c.turn() === game.you && sq !== sel) {
       sel = sq;
       targets = c.moves({ square: sq, verbose: true }).map((m) => ({ to: m.to, capture: !!m.captured, promotion: !!m.promotion }));
+      if (P().theme === 'stone') { const n = $('youName').parentNode; n.dataset.pc = cap(PIECE[p.type]); clearTimeout(n._pt); n._pt = setTimeout(() => delete n.dataset.pc, 1200); }   // Stone: name the piece
     } else { sel = null; targets = []; }
     drawGame();
   }

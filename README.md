@@ -49,11 +49,15 @@ Two games in one offline iPhone app. Pick one on the launcher:
   what is better, twice a turn. *Read the board* describes the position plainly for both sides: material, the engine's
   view, development, kings, centre, hanging pieces, the opponent's idea, and each side's priority. Both count as nudges
   in your history, separately from hints.
-- **Board themes:** Night, Wood, Modern and Mono, with the cburnett SVG piece set. Chess only; the racer keeps its look.
+- **Board themes:** Night, Wood, Modern, Mono and Stone, chosen per player. The first four use the cburnett SVG piece set;
+  Stone is a pale, low-contrast board with its own abstract stone piece set (speckled white, graphite black), one bold
+  cue per piece (cross-cut king, crowned queen, notched rook, slit bishop, bitten knight, bud pawn), a mint glow on the
+  selected square and legal moves, and the piece's name shown under the board for a second when you pick it up. Chess
+  only; the racer keeps its look.
 - **History:** your last 20 games and their reports are kept on the phone. Promotion is always to a queen.
 - Credits: [Stockfish](https://stockfishchess.org) (GPL-3.0, `vendor/STOCKFISH-LICENSE.txt`) via
   [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause); piece set by Colin M.L. Burnett (GPLv2+, from lichess,
-  `vendor/pieces/`); opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
+  `vendor/pieces/`); the Stone pieces in `vendor/pieces-stone/` are original drawings for this app; opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
 
 ## Learn
 

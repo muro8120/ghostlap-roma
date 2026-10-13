@@ -10,7 +10,7 @@ const srv = http.createServer((q, r) => {
   const f = path.join(ROOT, p);
   if (!f.startsWith(ROOT) || !fs.existsSync(f)) { r.writeHead(404); return r.end('nf'); }
   r.writeHead(200, { 'content-type': TYPES[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r);
-}).listen(8767);
+}).listen(+process.env.PORT || 8767);
 const results = [];
 const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, extra || '']); console.log((ok ? 'PASS ' : 'FAIL ') + name + (extra ? '  ' + extra : '')); };
 
@@ -21,7 +21,8 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   const errs = [];
   p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   p.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
-  const base = 'http://localhost:8767/';
+  const stoneRes = {}; p.on('response', (r) => { const m = /pieces-stone\/(\w+\.svg)/.exec(r.url()); if (m) stoneRes[m[1]] = r.status(); });
+  const base = 'http://localhost:' + (+process.env.PORT || 8767) + '/';
   await p.goto(base);
   await p.waitForTimeout(500);
   await p.screenshot({ path: SHOTS + '/c0-hub.png' });
@@ -86,6 +87,23 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1600 })); await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
   await p.waitForTimeout(300); await p.screenshot({ path: SHOTS + '/c9b-wood.png' });
   check('wood squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(181, 136, 99)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
+  // Stone: own piece folder, all twelve load, the piece is named on pick-up, persists across reload, per player
+  await p.evaluate(() => document.querySelector('#themeRow button[data-theme="stone"]').click()); await p.waitForTimeout(600);
+  const srcs = await p.$$eval('#board .pc.svg', (e) => [...new Set(e.map((x) => getComputedStyle(x).backgroundImage.replace(/^.*\/vendor\//, '').replace(/"?\)$/, '')))].sort());
+  check('stone switches pieces to vendor/pieces-stone', srcs.length === 12 && srcs.every((u) => /^pieces-stone\/[wb][KQRBNP]\.svg$/.test(u)), srcs.join(' '));
+  check('all twelve stone pieces load', Object.keys(stoneRes).length === 12 && Object.values(stoneRes).every((v) => v === 200), JSON.stringify(stoneRes));
+  check('stone squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(205, 200, 191)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
+  await tap('g1');
+  check('stone names the picked-up piece', (await p.$eval('#youName', (e) => e.parentNode.dataset.pc)) === 'Knight' && (await p.$$eval('#board .sq.tgt', (e) => e.length)) === 2);
+  await p.screenshot({ path: SHOTS + '/c9c-stone.png' });
+  await p.waitForTimeout(1400); check('piece name fades', (await p.$eval('#youName', (e) => e.parentNode.dataset.pc)) === undefined);
+  await tap('g1');
+  await p.reload(); await p.waitForTimeout(500); await p.click('#pickChess'); await p.waitForTimeout(300);
+  check('stone persists across reload', (await p.evaluate(() => document.documentElement.dataset.theme + '/' + window.__coach.theme)) === 'stone/stone');
+  await p.evaluate(() => window.__coach.setPlayer('j'));
+  const jt = await p.evaluate(() => document.documentElement.dataset.theme + '/' + window.__coach.theme);
+  await p.evaluate(() => window.__coach.setPlayer('jesse'));
+  check('theme is per player', jt === 'night/night' && (await p.evaluate(() => document.documentElement.dataset.theme)) === 'stone', jt);
   // J's profile: quiet coach, separate history
   await p.evaluate(() => window.__coach.setPlayer('j'));
   check('J starts with no games', (await p.$$eval('#chessHist button', (e) => e.length)) === 0 && (await p.$eval('#voiceBtn', (e) => e.textContent)) === 'Quiet');
