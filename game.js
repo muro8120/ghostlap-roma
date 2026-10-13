@@ -11,7 +11,8 @@
   // v2: cars got 15% slower (Oct 2026), so old times and ghosts were reset; car and sound carry over
   const KEY = 'ghostlap-roma-v2';
   // cam: 'chase' (3D, the default) | 'follow' | 'north'. camV 1: a saved 'follow' (the old default) moved to chase once
-  let save = { car: 'maranello', sound: false, help: true, cam: 'chase', camV: 1, tracks: {} };
+  // quality: 'auto' | 'low' | 'high' (see Chase.setQuality); fps: the frame-rate readout in the HUD; qToast: Auto's one-time notice shown
+  let save = { car: 'maranello', sound: false, help: true, cam: 'chase', camV: 1, quality: 'auto', fps: false, qToast: false, tracks: {} };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
@@ -187,7 +188,7 @@
   function hudRects() {
     if (hudCache) return hudCache;
     hudCache = [];
-    for (const el of document.querySelectorAll('#hud .box, #pauseBtn, #nav, #mini, #gear')) {
+    for (const el of document.querySelectorAll('#hud .box, #pauseBtn, #nav, #mini, #gear, #fps')) {
       const r = el.getBoundingClientRect();
       if (r.width && r.height) hudCache.push([r.left - 6, r.top - 6, r.right + 6, r.bottom + 6]);
     }
@@ -325,20 +326,20 @@
         if (chaseView) ch.py = Math.max(box.t + h / 2, Math.min(box.b - h / 2, ch.py)); // never up under the nav box or the minimap
       }
     }
-    // chase: chips on two edges can meet in a corner; step the later one towards the middle until it is clear
-    if (chaseView) for (let i = 1; i < chips.length; i++) for (let j = 0, n = 0; j < i && n < 12; j++) {
+    // chips on two edges can meet in a corner; step the later one towards the middle until it is clear
+    for (let i = 1; i < chips.length; i++) for (let j = 0, n = 0; j < i && n < 12; j++) {
       const a = chips[i], b = chips[j];
       if (Math.abs(a.px - b.px) < (a.w + b.w) / 2 + 4 && Math.abs(a.py - b.py) < h + 4) {
         a.py = Math.max(box.t + h / 2, Math.min(box.b - h / 2, b.py + (a.py > (box.t + box.b) / 2 ? -1 : 1) * (h + 4))); j = -1; n++;
       }
     }
     // still crowded (rare): the later sign gives way; the list is in priority order (hotel, next stop, Jesse's places)
-    if (chaseView) return chips.filter((a, i) => !chips.slice(0, i).some((b) => Math.abs(a.px - b.px) < (a.w + b.w) / 2 + 2 && Math.abs(a.py - b.py) < h + 2));
-    return chips;
+    return chips.filter((a, i) => !chips.slice(0, i).some((b) => Math.abs(a.px - b.px) < (a.w + b.w) / 2 + 2 && Math.abs(a.py - b.py) < h + 2));
   }
+  let signBoxes = [];
   function paintSigns(chips) {
     const h = 22;
-    signCount = chips.length;
+    signCount = chips.length; signBoxes = chips.map((ch) => ({ t: ch.tg.t, box: [ch.px - ch.w / 2, ch.py - h / 2, ch.px + ch.w / 2, ch.py + h / 2].map(Math.round) }));
     g.font = '700 10.5px -apple-system, system-ui, sans-serif'; g.textBaseline = 'middle';
     for (const ch of chips) {
       const { px, py, w, tg } = ch;
@@ -835,7 +836,11 @@
 
   // ---------- canvas, camera, rendering ----------------------------------------
   const view = $('view'), g = view.getContext('2d');
-  let vw = 0, vh = 0, dpr = 1, dprCap = Math.min(2, window.devicePixelRatio || 1);
+  // quality: Low (or Auto once it has stepped down, for the rest of the session) draws at 1x in every view
+  let autoLow = false;
+  const lowQ = () => save.quality === 'low' || (save.quality === 'auto' && autoLow);
+  const fullCap = () => (lowQ() ? 1 : Math.min(2, window.devicePixelRatio || 1));
+  let vw = 0, vh = 0, dpr = 1, dprCap = fullCap();
   // cam.x/y is the world point drawn at screen (vw/2, vh*cam.fy); cam.r turns the world (follow mode: car heading up)
   const cam = { x: 0, y: 0, z: 0.7, r: 0, fy: 0.5, lx: 0, ly: 0, ax: 0, ay: 0, c: 1, s: 0 };
   const follow = () => save.cam !== 'north';
@@ -858,7 +863,8 @@
     vw = window.innerWidth; vh = window.innerHeight; dpr = dprCap; hudCache = null;
     view.width = Math.round(vw * dpr); view.height = Math.round(vh * dpr);
     if (window.Chase && Chase.ready) Chase.resize(vw, vh, dpr);
-    if (!running()) drawStill();
+    if (state === 'paused' && race) drawRace(0); // behind the pause sheet: the race as it was, not the menu still
+    else if (!running()) drawStill();
   }
 
   let skids = [], lastRear = null;
@@ -963,13 +969,14 @@
   let chaseBad = false;
   function chaseNow() {
     if (save.cam !== 'chase' || chaseBad || !window.Chase) return false;
-    if (!Chase.ready && !Chase.init(view3d, dpr)) { chaseBad = true; return false; }
+    if (!Chase.ready) { Chase.setQuality(lowQ() ? 'low' : 'high'); if (!Chase.init(view3d, dpr)) { chaseBad = true; return false; } }
     return true;
   }
   function show3d(on) { if (view3d.classList.contains('on') !== on) view3d.classList.toggle('on', on); }
+  let chaseFresh = false; // set by startRace: a scene built at the other quality is rebuilt then, never mid-race
   function renderChase(W, car, ghost, dt) {
     show3d(true);
-    Chase.build(W, W.T, W.T.def);
+    Chase.build(W, W.T, W.T.def, chaseFresh); chaseFresh = false;
     Chase.render(car, ghost, dt);
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, vw, vh);
     vignette();
@@ -1052,9 +1059,43 @@
   function syncSoundButtons() {
     for (const b of [$('soundBtn'), $('soundBtn2')]) { b.textContent = 'Sound: ' + (Snd.on ? 'on' : 'off'); b.classList.toggle('on', Snd.on); }
     for (const b of [$('camBtn'), $('camBtn2')]) { b.textContent = 'Camera: ' + CAM_NAME[save.cam]; b.classList.toggle('on', follow()); }
+    for (const b of [$('qBtn'), $('qBtn2')]) { b.textContent = 'Quality: ' + Q_NAME[save.quality]; b.classList.toggle('on', save.quality !== 'low'); }
+    $('fpsBtn').classList.toggle('on', !!save.fps); $('fpsBtn').setAttribute('aria-pressed', save.fps ? 'true' : 'false');
+    if (hud.classList.contains('fps') !== !!save.fps) { hud.classList.toggle('fps', !!save.fps); hudCache = null; }
   }
   const CAMS = ['chase', 'follow', 'north'], CAM_NAME = { chase: 'Chase', follow: 'Follow', north: 'North-up' };
   function setCam(m) { save.cam = m; persist(); syncSoundButtons(); }
+  const QUALS = ['auto', 'low', 'high'], Q_NAME = { auto: 'Auto', low: 'Low', high: 'High' };
+  if (!Q_NAME[save.quality]) save.quality = 'auto';
+  // from the pause sheet the scene is rebuilt straight away when that is quick (under about 300 ms), else at the next race
+  function setQuality(q) { save.quality = q; persist(); applyQuality(state === 'paused'); syncSoundButtons(); }
+  function applyQuality(now) {
+    if (window.Chase && Chase.setQuality(lowQ() ? 'low' : 'high') && now) Chase.rebuild(300);
+    dprCap = fullCap(); resize(); fpsText();
+  }
+
+  // ---------- frame rate ------------------------------------------------------------
+  // a one-second rolling average of the frame times (the test hook can feed fake ones). Auto steps down to Low when it
+  // stays under 45 fps for 3 seconds of a race, once per session, and never steps back up
+  let fq = [], fsum = 0, fps = 60, lowFor = 0, fpsT = 0, fakeMs = null;
+  function fpsTick(ft) {
+    fq.push(ft); fsum += ft;
+    while (fq.length > 1 && fsum - fq[0] >= 1) fsum -= fq.shift();
+    fps = fq.length / fsum;
+    if (state === 'race' && save.quality === 'auto' && !autoLow && fsum > 0.9) {
+      lowFor = fps < 45 ? lowFor + ft : 0;
+      if (lowFor >= 3) stepDown();
+    } else lowFor = 0;
+    if (save.fps && (fpsT -= ft) <= 0) { fpsT = 0.25; fpsText(); }
+  }
+  function fpsText() { // "58 fps · 2.0x", and the draw calls in chase
+    const ci = chaseView && window.Chase && Chase.ready && Chase.info();
+    $('fps').textContent = Math.round(fps) + ' fps \u00b7 ' + (ci ? ci.dpr : dpr).toFixed(1) + 'x' + (ci ? ' \u00b7 ' + ci.calls + ' calls' : '');
+  }
+  function stepDown() {
+    autoLow = true; lowFor = 0; applyQuality(false);
+    if (!save.qToast) { save.qToast = true; persist(); banner('Lowered graphics to keep it smooth', false, 2.8, true); }
+  }
 
   // ---------- input ---------------------------------------------------------------
   const touches = new Map();
@@ -1180,8 +1221,8 @@
   }
   function sheet(id, on) { $(id).classList.toggle('on', on); }
 
-  function banner(text, warn, secs) {
-    const b = $('banner'); b.textContent = text; b.classList.toggle('warn', !!warn); b.classList.add('show');
+  function banner(text, warn, secs, small) {
+    const b = $('banner'); b.textContent = text; b.classList.toggle('warn', !!warn); b.classList.toggle('small', !!small); b.classList.add('show');
     bannerT = secs || 1.4;
   }
   function showDelta() {
@@ -1206,6 +1247,7 @@
     $('delta').className = 'num'; $('banner').className = '';
     $('lapV').textContent = '1/' + T.laps; $('timeV').textContent = fmt(0);
     markIdx = 0; navStreet = null; lastZoneCue = null; hud.classList.toggle('city', !!T.def.city); prepMini(T); $('gear').classList.remove('on'); hudCache = null;
+    chaseFresh = true; fq = []; fsum = 0; lowFor = 0; fpsT = 0;
     if (T.def.city) updateNav(race.car);
     snapCamera(race.car);
     sheet('pause', false); sheet('finish', false);
@@ -1299,16 +1341,21 @@
   function stopLoop() { if (raf) cancelAnimationFrame(raf); raf = 0; }
   function frame(ts) {
     raf = requestAnimationFrame(frame);
-    const real = last ? Math.min(0.1, (ts - last) / 1000) : 1 / 60;
+    const raw = last ? (ts - last) / 1000 : 1 / 60, real = Math.min(0.1, raw);
     last = ts;
-    // drop resolution if this phone is struggling (keeps 60fps and battery)
-    ftAcc += real; ftN++;
+    // drop resolution if this phone is struggling (keeps 60fps and battery); Low is at 1x already
+    const ft = fakeMs != null ? fakeMs / 1000 : null;
+    ftAcc += ft != null ? ft : real; ftN++;
     if (ftN === 90) {
       if (ftAcc / ftN > 0.022 && dprCap > 1) { dprCap = Math.max(1, dprCap - 0.5); resize(); }
       ftAcc = 0; ftN = 0;
     }
+    fpsTick(ft != null ? ft : Math.min(1, raw));
     update(real);
     if (!race) return;
+    drawRace(real * FAST);
+  }
+  function drawRace(dt) {
     let gpose = null;
     if (ghostRec && state !== 'count') {
       const p = GL.ghostAt(ghostRec, race.t);
@@ -1317,7 +1364,7 @@
       const p = GL.ghostAt(ghostRec, 0.001);
       if (p) { p.spec = ghostSpec; gpose = p; }
     }
-    if (chaseNow()) renderChase(W, race.car, gpose, real * FAST);
+    if (chaseNow()) renderChase(W, race.car, gpose, dt);
     else render(W, race.car, gpose);
     drawMini(race.car, gpose);
   }
@@ -1480,6 +1527,8 @@
   $('soundBtn').onclick = () => Snd.set(!Snd.on);
   $('soundBtn2').onclick = () => Snd.set(!Snd.on);
   $('camBtn').onclick = $('camBtn2').onclick = () => setCam(CAMS[(CAMS.indexOf(save.cam) + 1) % CAMS.length]);
+  $('qBtn').onclick = $('qBtn2').onclick = () => setQuality(QUALS[(QUALS.indexOf(save.quality) + 1) % QUALS.length]);
+  $('fpsBtn').onclick = () => { save.fps = !save.fps; persist(); fpsT = 0; fpsText(); syncSoundButtons(); };
 
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   window.addEventListener('pagehide', pause);
@@ -1514,7 +1563,10 @@
       const c = race && race.car, [x, y] = c ? toScr(c.x, c.y) : [0, 0], r = chaseView ? -(Chase.yaw + Math.PI / 2) : cam.r;
       return { mode: save.cam, chase: chaseView, r, x: x / vw, y: y / vh, a: c ? wrap(c.a + r) : 0 };
     },
-    get chase() { return window.Chase && Chase.ready ? Chase.info() : null; }, setCam, startRace, toMenu };
+    get chase() { return window.Chase && Chase.ready ? Chase.info() : null; }, setCam, setQuality, startRace, toMenu,
+    get signBoxes() { return signBoxes; },
+    get fps() { return { fps: +fps.toFixed(1), lowFor: +lowFor.toFixed(2), autoLow, low: lowQ(), dprCap, text: $('fps').textContent, shown: getComputedStyle($('fps')).display !== 'none' }; },
+    set fakeMs(v) { fakeMs = v == null ? null : +v; } }; // test only: frame times (ms) for the fps meter and Auto, instead of the real ones
 
   resize();
   buildMenu();

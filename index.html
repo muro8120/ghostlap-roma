@@ -134,6 +134,10 @@
     text-shadow: 0 2px 12px rgba(0,0,0,.8); opacity: 0; transition: opacity .2s; }
   #banner.show { opacity: 1; }
   #banner.warn { color: var(--red); }
+  #banner.small { font-size: 16px; font-weight: 800; letter-spacing: .04em; padding: 0 16px; }
+  #fps { position: absolute; left: calc(var(--sl) + 13px); top: calc(var(--st) + 65px); display: none; font-size: 10px; line-height: 11px; font-weight: 700;
+    color: rgba(236,238,242,.7); background: rgba(11,13,18,.55); border-radius: 6px; padding: 0 5px; white-space: nowrap; }
+  #hud.fps #fps { display: block; }
   .hint { position: absolute; bottom: calc(var(--sb) + 18px); width: calc(50% - 18px); height: 120px; border-radius: 18px;
     border: 2px dashed rgba(255,255,255,.18); display: grid; place-items: center; color: rgba(255,255,255,.55); font-weight: 700; font-size: 14px;
     opacity: 0; transition: opacity .4s; }
@@ -434,6 +438,7 @@
       <button class="pill" id="toHub">&#8249; Games</button>
       <button class="pill" id="soundBtn">Sound: off</button>
       <button class="pill on" id="camBtn">Camera: Chase</button>
+      <button class="pill on" id="qBtn">Quality: Auto</button>
       <span class="pill" id="offline">Checking offline&hellip;</span>
     </div>
     <p class="how"><b>Hold left</b> or <b>right</b> half of the screen to steer. Gas is automatic.
@@ -449,6 +454,7 @@
     <div class="box" id="clock"><small>TIME</small><span class="v num" id="timeV">0:00.00</span><span id="ghostT" class="num"></span></div>
     <button id="pauseBtn" aria-label="Pause"></button>
   </div>
+  <div id="fps" class="num">-- fps</div>
   <div id="nav"><span id="navSt"></span><small id="navTo"></small></div>
   <canvas id="mini" width="108" height="108"></canvas>
   <div id="delta" class="num"></div>
@@ -470,7 +476,8 @@
         <button class="btn" id="restartBtn">Restart</button>
         <button class="btn" id="quitBtn">Menu</button>
       </div>
-      <div style="display:flex;gap:8px;justify-content:center;margin-top:4px"><button class="pill" id="soundBtn2">Sound: off</button><button class="pill on" id="camBtn2">Camera: Chase</button></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:4px"><button class="pill" id="soundBtn2">Sound: off</button><button class="pill on" id="camBtn2">Camera: Chase</button>
+        <button class="pill on" id="qBtn2">Quality: Auto</button><button class="pill" id="fpsBtn" aria-pressed="false">Show fps</button></div>
     </div>
   </div>
 </div>

@@ -20,6 +20,12 @@ function hash(a, b) { // stable 0..1 from two integers, so the skyline is the sa
 let R = null, scene = null, cam = null, cw = 1, ch = 1, dprNow = 1;
 let curT = null, world = null, sky = null, hemi = null, head = null, headT = null, pool = [], lampHeads = [];
 let carM = null, ghostM = null, carKey = '', ghostKey = '', tailMat = null, bMat = null, stats = {};
+// quality: 'high' (pixel ratio up to 2, four real lamp lights, buildings 1100 out from the route) or 'low' (pixel ratio 1, one
+// lamp light plus the headlight, buildings 40% closer in, half the street furniture, nearer fog, plain windows, no MSAA).
+// The lights, pixel ratio, fog and windows change live; the rest waits for the next build (or rebuild()).
+const QUAL = { high: { pr: 2, lamps: 4, reach: 1100, fog: 1, furn: 1 }, low: { pr: 1, lamps: 1, reach: 660, fog: 0.74, furn: 2 } };
+let qLevel = 'high', Q = QUAL.high, builtQ = '', lastArgs = null, lastDpr = 1, fogBase = null;
+const buildMsAt = {};
 const cs = { x: 0, y: 0, yaw: 0, ao: 0, ok: false };
 const U = { uCam: { value: new THREE.Vector3() }, uCar: { value: new THREE.Vector3() } };
 const tmp = new THREE.Vector3();
@@ -134,11 +140,19 @@ if (vFac.w > 0.5) {
     float det = clamp(1.6 - max(fw.x, fw.y) * 3.0, 0.0, 1.0);
     float gf = 1.0 - step(0.5, cell.y);
     vec2 lo = mix(vec2(0.3, 0.3), vec2(0.1, 0.0), gf), hi = mix(vec2(0.7, 0.76), vec2(0.9, 0.72), gf);
+#ifdef LOWQ
+    vec2 a = step(lo, lp) * step(lp, hi); // hard-edged windows, one colour per building: no second hash
+    float win = a.x * a.y * step(hy, H - 1.4);
+    float r = h21(cell + seed * 31.7);
+    float on = step(mix(0.7, 0.5, gf), r);
+    vec3 wc = mix(vec3(1.0, 0.5, 0.18), vec3(1.0, 0.78, 0.48), fract(seed * 0.618)) * 0.95;
+#else
     vec2 a = smoothstep(lo - fw, lo + fw, lp) * (1.0 - smoothstep(hi - fw, hi + fw, lp));
     float win = a.x * a.y * step(hy, H - 1.4);
     float r = h21(cell + seed * 31.7);
     float on = step(mix(0.7, 0.5, gf), r);
     vec3 wc = mix(vec3(1.0, 0.5, 0.18), vec3(1.0, 0.78, 0.48), h21(cell.yx + seed)) * (0.55 + 0.8 * fract(r * 7.13));
+#endif
     totalEmissiveRadiance += wc * (win * on * det + (1.0 - det) * 0.07);
     diffuseColor.rgb *= 1.0 - 0.65 * win * (1.0 - on) * det;
     totalEmissiveRadiance += diffuseColor.rgb * wash * 0.5 * exp(-hy / 4.5);
@@ -154,8 +168,9 @@ const additive = (o) => new THREE.MeshBasicMaterial(Object.assign({ transparent:
 function init(canvas, dpr) {
   if (R) return true;
   try {
-    // MSAA only on low-density screens; at 2x the edges are fine and the fill rate goes to 60 fps instead
-    R = new THREE.WebGLRenderer({ canvas, antialias: (window.devicePixelRatio || 1) < 2, alpha: false, stencil: false, powerPreference: 'high-performance' });
+    // MSAA only on low-density screens; at 2x the edges are fine and the fill rate goes to 60 fps instead. It is fixed for the
+    // life of the WebGL context, so Low only turns it off when the renderer starts on Low (the saved setting at launch)
+    R = new THREE.WebGLRenderer({ canvas, antialias: (window.devicePixelRatio || 1) < 2 && qLevel !== 'low', alpha: false, stencil: false, powerPreference: 'high-performance' });
   } catch (e) { R = null; return false; }
   R.setClearColor('#07080c');
   scene = new THREE.Scene();
@@ -168,13 +183,42 @@ function init(canvas, dpr) {
   bMat = buildingMaterial();
   tailMat = new THREE.MeshBasicMaterial({ color: '#7a1010' });
   resize(window.innerWidth, window.innerHeight, dpr);
+  setQuality(qLevel);
   return true;
 }
 function resize(w, h, dpr) {
   if (!R) return;
-  cw = w; ch = h; dprNow = Math.min(2, dpr || 1);
+  cw = w; ch = h; lastDpr = dpr || 1; dprNow = Math.min(Q.pr, lastDpr);
   R.setPixelRatio(dprNow); R.setSize(w, h, false);
   cam.aspect = w / h; cam.updateProjectionMatrix();
+}
+// the live part of a quality change; true when the scene was built at the other level (rebuilt at the next build or rebuild())
+function setQuality(level) {
+  qLevel = level === 'low' ? 'low' : 'high'; Q = QUAL[qLevel];
+  if (!R) return false;
+  resize(cw, ch, lastDpr);
+  pool.forEach((l, k) => { l.visible = k < Q.lamps; });
+  applyFog();
+  const low = qLevel === 'low';
+  if (!!(bMat.defines && bMat.defines.LOWQ) !== low) { bMat.defines = low ? { LOWQ: 1 } : {}; bMat.needsUpdate = true; }
+  return !!world && builtQ !== qLevel;
+}
+// Low pulls the fog in; in town (where everything past the fog is the fog colour anyway) the far plane and the sky come in with it
+function applyFog() {
+  if (!fogBase || !scene.fog) return;
+  scene.fog.near = fogBase[0] * Q.fog; scene.fog.far = fogBase[1] * Q.fog;
+  const f = fogBase[2] && Q.fog < 1 ? scene.fog.far + 200 : 4800;
+  if (cam.far !== f) { cam.far = f; cam.updateProjectionMatrix(); }
+  sky.scale.setScalar(Math.min(1, (f - 150) / 4200));
+}
+// rebuild now at the current quality if the last build at that level took under maxMs (a guess from the other level when
+// there is none yet); false leaves it for the next race
+function rebuild(maxMs) {
+  if (!R || !world || builtQ === qLevel || !lastArgs) return false;
+  const est = buildMsAt[qLevel] != null ? buildMsAt[qLevel] : (stats.buildMs || 0) * (qLevel === 'high' ? 1.8 : 1);
+  if (est > (maxMs || 300)) return false;
+  curT = null; build(...lastArgs);
+  return true;
 }
 function disposeObj(o) {
   o.traverse((m) => {
@@ -188,7 +232,7 @@ function dispose() {
   for (const o of [world, carM, ghostM, sky]) if (o) disposeObj(o);
   if (bMat) bMat.dispose();
   if (TEX) for (const t of Object.values(TEX)) t.dispose();
-  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = null; pool = []; curT = null; carKey = ghostKey = '';
+  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = null; pool = []; curT = null; carKey = ghostKey = ''; builtQ = ''; lastArgs = fogBase = null;
 }
 
 function makeSky() {
@@ -217,14 +261,15 @@ function makeSky() {
 }
 
 // ---------- public: build the scene for a track ----------------------------------------
-function build(W, T, def) {
+// fresh: a new race is starting, so a scene built at the other quality level is rebuilt now (mid-race it waits)
+function build(W, T, def, fresh) {
   if (!R) return;
-  if (curT === T && world) return;
+  if (curT === T && world && !(fresh && builtQ !== qLevel)) return;
   const t0 = performance.now();
   if (world) { scene.remove(world); disposeObj(world); }
-  world = new THREE.Group(); curT = T; stats = { buildings: 0 };
+  world = new THREE.Group(); curT = T; stats = { buildings: 0 }; builtQ = qLevel; lastArgs = [W, T, def];
   try { buildWorld(W, T, def); } catch (e) { stats.error = String(e && e.message || e); console.warn('chase build', e); }
-  stats.buildMs = Math.round(performance.now() - t0);
+  stats.buildMs = buildMsAt[qLevel] = Math.round(performance.now() - t0);
   scene.add(world);
 }
 // the track samples a flat ribbon needs: every one in the bends, fewer down the straights (the same look for far fewer
@@ -313,6 +358,7 @@ function buildWorld(W, T, def) {
 
   const fogC = city ? '#191820' : '#17171d';
   scene.fog = new THREE.Fog(fogC, city ? 700 : 900, city ? 3400 : 4200);
+  fogBase = [scene.fog.near, scene.fog.far, city]; applyFog();
   R.setClearColor(fogC);
 
   // ground: grass or paving stones, and for the circuits the 2D under-layer (spina, cavea, river, ruins) painted onto it,
@@ -513,7 +559,7 @@ function buildWorld(W, T, def) {
   if (KB.p.length) world.add(toMesh(KB, lambert({ vertexColors: true })));
 
   let lamps = W.lamps;
-  if (city) { const occ = buildCity(ROME, T, near, REACH, wall, inZone); cityFurniture(T, near, far, wall, inZone, mouth, bridgeAt, occ, at); }
+  if (city) { const occ = buildCity(ROME, T, near, Q.reach, wall, inZone); cityFurniture(T, near, far, wall, inZone, mouth, bridgeAt, occ, at); }
   else {
     // which side of the track is outside (as outwardSign in game.js)
     let inside = false; { const x = T.xs[0] - T.ty[0] * 400, y = T.ys[0] + T.tx[0] * 400;
@@ -621,6 +667,7 @@ function cityFurniture(T, near, far, wall, inZone, mouth, bridgeAt, occ, at) {
       else for (const u of [-13, 0, 13]) bols.push([xw + T.tx[i] * u, PAVE - 0.5, yw + T.ty[i] * u, 1, 0]);
     }
   }
+  if (Q.furn > 1) for (const a of [cars, trees, bols]) { const keep = a.filter((_, k) => k % Q.furn === 0); a.length = 0; a.push(...keep); } // Low: every other one
   instanced([[new THREE.BoxGeometry(26, 4.6, 12), 0, 5.2, 0, '#ffffff'], [new THREE.BoxGeometry(12.5, 3.8, 10.4), -1.5, 9.4, 0, '#454b55']], cars, true);
   instanced(TREE.plane(), trees, true);
   instanced([[new THREE.CylinderGeometry(0.8, 1.1, 5.4, 6, 1, true), 0, 2.7, 0, '#3a3c41']], bols, false);
@@ -1017,11 +1064,11 @@ function render(car, ghost, dt) {
   if (gk !== ghostKey) { if (ghostM) { scene.remove(ghostM); disposeObj(ghostM); ghostM = null; } if (gk) { ghostM = carMesh(ghost.spec, true); scene.add(ghostM); } ghostKey = gk; }
   if (ghostM) { ghostM.visible = !!ghost; if (ghost) placeCar(ghostM, ghost); }
 
-  // the four street lamps nearest the road ahead get a real light; their strength fades with distance so swaps don't pop
-  const ax = car.x + fx * 140, ay = car.y + fy * 140, best = [];
+  // the four street lamps nearest the road ahead (one on Low) get a real light; their strength fades with distance so swaps don't pop
+  const ax = car.x + fx * 140, ay = car.y + fy * 140, best = [], nl = Q.lamps;
   for (const l of lampHeads) {
     const d = (l.x - ax) ** 2 + (l.y - ay) ** 2;
-    if (best.length < 4 || d < best[3][0]) { best.push([d, l]); best.sort((a, b) => a[0] - b[0]); if (best.length > 4) best.pop(); }
+    if (best.length < nl || d < best[nl - 1][0]) { best.push([d, l]); best.sort((a, b) => a[0] - b[0]); if (best.length > nl) best.pop(); }
   }
   for (let k = 0; k < pool.length; k++) {
     const P = pool[k], e = best[k];
@@ -1046,9 +1093,11 @@ function toScreen(x, y, z) {
 }
 
 const Chase = {
-  init, build, render, snap, toScreen, resize, dispose,
+  init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild,
   get ready() { return !!R; },
   get yaw() { return cs.yaw; },                       // the camera's heading in world terms (same convention as car.a)
-  info() { return Object.assign({ revision: THREE.REVISION, dpr: dprNow, geometries: R ? R.info.memory.geometries : 0, textures: R ? R.info.memory.textures : 0 }, stats); },
+  // lights: the real ones in the scene (lamps that light the road, and the headlight); built: the quality the scene was built at
+  info() { return Object.assign({ revision: THREE.REVISION, dpr: dprNow, quality: qLevel, built: builtQ, lights: pool.filter((l) => l.visible).length + 1, reach: Q.reach,
+    msaa: R ? !!R.getContextAttributes().antialias : false, geometries: R ? R.info.memory.geometries : 0, textures: R ? R.info.memory.textures : 0 }, stats); },
 };
 window.Chase = Chase;
