@@ -12,6 +12,8 @@ Two games in one offline iPhone app. Pick one on the launcher:
   to the hotel, the next stop and the nearest of your Andiamo places (gold stars). Map data © OpenStreetMap contributors (ODbL).
 - **Garage:** Cinquecento, Maranello 12, Modena GT, San Cesario, Sant'Agata. These are homages named after towns, not brands.
 - **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake; keep holding to reverse.
+- **Camera:** follows the car with its heading up the screen, so the left thumb always turns the car left on screen. *Camera: North-up*
+  on the drive menu or pause sheet brings back the fixed map view. The minimap stays north-up, with the car as an arrow.
 - **Offline:** a service worker caches everything, so after one online visit it runs in airplane mode.
 
 ## Chess coach
