@@ -17,7 +17,7 @@ function list(name) {
 const required = list('ASSETS').filter((a) => a !== './');
 const optional = list('OPTIONAL');
 // sw.js keeps www/ usable as a plain web build too; the licences travel with the code they cover.
-const extra = ['sw.js', 'vendor/STOCKFISH-LICENSE.txt', 'vendor/CHESSJS-LICENSE.txt', 'vendor/pieces/LICENSE.txt'];
+const extra = ['sw.js', 'vendor/STOCKFISH-LICENSE.txt', 'vendor/CHESSJS-LICENSE.txt', 'vendor/pieces/LICENSE.txt', 'vendor/three/LICENSE'];
 
 fs.rmSync(OUT, { recursive: true, force: true });
 let n = 0, bytes = 0;
