@@ -1,6 +1,6 @@
 // Ghostlap Roma service worker: cache everything on install, serve from cache first,
 // so the game opens in airplane mode once it has been opened online one time.
-const CACHE = 'ghostlap-roma-v8';
+const CACHE = 'ghostlap-roma-v9';
 const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'hub.js', 'engine.js', 'coach.js', 'vendor/chess.js',
   'vendor/stockfish-19-lite-single.js', 'vendor/stockfish-19-lite-single.wasm', 'openings.js', 'lessons.js', 'learn.js',
   'vendor/pieces/wK.svg', 'vendor/pieces/wQ.svg', 'vendor/pieces/wR.svg', 'vendor/pieces/wB.svg', 'vendor/pieces/wN.svg', 'vendor/pieces/wP.svg', 'vendor/pieces/bK.svg', 'vendor/pieces/bQ.svg', 'vendor/pieces/bR.svg', 'vendor/pieces/bB.svg', 'vendor/pieces/bN.svg', 'vendor/pieces/bP.svg',

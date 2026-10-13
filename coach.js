@@ -9,7 +9,7 @@
   const THEMES = { night: ['#9aa7b8', '#4a5568'], wood: ['#f0d9b5', '#b58863'], modern: ['#eeeed2', '#769656'], mono: ['#d5d8de', '#6e7480'], stone: ['#e6e2da', '#cdc8bf'] };
   const VOICES = ['tough', 'kind', 'quiet'];
   const clampElo = (e) => Math.max(800, Math.min(2850, Math.round((+e || 1600) / 50) * 50));
-  const DEF = (name, voice) => ({ name, elo: 1600, color: 'w', theme: 'night', mode: 'play', voice: voice || 'tough', games: [], focus: null, calib: null });
+  const DEF = (name, voice) => ({ name, elo: 1600, color: 'w', theme: 'stone', mode: 'play', voice: voice || 'tough', games: [], focus: null, calib: null });
   // two players share the phone: Jesse gets the coach, J gets the kind version. Each has their own history and settings.
   let save = { player: 'jesse', players: { jesse: DEF('Jesse', 'tough'), j: DEF('J', 'kind') } };
   try {
@@ -25,10 +25,11 @@
     if (q.calib && !Array.isArray(q.calib.games)) q.calib = null;
     if (!'wbr'.includes(q.color) || q.color.length !== 1) q.color = 'w';
     q.elo = clampElo(q.elo);
-    if (!THEMES[q.theme]) q.theme = 'night';
+    if (!THEMES[q.theme]) q.theme = 'stone';
     if (q.mode !== 'tutor') q.mode = 'play';
     if (!VOICES.includes(q.voice)) q.voice = 'tough';
   }
+  if (!save.stoneDefault) { for (const k in save.players) if (save.players[k].theme === 'night') save.players[k].theme = 'stone'; save.stoneDefault = true; }   // Stone became the default: profiles still on the old default move over once
   if (!save.players[save.player]) save.player = 'jesse';
   const P = () => save.players[save.player];
   const voice = () => P().voice;

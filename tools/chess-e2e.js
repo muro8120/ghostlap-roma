@@ -127,6 +127,8 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.reload(); await p.waitForTimeout(500); await p.click('#pickChess'); await p.waitForTimeout(300);
   check('stone persists across reload', (await p.evaluate(() => document.documentElement.dataset.theme + '/' + window.__coach.theme)) === 'stone/stone');
   await p.evaluate(() => window.__coach.setPlayer('j'));
+  check('stone is the default theme', (await p.evaluate(() => window.__coach.theme)) === 'stone');
+  await p.evaluate(() => document.querySelector('#themeRow button[data-theme="night"]').click()); await p.waitForTimeout(300);
   const jt = await p.evaluate(() => document.documentElement.dataset.theme + '/' + window.__coach.theme);
   await p.evaluate(() => window.__coach.setPlayer('jesse'));
   check('theme is per player', jt === 'night/night' && (await p.evaluate(() => document.documentElement.dataset.theme)) === 'stone', jt);

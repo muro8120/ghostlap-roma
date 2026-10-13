@@ -67,7 +67,7 @@ Two games in one offline iPhone app. Pick one on the launcher:
   what is better, twice a turn. *Read the board* describes the position plainly for both sides: material, the engine's
   view, development, kings, centre, hanging pieces, the opponent's idea, and each side's priority. Both count as nudges
   in your history, separately from hints.
-- **Board themes:** Night, Wood, Modern, Mono and Stone, chosen per player. The first four use the cburnett SVG piece set;
+- **Board themes:** Stone (the default), Night, Wood, Modern and Mono, chosen per player. The first four use the cburnett SVG piece set;
   Stone is a pale, low-contrast board with its own abstract stone piece set (speckled white, graphite black), one bold
   cue per piece (cross-cut king, crowned queen, notched rook, slit bishop, bitten knight, bud pawn), a mint glow on the
   selected square and legal moves, and the piece's name shown under the board for a second when you pick it up. Chess
