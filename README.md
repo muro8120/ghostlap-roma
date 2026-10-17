@@ -1,9 +1,12 @@
 # Ghostlap Roma
 
-Two games in one offline iPhone app. Pick one on the launcher:
+Two games in one offline iPhone app, and a chess training programme. Pick one on the launcher:
 
 - **Drive:** a small top-down night racer set in Rome. Race three laps, and your best run comes back as a ghost to beat.
 - **Chess:** play Stockfish with a coach who rates every move you make and then takes the whole game apart.
+- **Learn:** opening lessons taught from both sides, with drills.
+- **Train:** the staged learning plan built from the research in `docs/chess/`: what to do today, the week's pearl, your
+  stage and its exit criteria measured from your own games, tactics and endgame drills.
 
 - **Circuits:** Circo Massimo, Colosseo, Lungotevere, Via Appia Antica. A bronze unlocks the next one.
 - **Rome from the NYX** (`rome.js`, see `tools/ROME-ROUTES.md`): real-street round trips from the hotel on Via Cicerone to the
@@ -74,6 +77,33 @@ Two games in one offline iPhone app. Pick one on the launcher:
   three best options with a plain-English reason for each (tap one to see it on the board), and what the opponent would
   do if you passed, drawn as a red arrow when it is a real threat. After an inaccuracy or worse the game stops and offers a
   take-back. Take-backs are counted and go on your record; the review says so.
+- **Train mode:** the third setting on the Mode button (Play, Tutor, Train). A training game has nothing from the engine
+  while you play: no verdict strip, no labels or colours in the move list, no eval bar, no αβ, no Hint, no Nudge; only
+  Resign. The engine still plays at your saved strength, and the coach still rates every move silently so the review
+  afterwards is complete. The strip just says *Training game. No engine during play. Afterwards: your post-mortem first,
+  then the review.* Training games are always *clean* (no tutor, hints, nudges or take-backs), which is what the Train
+  screen's metrics count; the history marks them *train*.
+- **Post-mortem:** before any recorded game is analysed, old ones included, you answer four questions by tapping, with no
+  engine in sight: where you first lost material (your moves on a strip, each shown on a small board, or *Nowhere*), what
+  was threatened the move before, whether you ran the check (their checks, captures, threats), and a tag (hung piece,
+  missed threat, bad trade, wrong plan, clock, endgame technique, none) with an optional one-line note. Save, and the
+  analysis runs as before; *Later* puts it off and the game stays listed as *post-mortem due*. The review then opens with
+  *Your call vs the engine*: where you said it went wrong against the engine's first two-pawn swing, in two sentences.
+  Below Stage 3 the review is *narrow*: the eval graph, the best-move arrow and the cards stay, but the engine's lines are
+  hidden in αβ and only the single worst moment is listed; the Train screen opens the full review from Stage 3.
+- **The day, think time and the ledger:** the first game of each day asks what kind of day it is (off-day morning, shift
+  day, after a shift, or skip), once a day per player, and the answer is stored on every game that day; after a shift it
+  reminds you that a long game is allowed but is not training. Every move you make is timed (nothing is enforced); a think
+  over three minutes gets a small clock in the review's move list and a plain line on the move, since a long think means
+  you did not recognise the position. Alongside the last 20 full games, a compact ledger row per analysed game is kept
+  forever (mode, day, result, accuracy, first blunder move, hung pieces, when you castled, longest and mean think, counts,
+  pattern tags, your post-mortem and whether it hit the engine's move); games analysed before the ledger existed get rows
+  on first load. The Train screen's exit criteria are measured from it.
+- **Drills:** the Endgames screen starts set positions against the engine at full strength (2850), your side chosen,
+  either side to move. A clock in the opponent's slot runs from the moment the engine is ready; there are no hints,
+  nudges, ratings or opening names, just Resign. The drill ends at mate, stalemate, draw by rule or resignation, says how
+  long it took against the target, and offers *Again* (same position) or *Back*. Drills are never recorded: no history,
+  patterns, accuracy, budget or ledger.
 - **Openings:** the opening's ECO code and name show as you play and in the review, from the lichess openings table.
 - **Hint:** the coach will show you the best move if you ask, but the game is marked *assisted* in your history and the
   coach is not gracious about it.
@@ -96,6 +126,98 @@ Two games in one offline iPhone app. Pick one on the launcher:
 - Credits: [Stockfish](https://stockfishchess.org) (GPL-3.0, `vendor/STOCKFISH-LICENSE.txt`) via
   [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause); [three.js](https://threejs.org) r184 for the chase camera (MIT, `vendor/three/LICENSE`); piece set by Colin M.L. Burnett (GPLv2+, from lichess,
   `vendor/pieces/`); the Stone pieces in `vendor/pieces-stone/` are original drawings for this app; opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
+
+## Train
+
+The fourth card on the launcher, and the point of the chess half of the app: the learning plan from the research
+(`docs/chess/chess-learning-plan.md`), kept honest by your own games. It is staged (S0 to S4), gated by exit criteria
+measured in your own games rather than by a rating, and every pearl carries its evidence grade. It is built for an adult
+beginner on 12-hour shifts, so the first thing it asks each day is what kind of day it is: off-day morning, shift day, or
+after a shift. The answer is shared with the chess screen (asked once a day, per player, between the two). Off-day mornings
+get the long game and new material; shift days get easy tactics and a drill; after a shift the long game and the lesson are
+greyed out with the reason and the evidence behind it, because new patterns do not stick on no sleep. A long game then is
+still allowed from the Chess card, but the plan does not count it as training. Nothing is sent anywhere, and the engine
+strength is never called your rating.
+
+- **Today** lists this stage's blocks for that kind of day, each with one button: *Long game* starts a training game
+  (Train mode: no verdicts, no eval bar, no hints, your post-mortem before the engine), *Tactics* opens a slow, mixed
+  puzzle session in the stage's easy band for the block's minutes, *Endgames* opens the stage's drills, *Resources* takes
+  you to the reading list. Small dots count the block against its weekly frequency: a training game counts when it is
+  recorded, a tactics session when it finishes, an endgame block when a drill was actually played; lessons and anything
+  the app cannot see get a plain *Done* tick. When games are waiting for their post-mortem the card says so ("3 games owe
+  a post-mortem") with a button that opens the oldest.
+- **This week** shows the week number since you first opened the plan, the week's micro-step (Stage 0 has eight; if the
+  stage is not met by week 8 its last four come round again), and the pearl of the week with its action and its evidence
+  grade in a badge. Tap any grade for the legend: A is a replicated experiment, B a large chess dataset, C the consensus
+  of strong coaches, D an anecdote. The ten standing orders sit folded underneath, graded the same way.
+- **Stage** is the card that decides when you move on. It names the stage and its mechanism, folds away the giants to copy
+  and to ignore, and lists the exit criteria with a mark each: met, unmet, or unknown when there is not enough data yet
+  (ten clean games are needed before a ten-game criterion says anything). Next to every criterion is your actual value and
+  the target, read from the ledger of your analysed games, the tactics log and the endgame drills. A few criteria cannot
+  be measured by an app (the safety check being habitual, a stronger player reviewing your games monthly) and are toggles
+  on your word, with a note saying so. When every criterion is met, *Advance to Stage 1* appears. Otherwise there is a
+  smaller *Advance anyway* that asks first and records the override, and the card says it was entered by override. From
+  Stage 3 the review shows the engine's lines; before that it stays narrow (where material went, where the eval swung).
+- **Metrics** is the curriculum's table: median move of your first two-pawn blunder, pieces hung per game, your most
+  frequent error tag, longest single think, castled by move 10, slow puzzle accuracy, endgames mastered, games with a
+  post-mortem, each against the stage's target, plus the first-blunder figure split by kind of day. Only clean games
+  count towards the game numbers (no hints, nudges or take-backs, not Tutor) and the card says how many that is; the
+  post-mortem figure counts every game. The research's realistic outcome is printed under the table, and progress is
+  judged by these numbers, never by a number next to your name.
+- **Resources** is the stage's reading and watching list with a tick per item and a link out when the phone is online,
+  and the pitfalls ("the differential of common failures") folded beneath.
+
+Everything is per player and lives on the phone under `ghostlap-train-v1` (stage, start date, the day answers, the weekly
+ticks, the self-attested toggles, the resource ticks and every advance). The Learn screen labels its opening drills
+*Stage 3 material* until you get there; they still work. `node tools/plan-e2e.js` drives the screen in headless Chromium
+at iPhone width, including one real training game against the engine. The pieces underneath:
+
+
+- **Curriculum** (`curriculum.js`): the staged plan from `docs/chess/chess-curriculum.json`, copied word for word. That is
+  stages S0 to S4 with their exit criteria, weekly blocks and micro-steps, 52 pearls each with its source and evidence
+  grade (A to D), the metrics table, the standing orders and the pitfalls. It also holds the arithmetic that turns your own
+  games into verdicts. Only clean games count: no hints, nudges or take-backs, not Tutor. Over the last ten of them (twenty
+  from Stage 1) it takes the median move of your first two-pawn blunder (a game without one counts as move 60), pieces hung
+  per game, how often you castled by move 10, and long thinks over three minutes. Over every game it takes how often you
+  wrote the post-mortem and how often you found your own mistake. It adds your best mate times and endgames won from the
+  drills, puzzle accuracy, and the habits you vouch for yourself. Each exit criterion then reads met, not yet, or unknown,
+  with a plain sentence such as *Median move of first two-pawn blunder: 17 (target over 20, last 10 clean games)*. Missing
+  data is unknown, never a fail, and too few games is no verdict yet. It also picks the blocks that fit the day (after a
+  shift, easy repetition only), the week's micro-step and pearl, and counts weeks in calendar days so a clock change never
+  moves them. No DOM, no storage, no engine: `node tools/curriculum-test.js` checks the maths on synthetic games and fails
+  if the data drifts from the JSON or an exit criterion names a metric nothing measures.
+- **Tactics** (`puzzles.js`): slow puzzles, mixed themes, and the whole line. About 3,500 puzzles from the lichess puzzle
+  database (CC0) ship with the app in `puzzles-data.js`. They are rated 500 to 1400, well rated and much played, two to six
+  moves each, in four bands, with no single theme above a fifth of a band. `node tools/build-puzzles.mjs
+  <lichess_db_puzzle.csv.zst>` rebuilds the file from the download and gives the same set every time. The board turns so
+  your side is at the bottom. Their move plays first, highlighted: *They played Nf3. Your move. Play the whole line.* Tap a
+  piece, then its square. A right move is confirmed quietly and their reply follows. A wrong move, or *I don't see it*,
+  loses the puzzle and draws the right move as an arrow, but you still play out the rest of the line so you see the whole
+  pattern. There are no hints, and the themes and rating only show once the line is over. Before the set puzzles come your
+  own mistakes: every move in an analysed game that cost a pawn and a half or more becomes a card (*From your game on Oct 3,
+  move 14. You played Nxe5 there.*), with one move to find. Cards live in Leitner boxes like Learn's position cards: box 1
+  every session, box 2 every other, box 3 every fourth. The end of a session shows how many you got right, the mean time,
+  and a plain line: under 85% says *Slow down. Accuracy before speed.*, and a mean under 15 seconds says *That was fast.
+  The research says slow, written, whole line. Speed is not the goal here.* Progress is stored per player under
+  `ghostlap-puzzles-v1`. `node tools/puzzles-test.js` replays every puzzle through chess.js and checks the bands and the
+  theme cap.
+- **Endgames** (`endgames.js`): thirty-two set positions you play out against the engine at full strength, with a clock
+  running and no help. Stage 0 is the floor of the plan: three queen mates and three rook mates, each with a 30-second
+  target, three king-and-pawn wins that need the opposition, plus one where you hold the draw with the lone king, because
+  the opposition cuts both ways. Stage 1 is two rook endings two pawns up. Stage 2 is "the twenty": Lucena, Philidor, the
+  rule of the square, outside and protected passed pawns, the pawn breakthrough, the rook-pawn corner, Réti, queen against
+  a pawn on the seventh (a centre pawn wins; a bishop or rook pawn draws), perpetual check, bishop and pawn, knight and
+  pawn, the two-bishops mate, rook against bishop and against knight, opposite-coloured bishops, and rook against pawn
+  both ways. Each card says whether the goal is to win or to draw, which side you play, and the technique in one line, with
+  a Board button to look first. Play hands the position to the coach. A win is played to mate; a draw is held until the
+  game is drawn. Every finished run is recorded per player under `ghostlap-endgames-v1`: best time, tries, wins. A position
+  is mastered when the goal is met twice, under the target where there is one. The plan reads the mate times, the K+P and
+  rook-ending results, and the count of the twenty mastered. `node tools/endgames-test.js` checks every position with
+  Stockfish at depth 20 and fails if it disagrees: a win must be a mate or at least +5 for your side, the K+Q and K+R mates
+  must show a forced mate, and a draw must be within half a pawn.
+- **Research** (`docs/chess/`): the report the plan was written from (*Elite chess evolution and lessons*), the learning plan
+  as a problem-based assessment and plan, and the curriculum JSON the app reads. No chess training method has a randomised
+  trial behind it; the grades say which claims are load-bearing.
 
 ## Learn
 
@@ -155,8 +277,12 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `hub.js`: the launcher (Drive or Chess)
 - `engine.js`: Stockfish worker wrapper, move rating, coach lines, postgame analysis (runs under node too: `node tools/engine-test.js`,
   which drives the vendored engine and also checks every lesson line)
-- `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen and feedback cards, patterns and escalation, level check, game history
+- `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen and feedback cards, patterns and escalation, level check, game history, Train mode, the day sheet, the post-mortem gate, the ledger, drills and the coach events
 - `lessons.js`, `learn.js`: opening lessons, the Learn screen and its drills
+- `curriculum.js`: the chess curriculum (stages, pearls, metrics) and the exit-criteria maths over the coach's ledger (runs under node too: `node tools/curriculum-test.js`)
+- `plan.js`: the Train screen
+- `puzzles.js`, `puzzles-data.js`: the Tactics screen and its lichess puzzle set (`tools/build-puzzles.mjs`, `node tools/puzzles-test.js`)
+- `endgames.js`: the Endgames catalogue and drill screen (`node tools/endgames-test.js`)
 - `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)
 - `vendor/`: chess.js, the Stockfish lite WASM engine, the piece SVGs, and three.js (`vendor/three/`, the ES module build, loaded by `chase.js`)
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
@@ -164,6 +290,7 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`)
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
-- `tools/`: OSM fetch and build scripts, synthetic test map, headless test (`tools/e2e.js`)
+- `docs/chess/`: the research report, the learning plan and the curriculum JSON behind Train
+- `tools/`: OSM fetch and build scripts, synthetic test map, headless tests (`tools/e2e.js`, `tools/chess-e2e.js`, `tools/puzzles-e2e.js`, `tools/endgames-e2e.js`, `tools/plan-e2e.js`)
 - `package.json`, `capacitor.config.json`, `ios/`, `tools/build-www.mjs`: the native iOS wrapper (see TESTFLIGHT.md)
 
