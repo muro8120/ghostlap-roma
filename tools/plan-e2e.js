@@ -109,6 +109,15 @@ let b = null;
     acts: [...document.querySelectorAll('#plToday [data-act]')].map((e) => e.dataset.act), q: !!document.getElementById('plCtx'),
   }));
   check('"After a shift" is shared with the coach and remembered', post.coach === 'post' && post.plan === 'post' && post.day === 'post' && !post.q);
+  // hours slept, optional: a second row once the day is answered, nothing picked, stored with the day by the coach
+  const sl0 = await p.evaluate(() => ({ pills: [...document.querySelectorAll('#plSlept .pill')].map((b) => b.textContent + ':' + b.dataset.slept), on: document.querySelectorAll('#plSlept .pill.on').length, slept: window.__coach.sleptToday(), line: !!document.getElementById('plBySlept'), k: document.querySelector('#plSlept').closest('.srow').querySelector('.k').textContent }));
+  check('the Slept row: four pills, none picked, nothing stored, no by-sleep metrics line yet', sl0.pills.join(' ') === 'under 6:5 6:6 7:7 8+:8' && sl0.on === 0 && sl0.slept === null && !sl0.line && sl0.k === 'Slept', JSON.stringify(sl0));
+  await p.click('#plSlept [data-slept="7"]'); await p.waitForTimeout(80);
+  const sl1 = await p.evaluate(() => ({ on: [...document.querySelectorAll('#plSlept .pill.on')].map((b) => b.dataset.slept), slept: window.__coach.sleptToday(), ctx: window.__coach.ctxToday(), day: JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse.day }));
+  check('picking 7 stores it on the coach\'s day record with the kind of day', sl1.on.join() === '7' && sl1.slept === 7 && sl1.ctx === 'post' && sl1.day.slept === 7 && sl1.day.ctx === 'post', JSON.stringify(sl1));
+  await p.click('#plSlept [data-slept="5"]'); await p.waitForTimeout(80);
+  check('under 6 stores 5', (await p.evaluate(() => window.__coach.sleptToday())) === 5 && (await p.$eval('#plSlept .pill.on', (b) => b.dataset.slept)) === '5');
+  await p.click('#plSlept [data-slept="7"]'); await p.waitForTimeout(80);
   // the curriculum keeps only shift-day work after a shift, so the any-day endgame drill is greyed too; easy tactics is the one thing left on
   check('the long game and the lesson are greyed with "Not today" and the research line', post.blocks.join(' ') === 'S0-B1:off S0-B2:off S0-B3:on S0-B4:off' && post.why.length === 3 && post.why.every((w) => w === 'Not today: easy repetition only.')
     && post.research.length === 3 && /shift/i.test(post.research[0]) && /grade A/.test(post.research[0]) && post.acts.join(',') === 'puzzles', post.blocks.join(' ') + ' | ' + post.research[0].slice(0, 80));
@@ -116,8 +125,8 @@ let b = null;
   await p.click('#plCtxChange'); await p.waitForTimeout(80);
   check('Change asks again', await p.evaluate(() => !!document.getElementById('plCtx') && document.querySelectorAll('#plToday .pl-block').length === 4));
   await p.click('#plCtx [data-ctx="morning"]'); await p.waitForTimeout(80);
-  const morn = await p.evaluate(() => ({ coach: window.__coach.ctxToday(), blocks: [...document.querySelectorAll('#plToday .pl-block')].map((e) => e.dataset.block) }));
-  check('an off-day morning lists the morning, off-day and any-day blocks', morn.coach === 'morning' && morn.blocks.join(',') === 'S0-B1,S0-B2,S0-B4', morn.blocks.join(','));
+  const morn = await p.evaluate(() => ({ coach: window.__coach.ctxToday(), blocks: [...document.querySelectorAll('#plToday .pl-block')].map((e) => e.dataset.block), slept: window.__coach.sleptToday(), on: document.querySelector('#plSlept .pill.on').dataset.slept }));
+  check('an off-day morning lists the morning, off-day and any-day blocks; changing the day keeps the sleep answer', morn.coach === 'morning' && morn.blocks.join(',') === 'S0-B1,S0-B2,S0-B4' && morn.slept === 7 && morn.on === '7', morn.blocks.join(',') + ' slept ' + morn.slept);
 
   // ---- self-attested toggle ----
   const before = await p.$eval('#plCrit .pl-crit[data-metric="safety_check_seconds"]', (e) => e.dataset.status + ':' + e.querySelector('[data-attest]').textContent);
@@ -155,19 +164,36 @@ let b = null;
   // ---- a real training game from the Long game block (engine needed) ticks the block through the 'game' event ----
   await p.evaluate(() => window.__plan.setCtx('morning'));
   await p.click('#plToday [data-act="game"]'); await p.waitForTimeout(200);
-  const g0 = await p.evaluate(() => ({ on: [...document.querySelectorAll('.screen.on')].map((e) => e.id).join(','), mode: window.__coach.game && window.__coach.game.mode, ctx: window.__coach.game && window.__coach.game.ctx, sheet: document.getElementById('ctxSheet').classList.contains('on') }));
-  check('Long game starts a training game with today\'s context, no day sheet', g0.on === 'chess' && g0.mode === 'train' && g0.ctx === 'morning' && !g0.sheet, JSON.stringify(g0));
+  const g0 = await p.evaluate(() => ({ on: [...document.querySelectorAll('.screen.on')].map((e) => e.id).join(','), mode: window.__coach.game && window.__coach.game.mode, ctx: window.__coach.game && window.__coach.game.ctx, sheet: document.getElementById('ctxSheet').classList.contains('on'), slept: window.__coach.game && window.__coach.game.slept, variant: window.__coach.game && window.__coach.game.variant }));
+  check('Long game starts a training game with today\'s context and hours slept, no day sheet', g0.on === 'chess' && g0.mode === 'train' && g0.ctx === 'morning' && !g0.sheet && g0.slept === 7 && g0.variant === null, JSON.stringify(g0));
   const playing = await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 60000 }).then(() => true).catch(() => false);
   check('engine ready for the training game', playing);
   if (playing) {
     await p.evaluate(() => window.__coach.move('e2e4'));
     await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game.moves.length >= 2, null, { timeout: 60000 }).catch(() => {});
     await p.evaluate(() => window.__coach.resign()); await p.waitForTimeout(200);
-    const g1 = await p.evaluate(() => ({ n: window.__coach.history.length, mode: window.__coach.history[0].mode, done: window.__plan.store.done, debt: window.__coach.pmDebt() }));
-    check('the recorded training game ticks the long-game block', g1.n === 11 && g1.mode === 'train' && Object.values(g1.done)[0]['S0-B1'] === 1 && g1.debt === 11, JSON.stringify(g1.done));
+    const g1 = await p.evaluate(() => ({ n: window.__coach.history.length, mode: window.__coach.history[0].mode, slept: window.__coach.history[0].slept, done: window.__plan.store.done, debt: window.__coach.pmDebt() }));
+    check('the recorded training game ticks the long-game block and carries the hours slept', g1.n === 11 && g1.mode === 'train' && g1.slept === 7 && Object.values(g1.done)[0]['S0-B1'] === 1 && g1.debt === 11, JSON.stringify(g1.done) + ' slept ' + g1.slept);
     await p.evaluate(() => window.__coach.close()); await p.waitForTimeout(100);
     await p.evaluate(() => window.__hub.train()); await p.waitForTimeout(100);
     check('the plan shows 1 of 2 long games and 11 games owing', (await p.$eval('#plToday .pl-block[data-block="S0-B1"] .pl-count', (e) => e.textContent)) === '1 of 2 this week' && /11 games owe/.test(await txt('#plDebt')));
+    // the monthly diagnostic in This week: Chess960 without castling, a Train game, done once this calendar month
+    const dg0 = await p.evaluate(() => { const d = document.getElementById('plDiag'); return { done: d.dataset.done, text: d.innerText.replace(/\s+/g, ' '), btn: !!document.getElementById('plDiagGo'), diag: window.__plan.store.diag, dd: window.__plan.diagDone() }; });
+    check('Monthly diagnostic line with Play it, not done yet', dg0.done === '0' && /^Monthly diagnostic Chess960, no castling: a test of whether your development principles survive a random start\. Play it$/i.test(dg0.text) && dg0.btn && Object.keys(dg0.diag).length === 0 && dg0.dd === null, dg0.text);
+    await p.click('#plDiagGo'); await p.waitForTimeout(200);
+    const dg1 = await p.evaluate(() => { const g = window.__coach.game, f = g.chess.fen().split(' '); return { on: [...document.querySelectorAll('.screen.on')].map((e) => e.id).join(','), mode: g.mode, variant: g.variant, ctx: g.ctx, slept: g.slept, castle: f[2], rank: f[0].split('/')[7], strip: document.getElementById('rateJab').textContent }; });
+    check('Play it starts a Chess960 training game with today\'s context, no castling', dg1.on === 'chess' && dg1.mode === 'train' && dg1.variant === '960' && dg1.ctx === 'morning' && dg1.slept === 7 && dg1.castle === '-' && /^[BKNQR]{8}$/.test(dg1.rank) && /^Chess960 diagnostic\. No castling/.test(dg1.strip), JSON.stringify(dg1));
+    await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 60000 });
+    await p.evaluate(() => window.__coach.move('e2e4'));
+    await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game.moves.length >= 2, null, { timeout: 60000 }).catch(() => {});
+    await p.evaluate(() => window.__coach.resign()); await p.waitForTimeout(200);
+    const dg2 = await p.evaluate((k) => ({ id: window.__coach.history[0].id, variant: window.__coach.history[0].variant, diag: window.__plan.store.diag, raw: JSON.parse(localStorage.getItem(k)).jesse.diag }), KEY);
+    check('the recorded 960 game marks the month done in ghostlap-train-v1', dg2.variant === '960' && Object.keys(dg2.diag).length === 1 && dg2.diag[Object.keys(dg2.diag)[0]] === dg2.id && JSON.stringify(dg2.raw) === JSON.stringify(dg2.diag) && /^\d{4}-\d\d$/.test(Object.keys(dg2.diag)[0]), JSON.stringify(dg2));
+    await p.evaluate(() => window.__coach.close()); await p.waitForTimeout(100);
+    await p.evaluate(() => window.__hub.train()); await p.waitForTimeout(100);
+    const dg3 = await p.evaluate(() => { const d = document.getElementById('plDiag'); return { done: d.dataset.done, text: d.innerText.replace(/\s+/g, ' '), btn: !!document.getElementById('plDiagGo'), dd: window.__plan.diagDone(), count: document.querySelector('#plToday .pl-block[data-block="S0-B1"] .pl-count').textContent }; });
+    check('Done this month, with the date; the diagnostic counts as a long game too', dg3.done === '1' && /Done this month, \w+ \d+\.$/.test(dg3.text) && !dg3.btn && dg3.dd && dg3.dd.date && dg3.count === '2 of 2 this week', dg3.text);
+    await p.screenshot({ path: SHOTS + '/p3b-diag-done.png' });
   } else { await p.evaluate(() => window.__coach.close()); await p.evaluate(() => window.__hub.train()); }
 
   // ---- resources and the folds ----

@@ -12,7 +12,7 @@
 
   // ---------- store: per player, apart from the chess history ----------
   // { stage, startISO, days: { 'YYYY-MM-DD': ctx }, done: { 'YYYY-MM-DD': { blockId: n } }, attest: { metricId: bool },
-  //   resources: { 'S0:0': bool }, advanced: [{ from, to, date, override }] }
+  //   resources: { 'S0:0': bool }, advanced: [{ from, to, date, override }], diag: { 'YYYY-MM': gameId } (the month's Chess960 diagnostic) }
   const KEY = 'ghostlap-train-v1';
   let store = {};
   try { const raw = JSON.parse(localStorage.getItem(KEY) || '{}'); if (raw && typeof raw === 'object') store = raw; } catch (e) { /* private mode: keep in memory */ }
@@ -23,7 +23,7 @@
     if (!s || typeof s !== 'object') s = store[w] = {};
     if (!C.stage(s.stage)) s.stage = 'S0';
     if (typeof s.startISO !== 'string') s.startISO = null;   // set the first time the screen opens: week 1 starts then
-    for (const k of ['days', 'done', 'attest', 'resources']) if (!s[k] || typeof s[k] !== 'object') s[k] = {};
+    for (const k of ['days', 'done', 'attest', 'resources', 'diag']) if (!s[k] || typeof s[k] !== 'object') s[k] = {};
     if (!Array.isArray(s.advanced)) s.advanced = [];
     return s;
   }
@@ -32,6 +32,7 @@
   const pad = (n) => String(n).padStart(2, '0');
   const ymd = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   const today = () => ymd(new Date());
+  const thisMonth = () => today().slice(0, 7);
   const fromYmd = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(s); };
   const fmtDay = (s) => { try { return fromYmd(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch (e) { return s; } };
   const weekIdx = () => { const s = mine(); return s.startISO ? C.weekIndex(s.startISO) : 0; };
@@ -92,6 +93,23 @@
       const el = $('plRes'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }
+  // the monthly diagnostic (standing order SO9): one Chess960 training game a month, no castling, a test of the development principles
+  function playDiag() {
+    const o = { mode: 'train', variant: '960' }, c = ctxNow(); if (c) o.ctx = c;
+    hide(); return coach().newGame(o);
+  }
+  function diagDone() {   // this month's game, with its date when the coach still has it (the history keeps 20 games, the ledger every analysed one)
+    const id = mine().diag[thisMonth()]; if (!id) return null;
+    const c = coach(), e = (c && c.history || []).find((g) => g.id === id) || (c && c.ledger || []).find((r) => r.id === id);
+    return { id, date: e ? e.date : null };
+  }
+  // hours slept, kept by the coach on the day record with the kind of day, so every game that day carries it
+  const SLEPT = [[5, 'under 6'], [6, '6'], [7, '7'], [8, '8+']];
+  function setSlept(h) {
+    const c = coach(), ctx = ctxNow(); if (!(c && c.setCtx && ctx)) return null;
+    c.setCtx(ctx, h); if (on()) render();
+    return h;
+  }
   // the post-mortem debt: the oldest recorded game without one, opened in the coach's sheet, then back here
   function oldestDebt() { const h = (coach() && coach().history) || []; for (let i = h.length - 1; i >= 0; i--) if (h[i] && !h[i].practice && !h[i].pm) return h[i]; return null; }
   function payDebt() {
@@ -141,6 +159,7 @@
   .pl-pills { display: flex; flex-wrap: wrap; gap: 8px; }
   .pl-ctx { font-weight: 700; font-size: 15px; }
   .pl-ctx + .pill { padding: 7px 12px; }
+  .pl-slept { justify-content: flex-end; } .pl-slept .pill { padding: 7px 11px; }
   .pl-debt { display: flex; align-items: center; gap: 10px; background: var(--panel2); border-left: 4px solid var(--amber); border-radius: 10px; padding: 9px 11px; font-size: 14px; line-height: 1.35; }
   .pl-debt .btn { height: 38px; font-size: 14px; padding: 0 14px; flex: none; margin-left: auto; }
   .pl-block, .pl-crit, .pl-rrow, .pl-fold, .pl-adv { border-top: 1px solid var(--line); padding-top: 10px; }
@@ -268,6 +287,10 @@
       const row = h('div', 'srow'), ch = h('button', 'pill', 'Change'); ch.id = 'plCtxChange'; ch.onclick = () => { reask = true; render(); };
       add(card, add(row, h('span', 'k', 'Kind of day'), add(h('span', 'pl-pills'), h('span', 'pl-ctx', CTX[ctx]), ch)));
       if (ctx === 'post') card.appendChild(h('p', 'chint', 'After a shift the plan says easy repetition only. A long game now is allowed, but it is not training.'));
+      // optional: hours slept, nothing picked by default. The coach stores it with the day and stamps it on every game, so the metrics can bucket by sleep.
+      const slept = coach() && coach().sleptToday ? coach().sleptToday() : null, sl = h('div', 'pl-pills pl-slept'); sl.id = 'plSlept';
+      for (const [v, label] of SLEPT) { const b = h('button', 'pill' + (slept === v ? ' on' : ''), label); b.dataset.slept = v; b.onclick = () => setSlept(v); sl.appendChild(b); }
+      card.appendChild(add(h('div', 'srow'), h('span', 'k', 'Slept'), sl));
     }
     const debt = coach() && coach().pmDebt ? coach().pmDebt() : 0;
     if (debt > 0) {
@@ -298,6 +321,11 @@
       card.appendChild(pe);
     }
     if (legend) card.appendChild(legendBox());
+    const dg = h('div', 'pl-pearl'), dd = diagDone(); dg.id = 'plDiag'; dg.dataset.done = dd ? '1' : '0';
+    add(dg, h('span', 'k', 'Monthly diagnostic'), h('div', 'pl-txt', 'Chess960, no castling: a test of whether your development principles survive a random start.'));
+    if (dd) dg.appendChild(h('div', 'pl-dim', 'Done this month' + (dd.date ? ', ' + fmtDay(dd.date.slice(0, 10)) : '') + '.'));
+    else if (canAct('game')) { const b = h('button', 'btn', 'Play it'); b.id = 'plDiagGo'; b.onclick = playDiag; dg.appendChild(add(h('div', 'pl-act'), b)); }
+    card.appendChild(dg);
     const so = h('div', 'pl-list');
     for (const o of C.standingOrders) so.appendChild(add(h('div', 'pl-li'), badge(o.grade), h('span', null, o.text + (o.contested ? ' Contested.' : '') + (o.note ? ' ' + o.note + '.' : ''))));
     card.appendChild(details('so', 'Standing orders, every stage', so));
@@ -365,6 +393,8 @@
     }
     card.appendChild(grid);
     card.appendChild(h('p', 'chint', 'By kind of day, median first blunder: ' + C.format('study_slot_context', F.study_slot_context || {}) + '.'));
+    const bs = F.by_slept || {};
+    if (Object.keys(bs).some((k) => k !== 'none' && bs[k].games)) { const p = h('p', 'chint', 'By hours slept, median first blunder: ' + C.format('by_slept', bs) + '.'); p.id = 'plBySlept'; card.appendChild(p); }
     const cl = h('p', 'chint'); cl.id = 'plClean';
     cl.textContent = 'Game numbers come from your last ' + F.window + ' clean games (no hints, nudges or take-backs, not Tutor): ' + F.games + ' so far. The post-mortem count takes every game: ' + F.all + '.';
     card.appendChild(cl);
@@ -420,6 +450,7 @@
     c0.on('game', (e) => {
       const s = mine();
       if (e && CTX[e.ctx] && !CTX[s.days[today()]]) { s.days[today()] = e.ctx; persist(); }
+      if (e && e.variant === '960' && e.id) { s.diag[thisMonth()] = e.id; persist(); }   // the month's diagnostic is done (the local calendar month, like the days)
       const b = e && e.mode === 'train' ? blockOfKind('game') : null;
       if (b) tick(b.id); else if (on()) render();
     });
@@ -432,7 +463,7 @@
   applyLevel();
 
   window.__plan = {
-    open, close, show, render, tick, attest, advance, setCtx, payDebt, facts, evaluate,
+    open, close, show, render, tick, attest, advance, setCtx, setSlept, payDebt, playDiag, diagDone, facts, evaluate,
     stage: () => mine().stage,
     ctxToday: () => ctxNow() || null,
     get week() { return weekIdx(); },

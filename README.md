@@ -104,6 +104,14 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   nudges, ratings or opening names, just Resign. The drill ends at mate, stalemate, draw by rule or resignation, says how
   long it took against the target, and offers *Again* (same position) or *Back*. Drills are never recorded: no history,
   patterns, accuracy, budget or ledger.
+- **Long think, live:** in a training game, three minutes into one move the strip says so, once per move: *Three minutes
+  on this move. A long think means you do not recognise the position: take the safest move you can see and bank the
+  clock.* Nothing is enforced and it never appears in Play or Tutor; the next move brings the training line back.
+- **Share:** the review's *Share* pill hands the game out as PGN: the usual tags plus *Site "Ghostlap Roma"*, you and
+  *Engine 1200* by colour, the moves in SAN with your post-mortem as a comment on the move you named (threat, whether you
+  ran the check, tag, your note) and the engine's verdict at the end (accuracy, counts, its first two-pawn swing); a
+  Chess960 game carries its start position. On iPhone it opens the share sheet; otherwise it copies to the clipboard
+  (*Copied*) or shows the text to select. This is how a game reaches a stronger player for the monthly review.
 - **Openings:** the opening's ECO code and name show as you play and in the review, from the lichess openings table.
 - **Hint:** the coach will show you the best move if you ask, but the game is marked *assisted* in your history and the
   coach is not gracious about it.
@@ -164,6 +172,15 @@ strength is never called your rating.
   count towards the game numbers (no hints, nudges or take-backs, not Tutor) and the card says how many that is; the
   post-mortem figure counts every game. The research's realistic outcome is printed under the table, and progress is
   judged by these numbers, never by a number next to your name.
+- **Monthly diagnostic:** This week carries the standing order's Chess960 game. *Play it* starts a training game from a
+  random back rank (bishops on opposite colours, king between the rooks, Black mirrored) with castling switched off, so it
+  tests whether your development habits survive a strange start. The game is recorded like any training game, marked
+  *960* in the history, has no opening name, and is kept out of the castled-by-move-10 figure (it counts for everything
+  else); the line reads *Done this month* with the date once one is played, per calendar month.
+- **Hours slept:** once the kind of day is answered the day card offers *Slept*: under 6, 6, 7 or 8+, optional and unset
+  by default. The answer is stored with the day, stamped on every game that day and its ledger row, and the Metrics card
+  adds a by-sleep line (median first blunder and hung pieces for under 6, 6 to 7, 8 or more) as soon as a game has one:
+  the curriculum's "study slot context" without a form to fill.
 - **Resources** is the stage's reading and watching list with a tick per item and a link out when the phone is online,
   and the pitfalls ("the differential of common failures") folded beneath.
 

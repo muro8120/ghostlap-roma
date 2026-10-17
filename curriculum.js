@@ -401,18 +401,25 @@
     const thinks = win.filter((r) => num(r.longestMs)).map((r) => r.longestMs);
     const withPm = all.filter((r) => r.pm != null);
     const accs = win.filter((r) => num(r.acc)).map((r) => r.acc);
-    const by_ctx = {};
+    const by_ctx = {}, by_slept = {};
     for (const k of ['morning', 'shift', 'post', 'none']) {
       const rs = win.filter((r) => (r.ctx || 'none') === k);
       by_ctx[k] = { games: rs.length, first_blunder_move_median: fbOf(rs), hung_pieces_per_game: hungOf(rs) };
     }
+    // hours slept, from the Train screen's day card (the curriculum's "study slot context"): under 6, 6 or 7, 8 or more, not given
+    for (const k of ['under6', '6to7', '8plus', 'none']) {
+      const rs = win.filter((r) => sleptBucket(r.slept) === k);
+      by_slept[k] = { games: rs.length, first_blunder_move_median: fbOf(rs), hung_pieces_per_game: hungOf(rs) };
+    }
+    const std = win.filter((r) => r.variant !== '960');   // a Chess960 diagnostic has no castling, so it says nothing about castling by move 10
     return {
       window: N, clean: cleanOnly,
       games: win.length,              // rows the game metrics were computed over
       all: all.length,                // rows the review metrics were computed over
       first_blunder_move_median: fbOf(win),
       hung_pieces_per_game: hungOf(win),
-      castled_by_move_10_pct: pct(win.filter((r) => num(r.castled) && r.castled <= 10).length, win.length),
+      castled_by_move_10_pct: pct(std.filter((r) => num(r.castled) && r.castled <= 10).length, std.length),
+      castled_games: std.length,      // rows behind the castling figure: the window without its Chess960 games
       longest_think_flags: thinks.filter((ms) => ms > LONG_THINK_MS).length,
       longest_think_seconds: thinks.length ? Math.round(Math.max.apply(null, thinks) / 1000) : null,
       review_completed_pct: pct(withPm.length, all.length),
@@ -423,8 +430,10 @@
       acc_mean: mean(accs.slice(0, 3)),
       acc_trend: accs.length > 3 ? mean(accs.slice(0, 3)) - mean(accs.slice(3, 6)) : null,
       by_ctx,
+      by_slept,
     };
   }
+  const sleptBucket = (h) => (!num(h) ? 'none' : h < 6 ? 'under6' : h < 8 ? '6to7' : '8plus');
 
   // ---------- facts: one flat object keyed by curriculum metric id --------------
   // where each metric comes from. 'self' = the learner says so with a toggle on the Train screen.
@@ -475,6 +484,7 @@
 
   // ---------- evaluate a stage's exit criteria ------------------------------------
   const CTX = { morning: 'Off-day morning', shift: 'Shift day', post: 'After a shift', none: 'No day given' };
+  const SLEPT = { under6: 'Under 6 h', '6to7': '6 to 7 h', '8plus': '8 h or more', none: 'Sleep not given' };
   const TAGS = { hung_piece: 'Hung piece', missed_threat: 'Missed threat', bad_trade: 'Bad trade', wrong_plan: 'Wrong plan',
     clock: 'Clock', endgame_technique: 'Endgame technique' };
   // how each metric reads in a sentence, and its unit: num, pct, s (seconds), tag, ctx
@@ -487,6 +497,7 @@
     longest_think_seconds: ['Longest think on one move', 's'],
     error_tag: ['Your most frequent error tag', 'tag'],
     study_slot_context: ['Median first blunder by kind of day', 'ctx'],
+    by_slept: ['Median first blunder by hours slept', 'sleep'],
     slow_puzzle_accuracy_pct: ['Slow puzzle accuracy', 'pct'],
     slow_puzzle_accuracy_pct_easy: ['Slow puzzle accuracy, easy puzzles', 'pct'],
     mate_KQ_seconds: ['Best K+Q mate', 's'],
@@ -510,8 +521,9 @@
     const unit = (NAMES[metric] || [])[1] || 'num';
     if (typeof v === 'boolean') return v ? 'yes' : 'no';
     if (unit === 'tag') return TAGS[v] || String(v);
-    if (unit === 'ctx') {
-      return Object.keys(CTX).filter((k) => v[k] && v[k].games).map((k) => CTX[k] + ' ' + format('first_blunder_move_median',
+    if (unit === 'ctx' || unit === 'sleep') {
+      const L = unit === 'ctx' ? CTX : SLEPT;
+      return Object.keys(L).filter((k) => v[k] && v[k].games).map((k) => L[k] + ' ' + format('first_blunder_move_median',
         v[k].first_blunder_move_median) + ' (' + v[k].games + (v[k].games === 1 ? ' game)' : ' games)')).join(', ') || 'no games yet';
     }
     if (!num(v)) return String(v);
@@ -559,7 +571,7 @@
     let actual = F[c.metric], win = null, n = null;
     if (src === 'ledger' && F.windows) {
       win = F.windows[w || F.window] || null;
-      if (win) { actual = win[LEDGER[c.metric]]; n = REVIEW[c.metric] ? win.all : win.games; }
+      if (win) { actual = win[LEDGER[c.metric]]; n = REVIEW[c.metric] ? win.all : c.metric === 'castled_by_move_10_pct' && num(win.castled_games) ? win.castled_games : win.games; }   // castling: the Chess960 games do not count
     }
     if (actual === undefined) actual = null;
     // too few games for the window is not a verdict yet: three lucky games must not pass a ten-game criterion

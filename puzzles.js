@@ -59,6 +59,7 @@
     let added = 0;
     for (const e of hist) {
       if (!e || !e.report || !Array.isArray(e.report.moves) || !Array.isArray(e.moves) || !e.id) continue;
+      if (e.variant === '960') continue;   // a Chess960 game does not replay from the standard start: no cards from it
       for (const r of e.report.moves) {
         if (!r || r.color !== e.you || !(r.loss >= 150) || !r.best || r.best === r.uci) continue;
         const key = e.id + ':' + r.ply; if (st.own[key]) continue;

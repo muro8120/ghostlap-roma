@@ -404,6 +404,8 @@
   .moves .m.lt::after { content: '\25D4'; margin-left: 2px; font-size: 11px; color: var(--amber); }
   .think { margin-top: 6px; color: var(--amber); font-size: 13px; line-height: 1.35; }
   .rcard.k-call { --kc: var(--silver); }
+  .cbar .share { margin-left: auto; padding: 7px 12px; color: var(--amber); border-color: rgba(242,178,76,.5); font-weight: 700; flex: none; }
+  #pgnText { display: block; width: 100%; height: 42vh; margin-top: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 10px 12px; font: 12px/1.4 ui-monospace, Menlo, monospace; resize: none; -webkit-user-select: text; user-select: text; text-align: left; }
 </style>
 </head>
 <body>
@@ -643,7 +645,7 @@
 
 <section id="review" class="screen">
   <div class="wrap">
-    <div class="cbar"><button class="back" id="reviewBack" aria-label="Back">&#8249;</button><h1>REVIEW</h1></div>
+    <div class="cbar"><button class="back" id="reviewBack" aria-label="Back">&#8249;</button><h1>REVIEW</h1><button class="pill share" id="rShare">Share</button></div>
     <p class="rprog" id="rProgress">Analysing&hellip;</p>
     <div id="rBody" hidden>
       <div id="rCards"></div>
@@ -680,6 +682,14 @@
         <button class="btn" id="endHome">Home</button>
       </div>
     </div>
+  </div>
+</div>
+<div class="sheet" id="pgnSheet">
+  <div class="panel">
+    <h3>PGN</h3>
+    <div class="msg">Sharing is not available here. Select the text and copy it.</div>
+    <textarea id="pgnText" readonly spellcheck="false"></textarea>
+    <div class="btns"><button class="btn primary" id="pgnClose">Done</button></div>
   </div>
 </div>
 <div class="sheet" id="calibDone">

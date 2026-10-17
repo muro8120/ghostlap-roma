@@ -142,6 +142,39 @@ group('percentages and counts', () => {
   eq(ctx.post, { games: 2, first_blunder_move_median: 12, hung_pieces_per_game: 0 });
   eq(ctx.morning.games, 1); eq(ctx.none.first_blunder_move_median, 20); eq(ctx.shift.games, 0);
 });
+group('Chess960 and sleep', () => {
+  // two Chess960 diagnostics (no castling by design) among ten clean games: out of the castling figure and its game count, in everything else
+  const r = rows(10, (i) => ({ variant: i < 2 ? '960' : null, castled: i < 2 ? null : i < 6 ? 8 : 12, hung: 1 }));
+  const m = C.metrics(r);
+  eq([m.games, m.castled_games, m.castled_by_move_10_pct, m.hung_pieces_per_game], [10, 8, 50, 1]);
+  const ev = C.evaluate('S0', C.facts(r, {})), ca = crit(ev, 'castled_by_move_10_pct');
+  eq([ca.games, ca.status, ca.actual], [8, 'unknown', 50]);           // eight standard games are not ten: no verdict yet
+  eq(ca.label, 'Castled by move 10: 50% (target 90% or more, 8 of 10 clean games so far)');
+  eq([crit(ev, 'hung_pieces_per_game').games, crit(ev, 'hung_pieces_per_game').status], [10, 'met']);
+  const ten = C.evaluate('S0', C.facts(rows(12, (i) => ({ variant: i % 6 === 0 ? '960' : null, castled: i % 6 === 0 ? null : 9 })), {}));
+  eq([crit(ten, 'castled_by_move_10_pct').games, crit(ten, 'castled_by_move_10_pct').status, crit(ten, 'castled_by_move_10_pct').actual], [8, 'unknown', 100]);
+  const twenty = C.metrics(rows(12, (i) => ({ variant: i % 6 === 0 ? '960' : null, castled: i % 6 === 0 ? null : 9 })), { window: 12 });
+  eq([twenty.castled_games, twenty.castled_by_move_10_pct], [10, 100]);
+  eq(C.metrics(rows(3, { variant: '960' })).castled_by_move_10_pct, null);
+  eq(C.metrics(rows(3, { variant: '960' })).castled_games, 0);
+  eq(C.metrics(rows(2, { castled: 5 })).castled_games, 2);
+  eq(C.metrics(rows(2, { variant: 'nonsense', castled: 5 })).castled_by_move_10_pct, 100);   // only '960' is excluded
+  // hours slept: under 6, 6 or 7, 8 or more, not given. Only numbers count.
+  const s = C.metrics(rows(6, (i) => ({ slept: [5, 6, 7, 8, null, 5.5][i], firstBlunder: [10, 20, 30, 40, 50, 12][i], hung: [2, 1, 1, 0, 0, 2][i] }))).by_slept;
+  eq(Object.keys(s), ['under6', '6to7', '8plus', 'none']);
+  eq(s.under6, { games: 2, first_blunder_move_median: 11, hung_pieces_per_game: 2 });
+  eq(s['6to7'], { games: 2, first_blunder_move_median: 25, hung_pieces_per_game: 1 });
+  eq(s['8plus'], { games: 1, first_blunder_move_median: 40, hung_pieces_per_game: 0 });
+  eq(s.none, { games: 1, first_blunder_move_median: 50, hung_pieces_per_game: 0 });
+  eq(C.metrics([]).by_slept.none, { games: 0, first_blunder_move_median: null, hung_pieces_per_game: null });
+  eq(C.metrics(rows(1, { slept: 'eight' })).by_slept.none.games, 1);
+  eq(C.metrics(rows(1, {})).by_slept.none.games, 1);                   // a row from before the question
+  eq(C.metrics(rows(2, { slept: 9 })).by_slept['8plus'].games, 2);
+  eq(C.metrics(rows(2, { slept: 8, clean: false })).by_slept['8plus'].games, 0);   // clean games only, like by_ctx
+  eq(C.facts(rows(2, { slept: 8 })).by_slept, C.metrics(rows(2, { slept: 8 })).by_slept);
+  eq(C.format('by_slept', s), 'Under 6 h 11 (2 games), 6 to 7 h 25 (2 games), 8 h or more 40 (1 game), Sleep not given 50 (1 game)');
+  eq(C.format('by_slept', C.metrics([]).by_slept), 'no games yet');
+});
 group('windows', () => {
   // 15 clean games, newest first: the newest 10 have no blunder, the oldest 5 blunder at move 5
   const r = rows(15, (i) => ({ firstBlunder: i < 10 ? null : 5, pm: i < 6 ? pm(true) : null }));

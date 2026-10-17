@@ -68,6 +68,11 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 }).then(() => check('game starts (engine ready)', true)).catch(() => check('game starts (engine ready)', false));
   await p.waitForTimeout(300);
   await p.screenshot({ path: SHOTS + '/c2-game.png' });
+  // the long-think line is Train's only: three minutes into a move in a Play game the strip stays as it was
+  const strip0 = await p.$eval('#rateJab', (e) => e.textContent);
+  await p.evaluate(() => { window.__coach.game.t0 -= 181000; }); await p.waitForTimeout(1300);
+  check('no long-think line in a Play game', (await p.$eval('#rateJab', (e) => e.textContent)) === strip0 && !/Three minutes/.test(strip0), strip0);
+  await p.evaluate(() => { window.__coach.game.t0 += 181000; });
   // tap e2 then e4 on the real board
   const tap = async (sq) => { const el = await p.$('#board [data-sq="' + sq + '"]'); check('square ' + sq + ' exists', !!el); if (el) await el.tap(); await p.waitForTimeout(150); };
   await tap('e2'); await p.screenshot({ path: SHOTS + '/c3-selected.png' }); await tap('e4');
@@ -121,6 +126,12 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.waitForTimeout(400);
   check('analysis completes', reviewed);
   await p.screenshot({ path: SHOTS + '/c7-review.png', fullPage: false });
+  // share: the Share pill in the review header builds the PGN; no share sheet in headless Chromium, so the clipboard or the textarea sheet
+  check('Share pill in the review header', await p.$eval('#rShare', (e) => e.getClientRects().length > 0 && e.textContent === 'Share' && e.closest('.cbar') !== null));
+  const sh = await p.evaluate(async () => { const r = await window.__coach.share(); return { r, pill: document.getElementById('rShare').textContent, sheet: document.getElementById('pgnSheet').classList.contains('on'), text: document.getElementById('pgnText').value.slice(0, 60), pgn: window.__coach.pgnOf(window.__coach.history[0]) }; });
+  check('Share copies the PGN or shows it in a sheet to copy; the PGN carries the post-mortem', ((sh.r === 'copied' && sh.pill === 'Copied') || (sh.r === 'sheet' && sh.sheet && /^\[Event "Ghostlap game"\]/.test(sh.text))) && /\[Event "Ghostlap game"\]/.test(sh.pgn) && /2\. Qh5 \{ Post-mortem: first material loss here\. Threat: nothing I saw\. Ran the check: not sure\. Tag: hung piece\. Queen out too early\. \}/.test(sh.pgn) && /\{ Engine: accuracy [\d.]+% \(engine [\d.]+%\)\. \d+ blunders?, \d+ mistakes?, \d+ inaccurac(y|ies)\. (First two-pawn swing: \d+\.(\.\.)? \S+( \(best \S+\))?|No two-pawn swing)\. \} 0-1\n$/.test(sh.pgn), JSON.stringify(sh).slice(0, 500));
+  if (sh.sheet) { await p.click('#pgnClose'); await p.waitForTimeout(80); }
+  if (sh.r === 'copied') { await p.waitForTimeout(2100); check('Copied reverts to Share after two seconds', (await p.$eval('#rShare', (e) => e.textContent)) === 'Share'); }
   await p.click('#rNext'); await p.click('#rNext'); await p.waitForTimeout(200);
   await p.click('#rWhyBtn'); await p.waitForTimeout(100);
   check('αβ in the review', (await p.$$eval('#rWhy div', (e) => e.length)) >= 2, await p.$eval('#rWhy', (e) => e.innerText.slice(0, 160)));
@@ -139,6 +150,13 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   const cs = await p.evaluate((e) => window.__coach.cards(e, []), SYN('syn0', 0));
   check('cards() on a synthetic entry: three cards, hanging pieces', cs.length === 3 && cs[0].kind === 'good' && cs[1].pattern === 'hung' && cs[1].ply === 5 && /knight/.test(cs[1].text)
     && /what of mine is undefended/.test(cs[2].text) && cs.every((c) => c.text.length > 10), JSON.stringify(cs.map((c) => [c.kind, c.head, c.text, c.ply])).slice(0, 400));
+  // pgnOf() is pure: the synthetic training game with a post-mortem on 3. Nxe5 (ply 5)
+  const pg = await p.evaluate((e) => window.__coach.pgnOf(e), Object.assign(SYN('syn0', 0), { mode: 'train', pm: { ply: 5, threat: 'undefended', checked: 'no', tag: 'hung_piece', note: 'Saw it too late.', at: new Date().toISOString() } }));
+  const pgHead = pg.split('\n\n')[0].split('\n');
+  check('pgnOf: the seven-tag roster plus Site, Ghostlap names, the player by colour, the result', pgHead[0] === '[Event "Ghostlap training game"]' && pgHead[1] === '[Site "Ghostlap Roma"]' && /^\[Date "\d{4}\.\d\d\.\d\d"\]$/.test(pgHead[2]) && pgHead[3] === '[Round "-"]' && pgHead[4] === '[White "Jesse"]' && pgHead[5] === '[Black "Engine 1200"]' && pgHead[6] === '[Result "0-1"]' && pgHead.length === 7, pgHead.join(' '));
+  check('pgnOf: 3. Nxe5 carries the post-mortem comment, the final comment has the engine\'s verdict and first two-pawn swing', /1\. e4 e5 2\. Nf3 Nc6\n3\. Nxe5 \{ Post-mortem: first material loss here\. Threat: undefended piece\. Ran the check: no\. Tag: hung piece\. Saw it too late\. \}\nNxe5 4\. d4 Nc6\n\{ Engine: accuracy 61% \(engine 97%\)\. 1 blunder, 0 mistakes, 0 inaccuracies\. First two-pawn swing: 3\. Nxe5 \(best Bc4\)\. \} 0-1\n$/.test(pg) && pg.split('\n').every((l) => l.length <= 80 || /\{/.test(l)), JSON.stringify(pg.split('\n\n')[1]).slice(0, 400));
+  const pgN = await p.evaluate((e) => window.__coach.pgnOf(e), Object.assign(SYN('syn0', 0), { you: 'b', result: 'win', report: null, pm: { ply: 0, threat: 'none', checked: 'yes', tag: 'none', note: '' } }));
+  check('pgnOf: "nowhere" and no report, Black wins', /\[White "Engine 1200"\]\n\[Black "Jesse"\]\n\[Result "0-1"\]/.test(pgN) && /\{ Post-mortem: no material loss named\. Not analysed yet\. \} 0-1\n$/.test(pgN), pgN.slice(-120));
   await p.screenshot({ path: SHOTS + '/c8-review-step.png' });
   const h = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse);
   check('hint counted in history', !!(h && h.games[0] && h.games[0].hints === 1), h && h.games[0] && 'hints=' + h.games[0].hints);
@@ -260,10 +278,15 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
   const t0 = await p.evaluate(() => ({ asked: document.getElementById('ctxSheet').classList.contains('on'), mode: window.__coach.game.mode, train: window.__coach.game.train, strip: document.getElementById('rateJab').textContent, ecol: document.querySelector('#chessGame .ecol').getClientRects().length > 0, hint: document.getElementById('hintBtn').getClientRects().length > 0, nudge: document.getElementById('nudgeBtn').getClientRects().length > 0, resign: document.getElementById('resignBtn').getClientRects().length > 0, assist: document.getElementById('assistLine').getClientRects().length > 0, tutor: document.getElementById('tutor').getClientRects().length > 0, opp: document.getElementById('oppName').textContent }));
   check('Train game: no eval bar, hint, nudge, budget or Think ahead; Resign stays; the engine at the saved strength', !t0.asked && t0.mode === 'train' && t0.train && !t0.ecol && !t0.hint && !t0.nudge && t0.resign && !t0.assist && !t0.tutor && /^Training game\. No engine during play\. Afterwards: your post-mortem first, then the review\./.test(t0.strip) && t0.opp === 'Engine · 1200', JSON.stringify(t0).slice(0, 300));
+  // the live long-think line: three minutes into the move, once, then the hint comes back with the next move
+  await p.evaluate(() => { window.__coach.game.t0 -= 181000; }); await p.waitForTimeout(1300);
+  const nudge = await p.evaluate(() => ({ strip: document.getElementById('rateJab').textContent, said: window.__coach.game.longSaid, shown: document.getElementById('rate').getClientRects().length > 0 }));
+  check('Train: three minutes on a move puts the long-think line on the strip', nudge.strip === 'Three minutes on this move. A long think means you do not recognise the position: take the safest move you can see and bank the clock.' && nudge.said && nudge.shown, nudge.strip);
+  await p.evaluate(() => { window.__coach.game.t0 += 181000; });
   await p.evaluate(() => window.__coach.move('e2e4'));
   await p.waitForFunction(() => window.__coach.game.moves.length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 });
   const t1 = await p.evaluate(() => ({ strip: document.getElementById('rateJab').textContent, why: document.getElementById('whyBtn').getClientRects().length > 0, labelled: document.querySelectorAll('#moveList .m[class*="l-"]').length, plain: document.querySelectorAll('#moveList .m').length, rated: !!(window.__coach.lastRating && window.__coach.lastRating.label), bar: document.querySelector('#evalBar b').style.height, ms: window.__coach.game.moves[0].ms, ems: window.__coach.game.moves[1].ms }));
-  check('Train rates silently: strip unchanged, plain move list, no αβ, eval bar untouched, think time kept', /^Training game/.test(t1.strip) && t1.labelled === 0 && t1.plain === 2 && t1.rated && !t1.why && /^50(\.0)?%$/.test(t1.bar) && typeof t1.ms === 'number' && t1.ms >= 0 && t1.ems === undefined, JSON.stringify(t1).slice(0, 240));
+  check('Train rates silently: strip back to the hint after the long-think line, plain move list, no αβ, eval bar untouched, think time kept', /^Training game/.test(t1.strip) && t1.labelled === 0 && t1.plain === 2 && t1.rated && !t1.why && /^50(\.0)?%$/.test(t1.bar) && typeof t1.ms === 'number' && t1.ms >= 0 && t1.ems === undefined, JSON.stringify(t1).slice(0, 240));
   check('Train refuses hint, nudge and read', await p.evaluate(async () => [await window.__coach.hint(), await window.__coach.sandbox('d2d4'), await window.__coach.readBoard()].every((x) => x === null)));
   await p.screenshot({ path: SHOTS + '/c11b-train.png' });
   for (const m of ['d1h5', 'h5f7']) { const ok = await p.evaluate((u) => window.__coach.move(u), m); if (!ok) break; await p.waitForFunction(() => window.__coach.state !== 'thinking', null, { timeout: 30000 }).catch(() => {}); await p.waitForTimeout(100); }
@@ -280,6 +303,34 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.screenshot({ path: SHOTS + '/c11c-train-review.png' });
   await p.click('#reviewBack'); await p.waitForTimeout(200);
   check('history marks the training game and the owed post-mortems', /train/.test(await p.$eval('#chessHist small', (e) => e.textContent)) && (await p.$$eval('#chessHist small', (e) => e.filter((s) => /post-mortem due/.test(s.textContent)).length)) === 2);
+  // Chess960 diagnostic: a random back rank (bishops on opposite colours, king between the rooks, Black mirrored), no castling, recorded with variant '960'
+  const okRank = (r) => { const b = [r.indexOf('B'), r.lastIndexOf('B')], k = r.indexOf('K'), rr = [r.indexOf('R'), r.lastIndexOf('R')]; return r.length === 8 && [...r].sort().join('') === 'BBKNNQRR' && b[0] % 2 !== b[1] % 2 && rr[0] < k && k < rr[1]; };
+  const f960 = await p.evaluate(() => [window.__coach.fen960(518), window.__coach.fen960(0), window.__coach.fen960(959), new Set(Array.from({ length: 960 }, (_, i) => window.__coach.fen960(i))).size]);
+  check('fen960: Scharnagl numbering, 518 is the standard rank, all 960 distinct, castling off', f960[0] === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1' && /^bbqnnrkr\//.test(f960[1]) && /^rkrnnqbb\//.test(f960[2]) && f960[3] === 960, JSON.stringify(f960));
+  let v0 = null;
+  for (let i = 0; i < 3; i++) {   // a random rank is the standard one once in 960: draw again so the non-standard check holds
+    await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1200, variant: '960' }));
+    await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game.variant === '960', null, { timeout: 30000 });
+    v0 = await p.evaluate(() => { const g = window.__coach.game, f = g.chess.fen().split(' '), rows = f[0].split('/'); return { variant: g.variant, fen: g.fen, start: f.join(' ') === g.fen, castle: f[2], r1: rows[7], r8: rows[0], pawns: rows[1] === 'pppppppp' && rows[6] === 'PPPPPPPP', strip: document.getElementById('rateJab').textContent, opening: document.getElementById('opening').getClientRects().length > 0, mode: g.mode, train: g.train, ecol: document.querySelector('#chessGame .ecol').getClientRects().length > 0, hint: document.getElementById('hintBtn').getClientRects().length > 0, asked: document.getElementById('ctxSheet').classList.contains('on') }; });
+    if (v0.r1 !== 'RNBQKBNR') break;
+  }
+  check('Chess960 game: a legal non-standard back rank, mirrored, pawns normal, castling "-", a Train game with the 960 strip and no opening name', v0.variant === '960' && v0.start && v0.castle === '-' && okRank(v0.r1) && v0.r1 !== 'RNBQKBNR' && v0.r8 === v0.r1.toLowerCase() && v0.pawns && v0.mode === 'train' && v0.train && !v0.ecol && !v0.hint && !v0.asked && !v0.opening
+    && /^Chess960 diagnostic\. No castling in this variant here\. Develop every piece, connect the rooks, keep the king safe\./.test(v0.strip), JSON.stringify(v0).slice(0, 400));
+  await p.screenshot({ path: SHOTS + '/c11b2-960.png' });
+  await p.evaluate(() => window.__coach.move('e2e4'));
+  await p.waitForFunction(() => window.__coach.game.moves.length >= 2 && window.__coach.state === 'playing', null, { timeout: 30000 });
+  check('the engine plays the random position', await p.evaluate(() => { const g = window.__coach.game; return g.moves.length === 2 && g.chess.turn() === 'w' && !document.getElementById('opening').getClientRects().length; }));
+  await p.evaluate(() => window.__coach.resign()); await p.waitForSelector('#chessEnd.on', { timeout: 5000 });
+  const ve = await p.evaluate(() => { const e = window.__coach.history[0]; return { variant: e.variant, fen: e.fen, mode: e.mode, clean: e.clean, slept: e.slept, n: e.moves.length, hist: document.querySelector('#chessHist small').textContent, prev: window.__coach.history[1].variant }; });
+  check('the 960 entry: variant 960 with its start fen, slept null; the history line says 960; the training game before it has variant null', ve.variant === '960' && ve.fen === v0.fen && ve.mode === 'train' && ve.clean === true && ve.slept === null && ve.n === 2 && / · train · 960 · post-mortem due/.test(ve.hist) && ve.prev === null, JSON.stringify(ve).slice(0, 300));
+  await p.click('#endAnalyze'); await doPm(p, 0, 'none', 'yes', 'none');
+  const vrev = await p.waitForFunction(() => window.__coach.state === 'review' && !document.getElementById('rBody').hidden, null, { timeout: 120000 }).then(() => true).catch(() => false);
+  await p.waitForTimeout(300);
+  const vl = await p.evaluate(() => { const e = window.__coach.history[0], r = window.__coach.ledger[0]; return { row: r, n: window.__coach.ledger.length, rep: !!(e.report && e.report.moves && e.report.moves.length === 2), start: document.getElementById('rPos').textContent, opening: document.getElementById('rOpening').getClientRects().length > 0, sum: document.getElementById('rSummary').textContent, pgn: window.__coach.pgnOf(e), pcs: document.querySelectorAll('#rBoard .pc.svg').length }; });
+  check('the 960 game analyses from its own start: ledger row variant 960 and castled null, no opening in the review, the summary says so', vrev && vl.rep && vl.row && vl.row.variant === '960' && vl.row.castled === null && vl.row.slept === null && vl.row.mode === 'train' && vl.n === 3 && !vl.opening && /Chess960 diagnostic, no castling/.test(vl.sum) && vl.start === 'Start' && vl.pcs === 32, JSON.stringify(vl.row).slice(0, 300));
+  check('the 960 PGN carries Variant, SetUp and FEN', /\[Variant "Chess960 \(no castling\)"\]\n\[SetUp "1"\]\n\[FEN "[^"]+ w - - 0 1"\]/.test(vl.pgn) && vl.pgn.includes('[FEN "' + v0.fen + '"]') && /\n\n1\. e4 \S+\n\{ Post-mortem: no material loss named\. Engine: accuracy [\d.]+%/.test(vl.pgn), vl.pgn.slice(0, 300));
+  await p.screenshot({ path: SHOTS + '/c11b3-960-review.png' });
+  await p.click('#reviewBack'); await p.waitForTimeout(200);
   await p.click('#modeBtn');   // Train -> Play for the rest
   check('mode cycles back to Play', (await p.$eval('#modeBtn', (e) => e.textContent)) === 'Play');
   // drills: a set position against the full-strength engine, the clock where the opponent's name goes, nothing recorded; Again and Back

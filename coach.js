@@ -49,6 +49,8 @@
     if (g.ctx === undefined) g.ctx = null;
     if (g.times === undefined) g.times = null;
     if (g.pm === undefined) g.pm = null;
+    if (g.variant === undefined) g.variant = null;   // '960' for a Chess960 diagnostic (its start fen in g.fen), null for a normal game
+    if (g.slept === undefined) g.slept = null;       // hours slept, from the Train screen's day card; null when not given
     g.clean = isClean(g);
     return g;
   }
@@ -85,6 +87,20 @@
     for (let n = Math.min(sans.length, 14); n >= 1; n--) { const hit = T[sans.slice(0, n).join(' ')]; if (hit) return { eco: hit[0], name: hit[1], plies: n }; }
     return null;
   }
+  // Chess960: Scharnagl's numbering, 0..959, all reachable. Bishops on opposite colours, the king between the rooks, Black mirrored,
+  // pawns normal. Castling is deliberately off (the fen says '-'): the engine and chess.js then play it as a plain position.
+  const KRN = ['NNRKR', 'NRNKR', 'NRKNR', 'NRKRN', 'RNNKR', 'RNKNR', 'RNKRN', 'RKNNR', 'RKNRN', 'RKRNN'];
+  function rank960(n) {
+    n = Number.isInteger(n) && n >= 0 && n < 960 ? n : Math.floor(Math.random() * 960);
+    const r = Array(8).fill(''); let k = n;
+    r[2 * (k % 4) + 1] = 'B'; k = Math.floor(k / 4);   // the light-squared bishop: b, d, f or h
+    r[2 * (k % 4)] = 'B'; k = Math.floor(k / 4);       // the dark-squared one: a, c, e or g
+    const free = () => r.map((p, i) => (p ? -1 : i)).filter((i) => i >= 0);
+    r[free()[k % 6]] = 'Q'; k = Math.floor(k / 6);     // the queen on one of the six empty squares
+    const rest = KRN[k], sq = free(); for (let i = 0; i < 5; i++) r[sq[i]] = rest[i];   // knights, rooks and king fill the rest in order
+    return r.join('');
+  }
+  const fen960 = (n) => { const w = rank960(n); return w.toLowerCase() + '/pppppppp/8/8/8/8/PPPPPPPP/' + w + ' w - - 0 1'; };
   function showOpening(el, sans) {
     const o = openingOf(sans);
     el.innerHTML = ''; if (!o) { el.textContent = sans.length ? '' : ''; return o; }
@@ -401,6 +417,21 @@
     state = s;
     if (s === 'playing' && game) game.t0 = Date.now();   // the think clock runs from "your move" to humanMove
     board.classList.toggle('busy', s !== 'playing');
+    watchThink();
+  }
+  // the live long-think line, Train games only: once three minutes have gone on the current move, one plain line on the strip, once per move.
+  // One interval, keyed to the game and the gen counter, so a finished or replaced game never gets it. The next move brings the hint back.
+  let thinkTimer = null;
+  function watchThink() {
+    if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null; }
+    const g = game, myGen = gen;
+    if (!g || !g.train || g.drill || state !== 'playing') return;
+    if (g.longSaid) { g.longSaid = false; const f = focusLine(); rateIdle((g.variant ? VAR_960 : TRAIN_HINT) + (f ? ' ' + f : '')); }
+    thinkTimer = setInterval(() => {
+      if (game !== g || myGen !== gen || state !== 'playing') { clearInterval(thinkTimer); thinkTimer = null; return; }
+      if (g.longSaid || !(g.t0 && Date.now() - g.t0 >= LONG)) return;
+      g.longSaid = true; rateIdle(LONG_NUDGE); clearInterval(thinkTimer); thinkTimer = null;
+    }, 1000);
   }
   function thinking(v) {
     const el = $('thinking');
@@ -454,6 +485,8 @@
     if (!window.Chess) { rateIdle('chess.js failed to load.'); return null; }
     // the day context, once a calendar day per player: ask first, then come back here with the answer. ctx given, practice and drills skip the sheet.
     if (opts.ctx === undefined && !opts.practice && !opts.drill && ctxToday() === undefined) { askCtx(opts); return null; }
+    const variant = opts.variant === '960' && !opts.drill && !opts.practice ? '960' : null;   // the monthly diagnostic: a random back rank, no castling
+    if (variant && !opts.fen) opts = Object.assign({}, opts, { fen: fen960() });
     let c0 = null;
     try { if (opts.fen && !new Chess().validate_fen(opts.fen).valid) return null; c0 = new Chess(opts.fen || undefined); } catch (e) { return null; }   // chess.js loads an empty board from a bad fen
     if (game && (state === 'playing' || state === 'thinking')) endGame('loss', 'resign', false);
@@ -467,12 +500,13 @@
     const mode = MODES.includes(opts.mode) ? opts.mode : calib || drill ? 'play' : opts.tutor != null ? (opts.tutor ? 'tutor' : 'play') : P().mode;
     const train = mode === 'train', bare = train || !!drill;   // bare: no help of any kind, nothing from the engine on screen
     game = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: new Date().toISOString(), elo: clampElo(calib ? calibElo(P()) : drill ? 2850 : opts.elo || P().elo), you, calib, mode, ctx, train, drill, t0: 0,
+      variant, fen: variant ? c0.fen() : null, slept: sleptToday(), longSaid: false,   // slept: hours slept today, from the Train screen; longSaid: the long-think line, once per move
       chess: c0, moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null, tutor: mode === 'tutor', think: null, pick: null, takebacks: 0, nudges: 0, sandbox: false, sandLeft: 2, readPly: -1, sand: null, practice: opts.practice || null, budget: assistBudget(P().games).budget, used: 0, hinted: [] };
     lastRating = null; sel = null; targets = []; review = null;
     sheet('chessEnd', false); sheet('lineDone', false); sheet('ctxSheet', false); $('review').classList.remove('on'); $('chess').classList.add('on');
     $('chessHome').hidden = true; $('chessGame').hidden = false;
     $('analyzeBtn').hidden = true; $('resignBtn').hidden = false; $('playRow').hidden = !!game.practice; $('playRow').classList.toggle('one', bare); $('lessonBtn').hidden = !game.practice; $('slipRow').hidden = true;
-    $('hintBtn').hidden = !!game.practice || bare; $('nudgeBtn').hidden = bare; evalBar.parentNode.hidden = bare; $('opening').hidden = !!drill;
+    $('hintBtn').hidden = !!game.practice || bare; $('nudgeBtn').hidden = bare; evalBar.parentNode.hidden = bare; $('opening').hidden = !!drill || !!variant;   // no opening names from a random back rank
     $('oppName').textContent = drill ? '0:00' : 'Engine · ' + game.elo + (calib ? ' · level check ' + (P().calib.games.length + 1) + ' of 3' : '');
     $('youName').textContent = 'You · ' + COLN[you];
     const fi = focusInfo();
@@ -480,6 +514,7 @@
     game.weak = patterns(P().games).items.map((it) => it.key).concat(fi ? [fi.key] : []);
     const focus = focusLine();
     rateIdle(drill ? drill.title + '. ' + (drill.goal === 'draw' ? 'Hold the draw.' : 'Win it.') + (drill.targetMs ? ' Target ' + mmss(drill.targetMs) + '.' : '') + ' Full-strength engine, clock running.'
+      : variant ? VAR_960 + (focus ? ' ' + focus : '')
       : train ? TRAIN_HINT + (focus ? ' ' + focus : '')
       : voice() === 'quiet' ? '' : (calib ? 'Level check, game ' + (P().calib.games.length + 1) + ' of 3. Just play your normal game. ' : '') + (game.tutor ? 'Tutor mode. I show you the options and what they are up to. You still have to choose.' : you === 'w' ? (voice() === 'kind' ? 'Your move. Take your time.' : 'Your move. I’m watching.') : (voice() === 'kind' ? 'You have black. The engine opens.' : 'Black. The engine opens; try to keep up.')) + (focus ? ' ' + focus : ''));
     $('why').hidden = true; $('whyBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; board.classList.remove('sandbox'); renderAssist();
@@ -659,7 +694,9 @@
     setState('over'); drawGame();
     if (g.moves.length >= 2 && !g.practice && !g.drill) {   // practice and drills are never recorded (old entries may still carry a practice title)
       g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, nudges: g.nudges, tutor: g.tutor, takebacks: g.takebacks, practice: g.practice ? g.practice.title : null, assist: { used: g.used, budget: g.budget }, hinted: g.hinted.slice(), report: null,
-        mode: g.mode, ctx: g.ctx, times: g.moves.map((m) => m.ms == null ? null : m.ms), pm: null };   // times: ms per ply, null on the engine's; pm: the post-mortem, owed before the review
+        mode: g.mode, ctx: g.ctx, times: g.moves.map((m) => m.ms == null ? null : m.ms), pm: null,   // times: ms per ply, null on the engine's; pm: the post-mortem, owed before the review
+        variant: g.variant, slept: g.slept };
+      if (g.variant) g.entry.fen = g.fen;   // the start position, so the review, the cards and the PGN can replay a random back rank
       g.entry.clean = isClean(g.entry);
       // a level-check game counts when it is played out or resigned, not when you walk away from it
       if (g.calib && showSheet && P().calib && P().calib.games.length < 3) { g.entry.calib = true; P().calib.games.push({ id: g.id, result, acc: null }); }
@@ -868,11 +905,15 @@
   const CTX = { morning: 'Off-day morning', shift: 'Shift day', post: 'After a shift' };
   const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
   function ctxToday() { const d = P().day; return d && d.date === today() ? d.ctx : undefined; }   // undefined: not asked today. null: skipped.
-  function setCtx(ctx) { P().day = { date: today(), ctx: CTX[ctx] ? ctx : null }; persist(); return P().day.ctx; }
+  function sleptToday() { const d = P().day; return d && d.date === today() && typeof d.slept === 'number' ? d.slept : null; }   // hours slept, from the Train screen's day card; null when not given
+  // slept: a number sets it, null clears it, undefined (the chess screen's own sheet) keeps today's answer
+  function setCtx(ctx, slept) { P().day = { date: today(), ctx: CTX[ctx] ? ctx : null, slept: slept === undefined ? sleptToday() : typeof slept === 'number' && isFinite(slept) ? slept : null }; persist(); return P().day.ctx; }
   let ctxPending = null;   // the newGame opts waiting on the sheet
   function askCtx(opts) { ctxPending = opts; sheet('chessEnd', false); $('chess').classList.add('on'); sheet('ctxSheet', true); }
   function pickCtx(ctx) { setCtx(ctx); sheet('ctxSheet', false); const o = ctxPending; ctxPending = null; if (o) newGame(Object.assign({}, o, { ctx: P().day.ctx })); }
   const TRAIN_HINT = 'Training game. No engine during play. Afterwards: your post-mortem first, then the review.';
+  const VAR_960 = 'Chess960 diagnostic. No castling in this variant here. Develop every piece, connect the rooks, keep the king safe.';
+  const LONG_NUDGE = 'Three minutes on this move. A long think means you do not recognise the position: take the safest move you can see and bank the clock.';
 
   // ---------- post-mortem: four taps before any engine. The learner's own account comes first (narrative before engine); the sheet is not coach chatter, so every voice gets it ----------
   const PM_Q = ['Where did you first lose material?', 'What was threatened the move before?', 'Did you run the check (their checks, captures, threats) before that move?', 'Tag it'];
@@ -880,13 +921,13 @@
   const PM_CHECKED = [['yes', 'Yes'], ['no', 'No'], ['unsure', 'Not sure']];
   const PM_TAG = [['hung_piece', 'Hung piece'], ['missed_threat', 'Missed threat'], ['bad_trade', 'Bad trade'], ['wrong_plan', 'Wrong plan'], ['clock', 'Clock'], ['endgame_technique', 'Endgame technique'], ['none', 'None']];
   let pm = null;   // the open sheet: { entry, step, ply (0 = nowhere), threat, checked, tag, fens, resolve, wasOn }
-  function fensOf(moves) { const c = new Chess(), out = [c.fen()]; for (const u of moves) { if (!c.move(mv(u))) break; out.push(c.fen()); } return out; }
+  function fensOf(moves, fen) { const c = new Chess(fen || undefined), out = [c.fen()]; for (const u of moves) { if (!c.move(mv(u))) break; out.push(c.fen()); } return out; }   // fen: a Chess960 start
   // resolves with the saved pm, or null when dismissed. Does not open the review; a game without a report is analysed in the background so its ledger row lands.
   function postMortem(entry) {
     if (!entry || entry.practice || !Array.isArray(entry.moves)) return Promise.resolve(null);
     if (pm) pmClose(null);
     return new Promise((res) => {
-      pm = { entry, step: 0, ply: null, threat: null, checked: null, tag: null, fens: fensOf(entry.moves), resolve: res, wasOn: $('chess').classList.contains('on') };
+      pm = { entry, step: 0, ply: null, threat: null, checked: null, tag: null, fens: fensOf(entry.moves, entry.fen), resolve: res, wasOn: $('chess').classList.contains('on') };
       $('chess').classList.add('on');   // the sheet lives in the chess screen; plan.js may call from its own
       $('pmNote').value = '';
       const el = $('pmMoves'); el.innerHTML = '';
@@ -947,6 +988,7 @@
     const h = hitsOf(g), tags = {}; for (const k of PRI) tags[k] = h[k] ? h[k].n : 0;
     const cnt = (rep.counts && rep.counts[g.you]) || {};
     return { id: g.id, date: g.date, mode: g.mode || (g.tutor ? 'tutor' : 'play'), ctx: g.ctx || null, you: g.you, result: g.result, elo: g.elo, clean: isClean(g),
+      variant: g.variant === '960' ? '960' : null, slept: typeof g.slept === 'number' ? g.slept : null,   // curriculum.js keeps 960 games out of the castling metric and buckets games by sleep
       plies: rep.moves.length, myMoves: mine.length, acc: rep.accuracy ? rep.accuracy[g.you] : null, firstBlunder, hung: mine.filter((m) => m.hung).length,
       castled: ci >= 0 ? Math.ceil((ci + 1) / 2) : null, longestMs: ts.length ? Math.max.apply(null, ts) : null, meanMs: ts.length ? Math.round(ts.reduce((a, b) => a + b, 0) / ts.length) : null,
       blunders: cnt.blunder || 0, mistakes: cnt.mistake || 0, inaccuracies: cnt.inaccuracy || 0, endgame: mine.some((m) => m.pieces != null && m.pieces <= 6), tags,
@@ -1085,7 +1127,7 @@
     let next = k ? (n >= 3 ? 'Next game, ' + FIRM[k] : PATTERNS[k].drill) : null;
     if (!next) {
       let rs = '';
-      try { if (worst.reply && entry.moves) { const c = new Chess(); for (const u of entry.moves.slice(0, worst.ply)) c.move(mv(u)); rs = sanOf(c.fen(), worst.reply); } } catch (e) {}
+      try { if (worst.reply && entry.moves) { const c = new Chess(entry.fen || undefined); for (const u of entry.moves.slice(0, worst.ply)) c.move(mv(u)); rs = sanOf(c.fen(), worst.reply); } } catch (e) {}
       next = rs ? 'Before every move, ask what they can do next. After ' + w + ' they had ' + rs + '.' : 'Before every move, compare it with one other option.' + (worst.bestSan ? ' At move ' + Math.ceil(worst.ply / 2) + ' that was ' + worst.bestSan + '.' : '');
     }
     out.push({ kind: 'next', title: 'Next game', head: null, text: next, ply: worst.ply, ref: w, pattern: k });
@@ -1213,7 +1255,7 @@
       const acc = g.report && g.report.accuracy ? g.report.accuracy[g.you] + '%' : '—';
       d.innerHTML = '<div><b class="res"></b><small></small></div><div class="num"><span></span><small>elo</small></div><div class="num"><span></span><small>acc</small></div><button class="pill rv">Review</button>';
       const b = d.querySelector('.res'); b.textContent = RES[g.result] || '?'; b.classList.add(g.result);
-      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.calib ? ' · level check' : '') + (g.practice ?' · ' + g.practice : '') + (g.tutor ? ' · tutor' : '') + (g.mode === 'train' ? ' · train' : '') + (!g.pm && !g.practice ? ' · post-mortem due' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '') + (g.nudges ? ' · ' + g.nudges + ' nudge' + (g.nudges > 1 ? 's' : '') : '') + (g.assist && g.assist.used ? ' · assist ' + g.assist.used + '/' + g.assist.budget : '');
+      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.calib ? ' · level check' : '') + (g.practice ?' · ' + g.practice : '') + (g.tutor ? ' · tutor' : '') + (g.mode === 'train' ? ' · train' : '') + (g.variant === '960' ? ' · 960' : '') + (!g.pm && !g.practice ? ' · post-mortem due' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '') + (g.nudges ? ' · ' + g.nudges + ' nudge' + (g.nudges > 1 ? 's' : '') : '') + (g.assist && g.assist.used ? ' · assist ' + g.assist.used + '/' + g.assist.budget : '');
       d.children[1].firstChild.textContent = g.elo; d.children[2].firstChild.textContent = acc;
       d.querySelector('.rv').onclick = () => gate(g).then((ok) => ok && openReview(g));
       el.appendChild(d);
@@ -1266,7 +1308,7 @@
     $('rProgress').textContent = 'Analysing 0/' + entry.moves.length + '…';
     try {
       await engReady;
-      const rep = await ChessEngine.analyze(e, entry.moves, { depth: 14, color: entry.you, signal: sig,
+      const rep = await ChessEngine.analyze(e, entry.moves, { depth: 14, color: entry.you, signal: sig, fen: entry.fen || null,   // fen: a Chess960 start
         onProgress: (i, n) => { if (!sig.cancelled) $('rProgress').textContent = 'Analysing ' + i + '/' + n + '…'; } });
       if (sig.cancelled || !rep) return null;
       entry.report = rep; upgradeEntry(entry); putLedger(ownerOf(entry), entry); persist(); renderHist(); renderPatterns(); renderFocus();
@@ -1285,10 +1327,11 @@
   }
   function renderReview() {
     const r = review, rep = r.report, you = r.you, op = you === 'w' ? 'b' : 'w';
-    const c = new Chess(); r.fens = [c.fen()];
+    const c = new Chess(r.entry.fen || undefined); r.fens = [c.fen()];
     for (const u of r.moves) { c.move(mv(u)); r.fens.push(c.fen()); }
-    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints || r.entry.nudges ? '\nAssisted: ' + [r.entry.hints ? r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') : '', r.entry.nudges ? r.entry.nudges + ' nudge' + (r.entry.nudges > 1 ? 's' : '') : ''].filter(Boolean).join(' and ') + '. The accuracy knows.' : '') + (r.entry.assist && r.entry.assist.used ? ' Assist budget used: ' + r.entry.assist.used + ' of ' + r.entry.assist.budget + '.' + (unassistedAcc(r.entry) != null && (r.entry.hinted || []).length ? ' Accuracy without the hinted moves: ' + unassistedAcc(r.entry) + '%.' : '') : '') + (r.entry.tutor ? '\nTutor game' + (r.entry.takebacks ? ', ' + r.entry.takebacks + ' take-back' + (r.entry.takebacks > 1 ? 's' : '') : '') + '. The moves you kept are the ones being judged.' : '') + (r.entry.mode === 'train' ? '\nTraining game: nothing from the engine during play.' : '');
-    showOpening($('rOpening'), r.entry.sans || []);
+    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints || r.entry.nudges ? '\nAssisted: ' + [r.entry.hints ? r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') : '', r.entry.nudges ? r.entry.nudges + ' nudge' + (r.entry.nudges > 1 ? 's' : '') : ''].filter(Boolean).join(' and ') + '. The accuracy knows.' : '') + (r.entry.assist && r.entry.assist.used ? ' Assist budget used: ' + r.entry.assist.used + ' of ' + r.entry.assist.budget + '.' + (unassistedAcc(r.entry) != null && (r.entry.hinted || []).length ? ' Accuracy without the hinted moves: ' + unassistedAcc(r.entry) + '%.' : '') : '') + (r.entry.tutor ? '\nTutor game' + (r.entry.takebacks ? ', ' + r.entry.takebacks + ' take-back' + (r.entry.takebacks > 1 ? 's' : '') : '') + '. The moves you kept are the ones being judged.' : '') + (r.entry.mode === 'train' ? '\nTraining game: nothing from the engine during play.' : '') + (r.entry.variant === '960' ? '\nChess960 diagnostic, no castling.' : '');
+    $('rOpening').hidden = r.entry.variant === '960'; showOpening($('rOpening'), r.entry.variant === '960' ? [] : r.entry.sans || []);   // a random back rank has no opening name
+    $('rShare').textContent = 'Share';
     const cy = rep.counts[you], st = $('rStats'); st.innerHTML = '';
     for (const [v, k] of [[rep.accuracy[you] + '%', 'you'], [rep.accuracy[op] + '%', 'engine'], [cy.blunder, 'blunders'], [cy.mistake, 'mistakes'], [cy.inaccuracy, 'inacc.']]) {
       const d = document.createElement('div'); d.innerHTML = '<b class="num"></b><small></small>'; d.firstChild.textContent = v; d.lastChild.textContent = k; st.appendChild(d);
@@ -1342,6 +1385,45 @@
         + (!p.ply ? ' It was there to find.' : d === 0 ? ' Same move.' : ' ' + cap(numw(n)) + ' move' + (n > 1 ? 's' : '') + (d < 0 ? ' earlier' : ' later') + ' than you thought.');
     }
     return { kind: 'call', title: 'Your call vs the engine', head: null, text, ply: fb ? fb.ply : p.ply, ref: fb ? moveNo(fb.ply) + fb.san : '', pattern: null };
+  }
+  // ---------- share: the game as PGN with the post-mortem as a comment on the move you named, and the engine's verdict at the end ----------
+  const pgnLabel = (list, v) => { const hit = list.find((x) => x[0] === v); return hit ? hit[1][0].toLowerCase() + hit[1].slice(1) : v || 'none'; };   // "Nothing I saw" mid-sentence
+  const pgnDate = (iso) => { const d = new Date(iso); return isNaN(d) ? '????.??.??' : d.getFullYear() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + String(d.getDate()).padStart(2, '0'); };
+  function pgnOf(entry) {
+    if (!entry || !Array.isArray(entry.sans)) return '';
+    const you = entry.you, rep = entry.report, name = ownerOf(entry).name, eng = 'Engine ' + entry.elo;
+    const result = entry.result === 'draw' ? '1/2-1/2' : (entry.result === 'win') === (you === 'w') ? '1-0' : '0-1';
+    const head = [['Event', entry.mode === 'train' ? 'Ghostlap training game' : 'Ghostlap game'], ['Site', 'Ghostlap Roma'], ['Date', pgnDate(entry.date)], ['Round', '-'],
+      ['White', you === 'w' ? name : eng], ['Black', you === 'b' ? name : eng], ['Result', result]];
+    if (entry.variant === '960') head.push(['Variant', 'Chess960 (no castling)'], ['SetUp', '1'], ['FEN', entry.fen || '']);
+    const esc = (s) => String(s).replace(/[\\"]/g, '\\$&');
+    const cmt = (s) => '{ ' + String(s).replace(/[{}]/g, '') + ' }';
+    const p = entry.pm, toks = [];   // one token per move, its comment attached, so a move and its post-mortem stay on one line
+    entry.sans.forEach((san, i) => {
+      toks.push((i % 2 === 0 ? (i / 2 + 1) + '. ' : '') + san + (p && p.ply === i + 1 ? ' ' + cmt('Post-mortem: first material loss here. Threat: ' + pgnLabel(PM_THREAT, p.threat) + '. Ran the check: ' + pgnLabel(PM_CHECKED, p.checked) + '. Tag: ' + pgnLabel(PM_TAG, p.tag) + '.' + (p.note ? ' ' + p.note : '')) : ''));
+    });
+    const end = [];
+    if (p && p.ply === 0) end.push('Post-mortem: no material loss named' + (p.tag && p.tag !== 'none' ? ', tag ' + pgnLabel(PM_TAG, p.tag) : '') + '.' + (p.note ? ' ' + p.note : ''));
+    if (rep && rep.moves) {
+      const c = rep.counts && rep.counts[you] || {}, fb = rep.moves.filter((m) => m.color === you).find((m) => m.loss >= 200);
+      end.push('Engine: accuracy ' + rep.accuracy[you] + '% (engine ' + rep.accuracy[you === 'w' ? 'b' : 'w'] + '%). ' + (c.blunder || 0) + ' blunder' + (c.blunder === 1 ? '' : 's') + ', ' + (c.mistake || 0) + ' mistake' + (c.mistake === 1 ? '' : 's') + ', ' + (c.inaccuracy || 0) + ' inaccurac' + (c.inaccuracy === 1 ? 'y' : 'ies') + '. '
+        + (fb ? 'First two-pawn swing: ' + moveNo(fb.ply).trim() + ' ' + fb.san + (fb.bestSan && fb.best !== fb.uci ? ' (best ' + fb.bestSan + ')' : '') + '.' : 'No two-pawn swing.'));
+    } else end.push('Not analysed yet.');
+    toks.push(cmt(end.join(' ')) + ' ' + result);
+    const lines = []; let cur = '';   // export format wraps at 80 columns where a token fits; a long comment takes its own line
+    for (const t of toks) { if (cur && cur.length + 1 + t.length > 80) { lines.push(cur); cur = t; } else cur = cur ? cur + ' ' + t : t; }
+    if (cur) lines.push(cur);
+    return head.map(([k, v]) => '[' + k + ' "' + esc(v) + '"]').join('\n') + '\n\n' + lines.join('\n') + '\n';
+  }
+  // the share sheet on iPhone, else the clipboard ("Copied" for two seconds), else a selectable textarea
+  function share() {
+    const r = review; if (!r || !r.entry) return Promise.resolve(null);
+    const pgn = pgnOf(r.entry), btn = $('rShare'), title = 'Ghostlap game, ' + fmtDate(r.entry.date);
+    const copied = () => { btn.textContent = 'Copied'; clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = 'Share'; }, 2000); return 'copied'; };
+    const showText = () => { $('pgnText').value = pgn; sheet('pgnSheet', true); return 'sheet'; };
+    const copy = () => navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(pgn).then(copied, showText) : Promise.resolve(showText());
+    if (navigator.share) return navigator.share({ title, text: pgn }).then(() => 'shared', (e) => (e && e.name === 'AbortError' ? 'cancelled' : copy()));
+    return copy();
   }
   function showWhy() {
     const r = review; if (!r || !r.report || !r.ply) return;
@@ -1446,6 +1528,8 @@
   $('voiceBtn').onclick = () => { P().voice = VOICES[(VOICES.indexOf(voice()) + 1) % VOICES.length]; persist(); renderSettings(); };
   $('whyBtn').onclick = () => { const w = $('why'); if (!w.hidden) { w.hidden = true; return; } if (lastRating && lastRating.why) renderWhy(w, whyText(lastRating.why)); };
   $('rWhyBtn').onclick = () => { const w = $('rWhy'); if (!w.hidden) { w.hidden = true; return; } showWhy(); };
+  $('rShare').onclick = share;
+  $('pgnClose').onclick = () => sheet('pgnSheet', false);
   $('takeBack').onclick = () => { if (game && game.pending) { const r = game.pending; game.pending = null; r('back'); } };
   $('liveWith').onclick = () => { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); } };
   $('analyzeBtn').onclick = analyze;
@@ -1488,7 +1572,7 @@
     get game() { return game; }, get state() { return state; }, get lastRating() { return lastRating; }, get history() { return P().games; },
     budget() { return assistBudget(P().games); }, get player() { return save.player; }, setPlayer,
     // training: the ledger, post-mortems, Train mode, the review level, day context, drills, events
-    get ledger() { return P().ledger.slice(); }, pmDebt, postMortem, drill, on, off, ctxToday, setCtx,
+    get ledger() { return P().ledger.slice(); }, pmDebt, postMortem, drill, on, off, ctxToday, setCtx, sleptToday, pgnOf, share, fen960,
     get mode() { return P().mode; }, setMode, get reviewLevel() { return P().reviewLevel; }, setReviewLevel,
     get pm() { return pm ? { id: pm.entry.id, step: pm.step, ply: pm.ply, threat: pm.threat, checked: pm.checked, tag: pm.tag } : null; }, ledgerRow, isClean,
     setVoice(v) { if (VOICES.includes(v)) { P().voice = v; persist(); renderSettings(); } return voice(); }, patterns() { return patterns(P().games); }, whyText,
