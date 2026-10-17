@@ -6,7 +6,12 @@
   "scripts": {
     "build:www": "node tools/build-www.mjs",
     "sync:ios": "node tools/build-www.mjs && cap sync ios",
-    "open:ios": "cap open ios"
+    "open:ios": "cap open ios",
+    "test:curriculum": "node tools/curriculum-test.js",
+    "test:puzzles": "node tools/puzzles-test.js",
+    "test:endgames": "node tools/endgames-test.js",
+    "test:chess": "node tools/chess-e2e.js",
+    "test:train": "node tools/puzzles-e2e.js && node tools/endgames-e2e.js && node tools/plan-e2e.js"
   },
   "dependencies": {
     "@capacitor/core": "8.5.3",

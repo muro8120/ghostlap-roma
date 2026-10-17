@@ -6,6 +6,9 @@
   const L = window.LESSONS || [];
   let cur = null, ply = 0, fens = [];
   const KIND = { basics: 'Basics', w: 'With White', b: 'With Black' };
+  // the plan's standing order: openings are ideas until Stage 3, so the drills are labelled, not locked (read at call time: plan.js loads after this file)
+  const below3 = () => !!(window.__plan && window.__plan.stage && window.__plan.stage() < 'S3');
+  const STAGE3 = 'Openings are ideas to move 8-10 until Stage 3. The idea paragraph and the plan are for now.';
   const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch (e) { return ''; } };
 
   // ---------- drill progress: per player and lesson, on the phone, apart from the chess history ----------
@@ -62,6 +65,7 @@
     for (const k of ['basics', 'w', 'b']) {
       if (!groups[k].length) continue;
       const h = document.createElement('h2'); h.textContent = KIND[k]; el.appendChild(h);
+      if (k === 'w' && below3()) { const n = document.createElement('p'); n.className = 'chint'; n.id = 'learnStage'; n.style.margin = '-4px 0 10px'; n.textContent = 'The drills (From memory, Position cards) are Stage 3 material. ' + STAGE3; el.appendChild(n); }
       const wrap = document.createElement('div'); wrap.className = 'tracks';
       for (const l of groups[k]) {
         const b = document.createElement('button'); b.className = 'card lcard';
@@ -92,6 +96,7 @@
     $('lPractice').hidden = $('lDrills').hidden = cur.kind !== 'opening';
     $('lPractice').textContent = 'Practice the ' + cur.title;
     if (cur.kind === 'opening') drillStatus(cur);
+    $('lDrillStage').hidden = !(cur.kind === 'opening' && below3());
     $('learn').classList.remove('on'); $('drill').classList.remove('on'); $('lesson').classList.add('on'); $('lesson').scrollTo(0, 0);
     seek(0);
   }
@@ -188,6 +193,8 @@
   const drillState = () => D && { id: D.id, phase: D.phase, session: D.session, seen: D.seen, first: D.first, total: D.total, queue: D.queue.map((k) => k.i), wrong: D.wrong,
     card: D.card && { i: D.card.i, fen: D.card.fen, from: D.card.from, to: D.card.to, san: D.card.san, box: boxOf(got(D.id).cards, D.card.key) } };
 
+  // the drills' stage label on the lesson screen, created here so index.html stays as it is
+  { const n = document.createElement('p'); n.className = 'chint'; n.id = 'lDrillStage'; n.hidden = true; n.textContent = 'Stage 3 material. ' + STAGE3; $('lDrills').prepend(n); }
   $('learnBack').onclick = close;
   $('lessonBack').onclick = () => { $('lesson').classList.remove('on'); open(); };
   $('lPrev').onclick = () => seek(ply - 1);

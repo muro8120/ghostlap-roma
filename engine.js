@@ -325,7 +325,7 @@
     opts = opts || {};
     const depth = opts.depth || 14, human = opts.color || 'w', sig = opts.signal;
     const Chess = ChessLib();
-    const chess = new Chess();
+    const chess = new Chess(opts.fen || undefined);   // opts.fen: a set start position (a Chess960 game); the usual start otherwise
     const fens = [chess.fen()], sans = [], legal = [];
     for (const u of moves) {
       const m = chess.move(uciMove(u));
