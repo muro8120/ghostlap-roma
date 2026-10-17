@@ -8,8 +8,9 @@
   const KEY = 'ghostlap-chess-v1';
   const THEMES = { night: ['#9aa7b8', '#4a5568'], wood: ['#f0d9b5', '#b58863'], modern: ['#eeeed2', '#769656'], mono: ['#d5d8de', '#6e7480'], stone: ['#e6e2da', '#cdc8bf'] };
   const VOICES = ['tough', 'kind', 'quiet'];
+  const MODES = ['play', 'tutor', 'train'];   // Train: a training game. Nothing from the engine during play (the research: no live verdicts, narrative before engine)
   const clampElo = (e) => Math.max(800, Math.min(2850, Math.round((+e || 1600) / 50) * 50));
-  const DEF = (name, voice) => ({ name, elo: 1600, color: 'w', theme: 'stone', mode: 'play', voice: voice || 'tough', games: [], focus: null, calib: null });
+  const DEF = (name, voice) => ({ name, elo: 1600, color: 'w', theme: 'stone', mode: 'play', voice: voice || 'tough', games: [], focus: null, calib: null, ledger: [], reviewLevel: 'narrow', day: null });
   // two players share the phone: Jesse gets the coach, J gets the kind version. Each has their own history and settings.
   let save = { player: 'jesse', players: { jesse: DEF('Jesse', 'tough'), j: DEF('J', 'kind') } };
   try {
@@ -26,16 +27,37 @@
     if (!'wbr'.includes(q.color) || q.color.length !== 1) q.color = 'w';
     q.elo = clampElo(q.elo);
     if (!THEMES[q.theme]) q.theme = 'stone';
-    if (q.mode !== 'tutor') q.mode = 'play';
+    if (!MODES.includes(q.mode)) q.mode = 'play';
+    if (!Array.isArray(q.ledger)) q.ledger = [];               // one compact row per analysed game, kept forever (games themselves are capped at 20)
+    if (q.reviewLevel !== 'full') q.reviewLevel = 'narrow';    // narrow until plan.js raises it at Stage 3
+    if (!(q.day && typeof q.day.date === 'string')) q.day = null;
+    q.games.forEach(upgradeEntry);
     if (!VOICES.includes(q.voice)) q.voice = 'tough';
   }
   if (!save.stoneDefault) { for (const k in save.players) if (save.players[k].theme === 'night') save.players[k].theme = 'stone'; save.stoneDefault = true; }   // Stone became the default: profiles still on the old default move over once
   if (!save.players[save.player]) save.player = 'jesse';
   const P = () => save.players[save.player];
   const voice = () => P().voice;
+  const narrow = () => P().reviewLevel !== 'full';   // the engine's job before Stage 3: where material went, where the eval swung. No lines.
   function applyTheme() { document.documentElement.dataset.theme = P().theme; }
   applyTheme();
   function persist() { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (e) {} }
+  // entries from before Train mode: derive the mode, fill the new fields with nulls, compute clean (no tutor, no hints, nudges or take-backs)
+  function isClean(g) { return g.mode !== 'tutor' && !g.hints && !g.nudges && !g.takebacks; }
+  function upgradeEntry(g) {
+    if (!g.mode) g.mode = g.tutor ? 'tutor' : 'play';
+    if (g.ctx === undefined) g.ctx = null;
+    if (g.times === undefined) g.times = null;
+    if (g.pm === undefined) g.pm = null;
+    g.clean = isClean(g);
+    return g;
+  }
+  const ownerOf = (entry) => Object.keys(save.players).map((k) => save.players[k]).find((p) => p.games.includes(entry)) || P();
+  // ---------- events: a tiny emitter for plan.js, puzzles.js and endgames.js. 'game' (recorded), 'analysed' (report + ledger row), 'pm', 'mode', 'player' ----------
+  const subs = {};
+  function on(ev, fn) { if (typeof fn === 'function') (subs[ev] = subs[ev] || []).push(fn); return fn; }
+  function off(ev, fn) { if (subs[ev]) subs[ev] = subs[ev].filter((f) => f !== fn); }
+  function emit(ev, data) { for (const f of (subs[ev] || []).slice()) { try { f(data); } catch (e) { console.error(e); } } }
 
   // ---------- helpers -------------------------------------------------------
   const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
@@ -51,6 +73,9 @@
   const pawns = (cp) => (cp > 0 ? '+' : cp < 0 ? '−' : '') + (Math.abs(cp) / 100).toFixed(1);
   const lossTxt = (loss) => loss >= 5 ? '−' + (loss / 100).toFixed(1) : '0.0';
   const moveNo = (ply) => Math.floor((ply - 1) / 2) + 1 + (ply % 2 ? '. ' : '... ');
+  const LONG = 180000;   // a think over three minutes: you did not recognise the position (the research's P10). Nothing is enforced.
+  const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const fmtMs = (ms) => { const s = Math.round(ms / 1000), m = Math.floor(s / 60); return (m ? m + ' min ' : '') + (s % 60) + ' s'; };
   function sanOf(fen, uci) { try { const c = new Chess(fen); const m = c.move(mv(uci)); return m ? m.san : uci; } catch (e) { return uci; } }
   function fmtDate(iso) { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch (e) { return ''; } }
   function sheet(id, on) { $(id).classList.toggle('on', on); }
@@ -190,7 +215,7 @@
     if (o.reply && !a.game_over()) parts.push('Now they can play ' + sanOf(o.fenAfter, o.reply) + '. ' + (explain(a, o.reply) || ''));
     if (o.loss >= 5) parts.push('Cost: ' + (o.loss / 100).toFixed(1) + ' pawns against the best line.');
     const ln = lineSan(o.fenBefore, o.pv, 8);
-    if (ln) parts.push('Engine line: ' + ln);
+    if (ln && !narrow()) parts.push('Engine line: ' + ln);   // the narrow review keeps the line for Stage 3
     return parts;
   }
   function renderWhy(el, parts) {
@@ -341,13 +366,15 @@
     if (t) t.textContent = ev && ev.mate ? 'M' + Math.abs(ev.mate) : pawns(Math.max(-2000, Math.min(2000, cp)));
   }
   // move list: "1. e4 e5 2. Nf3 ..." with each rated move coloured by its label
-  function renderMoveList(el, list, cur, onTap, plain) {
+  function renderMoveList(el, list, cur, onTap, plain, times) {   // times: ms per ply, marks a long think with a clock
     el.innerHTML = '';
     list.forEach((m, i) => {
       if (i % 2 === 0) { const n = document.createElement('span'); n.className = 'n'; n.textContent = (i / 2 + 1) + '.'; el.appendChild(n); }
       const s = document.createElement('span');
-      s.className = 'm' + (m.label && !plain ? ' l-' + m.label : '') + (cur === i + 1 ? ' cur' : '');
+      const slow = times && times[i] > LONG;
+      s.className = 'm' + (m.label && !plain ? ' l-' + m.label : '') + (cur === i + 1 ? ' cur' : '') + (slow ? ' lt' : '');
       s.textContent = m.san + (plain ? '' : (SUFFIX[m.label] || ''));
+      if (slow) s.title = fmtMs(times[i]) + ' on this move';
       if (onTap) s.onclick = () => onTap(i + 1);
       el.appendChild(s);
     });
@@ -372,6 +399,7 @@
 
   function setState(s) {
     state = s;
+    if (s === 'playing' && game) game.t0 = Date.now();   // the think clock runs from "your move" to humanMove
     board.classList.toggle('busy', s !== 'playing');
   }
   function thinking(v) {
@@ -401,7 +429,9 @@
     drawGame();
   }
   const hush = () => voice() === 'quiet' && !(game && game.practice);   // practice always talks, in the tutor's voice
+  const silent = () => !!(game && (game.train || game.drill));         // Train and drills: rated silently, nothing shown during play
   function showRate(r) {
+    if (silent()) return;
     const el = $('rate');
     el.hidden = hush();
     $('why').hidden = true; $('whyBtn').hidden = !r.why;
@@ -416,41 +446,55 @@
     $('why').hidden = true; $('whyBtn').hidden = true;
     $('rateLabel').textContent = 'Coach'; $('rateLoss').textContent = ''; $('rateJab').textContent = text;
   }
-  const renderMoves = () => renderMoveList($('moveList'), game.moves, null, null, voice() === 'quiet');
+  const renderMoves = () => renderMoveList($('moveList'), game.moves, null, null, voice() === 'quiet' || silent());
 
   // ---------- game flow -----------------------------------------------------
   function newGame(opts) {
     opts = opts || {};
     if (!window.Chess) { rateIdle('chess.js failed to load.'); return null; }
+    // the day context, once a calendar day per player: ask first, then come back here with the answer. ctx given, practice and drills skip the sheet.
+    if (opts.ctx === undefined && !opts.practice && !opts.drill && ctxToday() === undefined) { askCtx(opts); return null; }
+    let c0 = null;
+    try { if (opts.fen && !new Chess().validate_fen(opts.fen).valid) return null; c0 = new Chess(opts.fen || undefined); } catch (e) { return null; }   // chess.js loads an empty board from a bad fen
     if (game && (state === 'playing' || state === 'thinking')) endGame('loss', 'resign', false);
     cancelAnalysis(); gen++; calibTick();
-    const col = opts.color || P().color, you = col === 'r' ? (Math.random() < .5 ? 'w' : 'b') : col;
+    const drill = opts.drill || null, col = opts.color || P().color, you = col === 'r' ? (Math.random() < .5 ? 'w' : 'b') : col;
     const calib = !!opts.calib && !P().calibrated;
     if (calib && !P().calib) { P().calib = { games: [] }; persist(); }
-    game = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: new Date().toISOString(), elo: clampElo(calib ? calibElo(P()) : opts.elo || P().elo), you, calib,
-      chess: new Chess(), moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null, tutor: calib ? false : (opts.tutor != null ? !!opts.tutor : P().mode === 'tutor'), think: null, pick: null, takebacks: 0, nudges: 0, sandbox: false, sandLeft: 2, readPly: -1, sand: null, practice: opts.practice || null, budget: assistBudget(P().games).budget, used: 0, hinted: [] };
+    if (CTX[opts.ctx] && ctxToday() === undefined) setCtx(opts.ctx);   // plan.js asked for us: remember it for the day
+    const ctx = opts.ctx !== undefined ? (CTX[opts.ctx] ? opts.ctx : null) : (ctxToday() || null);
+    // the mode: a level check or a drill is a plain game, practice takes its tutor flag, otherwise the saved mode (opts.mode overrides for this game only)
+    const mode = MODES.includes(opts.mode) ? opts.mode : calib || drill ? 'play' : opts.tutor != null ? (opts.tutor ? 'tutor' : 'play') : P().mode;
+    const train = mode === 'train', bare = train || !!drill;   // bare: no help of any kind, nothing from the engine on screen
+    game = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: new Date().toISOString(), elo: clampElo(calib ? calibElo(P()) : drill ? 2850 : opts.elo || P().elo), you, calib, mode, ctx, train, drill, t0: 0,
+      chess: c0, moves: [], before: null, after: null, streak: 0, result: null, reason: null, entry: null, hints: 0, hint: null, tutor: mode === 'tutor', think: null, pick: null, takebacks: 0, nudges: 0, sandbox: false, sandLeft: 2, readPly: -1, sand: null, practice: opts.practice || null, budget: assistBudget(P().games).budget, used: 0, hinted: [] };
     lastRating = null; sel = null; targets = []; review = null;
-    sheet('chessEnd', false); sheet('lineDone', false); $('review').classList.remove('on'); $('chess').classList.add('on');
+    sheet('chessEnd', false); sheet('lineDone', false); sheet('ctxSheet', false); $('review').classList.remove('on'); $('chess').classList.add('on');
     $('chessHome').hidden = true; $('chessGame').hidden = false;
-    $('analyzeBtn').hidden = true; $('resignBtn').hidden = false; $('playRow').hidden = !!game.practice; $('lessonBtn').hidden = !game.practice; $('slipRow').hidden = true;
-    $('oppName').textContent = 'Engine · ' + game.elo + (calib ? ' · level check ' + (P().calib.games.length + 1) + ' of 3' : '');
+    $('analyzeBtn').hidden = true; $('resignBtn').hidden = false; $('playRow').hidden = !!game.practice; $('playRow').classList.toggle('one', bare); $('lessonBtn').hidden = !game.practice; $('slipRow').hidden = true;
+    $('hintBtn').hidden = !!game.practice || bare; $('nudgeBtn').hidden = bare; evalBar.parentNode.hidden = bare; $('opening').hidden = !!drill;
+    $('oppName').textContent = drill ? '0:00' : 'Engine · ' + game.elo + (calib ? ' · level check ' + (P().calib.games.length + 1) + ' of 3' : '');
     $('youName').textContent = 'You · ' + COLN[you];
     const fi = focusInfo();
     game.streaks = streaksOf(P().games); game.focus = fi && fi.chosen ? fi.key : null;
     game.weak = patterns(P().games).items.map((it) => it.key).concat(fi ? [fi.key] : []);
     const focus = focusLine();
-    rateIdle(voice() === 'quiet' ? '' : (calib ? 'Level check, game ' + (P().calib.games.length + 1) + ' of 3. Just play your normal game. ' : '') + (game.tutor ? 'Tutor mode. I show you the options and what they are up to. You still have to choose.' : you === 'w' ? (voice() === 'kind' ? 'Your move. Take your time.' : 'Your move. I’m watching.') : (voice() === 'kind' ? 'You have black. The engine opens.' : 'Black. The engine opens; try to keep up.')) + (focus ? ' ' + focus : ''));
-    $('why').hidden = true; $('whyBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; $('nudgeBtn').hidden = false; board.classList.remove('sandbox'); renderAssist();
+    rateIdle(drill ? drill.title + '. ' + (drill.goal === 'draw' ? 'Hold the draw.' : 'Win it.') + (drill.targetMs ? ' Target ' + mmss(drill.targetMs) + '.' : '') + ' Full-strength engine, clock running.'
+      : train ? TRAIN_HINT + (focus ? ' ' + focus : '')
+      : voice() === 'quiet' ? '' : (calib ? 'Level check, game ' + (P().calib.games.length + 1) + ' of 3. Just play your normal game. ' : '') + (game.tutor ? 'Tutor mode. I show you the options and what they are up to. You still have to choose.' : you === 'w' ? (voice() === 'kind' ? 'Your move. Take your time.' : 'Your move. I’m watching.') : (voice() === 'kind' ? 'You have black. The engine opens.' : 'Black. The engine opens; try to keep up.')) + (focus ? ' ' + focus : ''));
+    $('why').hidden = true; $('whyBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; board.classList.remove('sandbox'); renderAssist();
     $('takeRow').hidden = true; $('tutor').hidden = !game.tutor; renderTutor();
     thinking(false); setEvalBar(evalBar, { cp: 0 }, you === 'b');
-    renderMoves(); setState(you === 'w' ? 'playing' : 'thinking'); drawGame(); showOpening($('opening'), []); $('hintBtn').hidden = !!game.practice;
+    const first = c0.turn() === you;   // a drill fen may have the engine to move
+    renderMoves(); setState(first ? 'playing' : 'thinking'); drawGame(); showOpening($('opening'), []);
     $('chess').scrollTo(0, 0);
     const myGen = gen, e = engine();
     if (!e) { thinking('engine unavailable'); return game; }
     engReady.then(() => {
       if (myGen !== gen) return;
       e.setStrength(game.elo);
-      if (you === 'b') setTimeout(() => { if (myGen === gen) engineMove(myGen); }, 500);
+      if (game.drill) startDrillClock(game);
+      if (!first) setTimeout(() => { if (myGen === gen) engineMove(myGen); }, 500);
       else preEval(myGen);
     });
     return game;
@@ -458,8 +502,8 @@
   // evaluate the position the human is looking at (depth 12) while they think: this is evalBefore for the rating
   function preEval(myGen) {
     const g = game, e = engine();
-    if (!e) { g.before = Promise.resolve(null); return; }
-    g.before = e.evaluate(g.chess.fen(), { depth: 12 }).then((ev) => { if (myGen === gen) setEvalBar(evalBar, ev, g.you === 'b'); return ev; }).catch(() => null);
+    if (!e || g.drill) { g.before = Promise.resolve(null); return; }   // drills are not rated: the engine's time goes on its own moves
+    g.before = e.evaluate(g.chess.fen(), { depth: 12 }).then((ev) => { if (myGen === gen && !g.train) setEvalBar(evalBar, ev, g.you === 'b'); return ev; }).catch(() => null);
     if (g.tutor) think(myGen);
   }
   // the human's move: the same path for a board tap and for __coach.move(uci)
@@ -470,12 +514,13 @@
     const onlyMove = c.moves().length === 1, fenBefore = c.fen();
     const m = c.move(mv(uci));
     if (!m) return false;
-    const played = uciOf(m), rec = { uci: played, san: m.san, label: null, loss: null, jab: null };
+    const played = uciOf(m), rec = { uci: played, san: m.san, label: null, loss: null, jab: null, ms: g.t0 ? Date.now() - g.t0 : null };   // ms: your think on this move
+    g.t0 = 0;
     g.moves.push(rec); sel = null; targets = []; showOpening($('opening'), g.moves.map((x) => x.san));
     const usedHint = g.hint && g.hint.ply === g.moves.length - 1 && g.hint.uci === played; g.hint = null;
     const thought = g.think; g.think = null; g.pick = null; renderTutor();
     g.sandbox = false; g.sandLeft = 2; g.sand = null; board.classList.remove('sandbox'); $('sandboxBtn').classList.remove('on'); $('nudgeRow').hidden = true; $('nudgeHint').hidden = true;
-    setState('thinking'); thinking(c.game_over() ? false : 'rating…'); drawGame(); renderMoves(); renderTutor();
+    setState('thinking'); thinking(c.game_over() || silent() ? false : 'rating…'); drawGame(); renderMoves(); renderTutor();
     const fenAfter = c.fen();
     try {
       const e = engine();
@@ -484,12 +529,12 @@
       let rating, after = null;
       if (c.in_checkmate()) rating = { loss: 0, label: 'best' };
       else {
-        after = c.game_over() || !e ? { cp: 0, mate: null, best: null } : await e.evaluate(fenAfter, { depth: 12 });
+        after = c.game_over() || !e || g.drill ? { cp: 0, mate: null, best: null } : await e.evaluate(fenAfter, { depth: 12 });
         if (myGen !== gen) return false;
         g.after = after;
         rating = before ? ChessEngine.rate({ cpBefore: clampCp(before), cpAfter: clampCp(after), color: g.you, played, best: before.best,
           mateBefore: before.mate, mateAfter: after.mate, onlyMove }) : { loss: 0, label: onlyMove ? 'forced' : 'good' };
-        setEvalBar(evalBar, after, g.you === 'b');
+        if (!silent()) setEvalBar(evalBar, after, g.you === 'b');
       }
       const bestSan = before && before.best ? sanOf(fenBefore, before.best) : '';
       const streak0 = g.streak; g.streak = GOOD[rating.label] ? 0 : g.streak + 1;
@@ -606,21 +651,27 @@
   };
   function endGame(result, reason, showSheet) {
     const g = game; gen++;
+    if (g.drill && g.drill.timer) { clearInterval(g.drill.timer); g.drill.timer = null; }
     if (g.pending) { const r = g.pending; g.pending = null; r('live'); } $('takeRow').hidden = true; $('slipRow').hidden = true; sheet('lineDone', false); g.prompt = null; g.think = null; renderTutor();
     if (eng) eng.stop();
     thinking(false); sel = null; targets = [];
     g.result = result; g.reason = reason;
     setState('over'); drawGame();
-    if (g.moves.length >= 2 && !g.practice) {   // practice is never recorded (old entries may still carry a practice title)
-      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, nudges: g.nudges, tutor: g.tutor, takebacks: g.takebacks, practice: g.practice ? g.practice.title : null, assist: { used: g.used, budget: g.budget }, hinted: g.hinted.slice(), report: null };
+    if (g.moves.length >= 2 && !g.practice && !g.drill) {   // practice and drills are never recorded (old entries may still carry a practice title)
+      g.entry = { id: g.id, date: g.date, elo: g.elo, you: g.you, result, reason, moves: g.moves.map((m) => m.uci), sans: g.moves.map((m) => m.san), hints: g.hints, nudges: g.nudges, tutor: g.tutor, takebacks: g.takebacks, practice: g.practice ? g.practice.title : null, assist: { used: g.used, budget: g.budget }, hinted: g.hinted.slice(), report: null,
+        mode: g.mode, ctx: g.ctx, times: g.moves.map((m) => m.ms == null ? null : m.ms), pm: null };   // times: ms per ply, null on the engine's; pm: the post-mortem, owed before the review
+      g.entry.clean = isClean(g.entry);
       // a level-check game counts when it is played out or resigned, not when you walk away from it
       if (g.calib && showSheet && P().calib && P().calib.games.length < 3) { g.entry.calib = true; P().calib.games.push({ id: g.id, result, acc: null }); }
       if (P().focus && g.focus === P().focus.key && --P().focus.left <= 0) P().focus = null;
       P().games.unshift(g.entry); P().games = P().games.slice(0, 20); persist();
+      emit('game', g.entry);
     }
     $('analyzeBtn').hidden = !g.entry; $('resignBtn').hidden = true; $('hintBtn').hidden = true; $('nudgeBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; board.classList.remove('sandbox');
     renderHist();
     if (showSheet) {
+      if (g.drill) { drillDone(g, result, reason); return; }
+      $('chessEnd').querySelector('h3').textContent = 'GAME OVER';
       const k = reason === 'checkmate' ? (result === 'win' ? 'checkmateWin' : 'checkmateLoss') : reason;
       const T = voice() === 'tough' && !g.practice ? END : KIND_END, t = T[k] || T.resign;
       g.endText = t[1] + (g.moves.length ? ' ' + Math.ceil(g.moves.length / 2) + ' moves.' : '') + (g.practice ? ' ' + slipTxt(g.practice) + ' Practice games are not recorded.' : '');
@@ -668,7 +719,7 @@
   ];
   // the coach shows the best move, then holds it against you (the game is marked assisted)
   async function hint() {
-    if (state !== 'playing' || !game || game.practice) return null;
+    if (state !== 'playing' || !game || game.practice || silent()) return null;
     const g = game, myGen = gen, e = engine();
     if (!e) return null;
     if (g.hint && g.hint.ply === g.moves.length) return g.hint;
@@ -698,14 +749,14 @@
   };
   function nudgeNote(text) { $('nudgeHint').hidden = false; $('nudgeHint').textContent = text; $('sandboxBtn').textContent = 'Sandbox a move (' + game.sandLeft + ' left)'; $('sandboxBtn').disabled = game.sandLeft <= 0; }
   function nudgeToggle() {
-    if (state !== 'playing' || !game || game.practice) return;
+    if (state !== 'playing' || !game || game.practice || silent()) return;
     if (game.used + COST.sandbox > game.budget) { budgetGone(); return; }
     const row = $('nudgeRow'); row.hidden = !row.hidden;
     $('nudgeHint').hidden = row.hidden;
     if (!row.hidden) nudgeNote('Sandbox: tap a move to have it rated without playing it, no answer given, twice a turn. Read: the position in plain words, for both sides. Each costs 1 from the budget.');
   }
   function sandboxToggle() {
-    if (state !== 'playing' || !game || game.practice) return;
+    if (state !== 'playing' || !game || game.practice || silent()) return;
     if (!game.sandbox && game.used + COST.sandbox > game.budget) { budgetGone(); return; }
     game.sandbox = !game.sandbox && game.sandLeft > 0; sel = null; targets = [];
     board.classList.toggle('sandbox', game.sandbox); $('sandboxBtn').classList.toggle('on', game.sandbox);
@@ -713,7 +764,7 @@
     drawGame();
   }
   async function sandboxMove(uci) {
-    const g = game; if (!g || state !== 'playing' || g.practice || g.sandLeft <= 0) return null;
+    const g = game; if (!g || state !== 'playing' || g.practice || silent() || g.sandLeft <= 0) return null;
     const c = g.chess, myGen = gen, e = engine();
     const t = new Chess(c.fen()); const m = t.move(mv(uci)); if (!m) return null;
     if (!spend('sandbox')) { budgetGone(); g.sandbox = false; board.classList.remove('sandbox'); return null; }
@@ -735,7 +786,7 @@
     } catch (err) { thinking(false); return null; }
   }
   async function readTheBoard() {
-    const g = game; if (!g || state !== 'playing' || g.practice) return null;
+    const g = game; if (!g || state !== 'playing' || g.practice || silent()) return null;
     if (g.readPly !== g.moves.length && g.used + COST.read > g.budget) { budgetGone(); return null; }
     const c = g.chess, myGen = gen, e = engine();
     thinking('reading…');
@@ -783,6 +834,131 @@
   function resign() {
     if (game && (state === 'playing' || state === 'thinking')) endGame('loss', 'resign', true);
   }
+
+  // ---------- drills: a set position against the full-strength engine, timed, never recorded (endgames.js calls this) ----------
+  const DRILL_WHY = { checkmate: 'checkmate', stalemate: 'stalemate', repetition: 'repetition', material: 'insufficient material', '50 moves': 'fifty moves', resign: 'resigned' };
+  // opts: { fen, you, title, goal: 'win'|'draw', targetMs, onDone({ result, ms, plies, metGoal }), onBack }. Either side may be to move in the fen.
+  function drill(opts) {
+    opts = opts || {}; if (!opts.fen) return null;
+    const you = opts.you === 'b' ? 'b' : 'w';
+    return newGame({ color: you, fen: opts.fen, ctx: null, drill: { opts, title: opts.title || 'Drill', goal: opts.goal === 'draw' ? 'draw' : 'win', targetMs: opts.targetMs > 0 ? opts.targetMs : null, onDone: opts.onDone, onBack: opts.onBack, t0: Date.now(), timer: null } });
+  }
+  // the clock starts once the engine is up (a cold start is not the learner's time) and ticks where the opponent's name goes
+  function startDrillClock(g) {
+    const d = g.drill; d.t0 = Date.now();
+    d.timer = setInterval(() => { if (game !== g || state === 'over') { clearInterval(d.timer); d.timer = null; return; } $('oppName').textContent = mmss(Date.now() - d.t0); }, 250);
+  }
+  function drillDone(g, result, reason) {
+    const d = g.drill, ms = Date.now() - d.t0, metGoal = d.goal === 'draw' ? result !== 'loss' : result === 'win', n = Math.ceil(g.moves.length / 2);
+    $('chessEnd').querySelector('h3').textContent = 'DRILL';
+    $('endTitle').textContent = reason === 'checkmate' ? (result === 'win' ? 'Checkmate.' : 'Mated.') : result === 'draw' ? (metGoal ? 'Draw held.' : 'Draw.') : reason === 'resign' ? 'Resigned.' : 'Lost.';
+    $('endMsg').textContent = d.title + ': ' + (DRILL_WHY[reason] || reason) + ' after ' + n + ' move' + (n === 1 ? '' : 's') + ' in ' + mmss(ms) + '.' + (d.targetMs ? ' Target ' + mmss(d.targetMs) + (ms <= d.targetMs ? ': made it.' : ': over.') : '') + ' Drills are not recorded.';
+    $('endAnalyze').hidden = true; $('endNew').textContent = 'Again'; $('endHome').textContent = 'Back';
+    sheet('chessEnd', true);
+    if (typeof d.onDone === 'function') { try { d.onDone({ result, ms, plies: g.moves.length, metGoal }); } catch (e) { console.error(e); } }
+  }
+  function drillBack() {
+    const d = game && game.drill; sheet('chessEnd', false);
+    if (!(d && typeof d.onBack === 'function')) { goHome(); return; }
+    $('chess').classList.remove('on'); $('chessHome').hidden = false; $('chessGame').hidden = true; setState('home');
+    d.onBack();
+  }
+
+  // ---------- the day context: off-day morning, shift day, after a shift. Asked once a calendar day per player, stored on every game ----------
+  const CTX = { morning: 'Off-day morning', shift: 'Shift day', post: 'After a shift' };
+  const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  function ctxToday() { const d = P().day; return d && d.date === today() ? d.ctx : undefined; }   // undefined: not asked today. null: skipped.
+  function setCtx(ctx) { P().day = { date: today(), ctx: CTX[ctx] ? ctx : null }; persist(); return P().day.ctx; }
+  let ctxPending = null;   // the newGame opts waiting on the sheet
+  function askCtx(opts) { ctxPending = opts; sheet('chessEnd', false); $('chess').classList.add('on'); sheet('ctxSheet', true); }
+  function pickCtx(ctx) { setCtx(ctx); sheet('ctxSheet', false); const o = ctxPending; ctxPending = null; if (o) newGame(Object.assign({}, o, { ctx: P().day.ctx })); }
+  const TRAIN_HINT = 'Training game. No engine during play. Afterwards: your post-mortem first, then the review.';
+
+  // ---------- post-mortem: four taps before any engine. The learner's own account comes first (narrative before engine); the sheet is not coach chatter, so every voice gets it ----------
+  const PM_Q = ['Where did you first lose material?', 'What was threatened the move before?', 'Did you run the check (their checks, captures, threats) before that move?', 'Tag it'];
+  const PM_THREAT = [['undefended', 'Undefended piece'], ['check', 'A check'], ['fork', 'Fork or double attack'], ['pin', 'Pin or skewer'], ['pawn', 'A pawn push or trap'], ['none', 'Nothing I saw']];
+  const PM_CHECKED = [['yes', 'Yes'], ['no', 'No'], ['unsure', 'Not sure']];
+  const PM_TAG = [['hung_piece', 'Hung piece'], ['missed_threat', 'Missed threat'], ['bad_trade', 'Bad trade'], ['wrong_plan', 'Wrong plan'], ['clock', 'Clock'], ['endgame_technique', 'Endgame technique'], ['none', 'None']];
+  let pm = null;   // the open sheet: { entry, step, ply (0 = nowhere), threat, checked, tag, fens, resolve, wasOn }
+  function fensOf(moves) { const c = new Chess(), out = [c.fen()]; for (const u of moves) { if (!c.move(mv(u))) break; out.push(c.fen()); } return out; }
+  // resolves with the saved pm, or null when dismissed. Does not open the review; a game without a report is analysed in the background so its ledger row lands.
+  function postMortem(entry) {
+    if (!entry || entry.practice || !Array.isArray(entry.moves)) return Promise.resolve(null);
+    if (pm) pmClose(null);
+    return new Promise((res) => {
+      pm = { entry, step: 0, ply: null, threat: null, checked: null, tag: null, fens: fensOf(entry.moves), resolve: res, wasOn: $('chess').classList.contains('on') };
+      $('chess').classList.add('on');   // the sheet lives in the chess screen; plan.js may call from its own
+      $('pmNote').value = '';
+      const el = $('pmMoves'); el.innerHTML = '';
+      const none = document.createElement('button'); none.className = 'pill'; none.textContent = 'Nowhere'; none.dataset.ply = '0'; none.onclick = () => { pm.ply = 0; renderPm(); }; el.appendChild(none);
+      (entry.sans || []).forEach((san, i) => {
+        const ply = i + 1; if ((ply % 2 === 1) !== (entry.you === 'w')) return;   // your moves only
+        const b = document.createElement('button'); b.className = 'pill'; b.textContent = Math.ceil(ply / 2) + '. ' + san; b.dataset.ply = ply; b.onclick = () => { pm.ply = ply; renderPm(); }; el.appendChild(b);
+      });
+      renderPm(); sheet('pmSheet', true);
+    });
+  }
+  function pmPills(el, list, cur, pick) {
+    if (!el.children.length) for (const [v, label] of list) { const b = document.createElement('button'); b.className = 'pill'; b.dataset.v = v; b.textContent = label; b.onclick = () => pick(v); el.appendChild(b); }
+    for (const b of el.children) b.classList.toggle('on', b.dataset.v === cur);
+  }
+  function renderPm() {
+    if (!pm) return;
+    const s = pm.step, picked = [pm.ply, pm.threat, pm.checked, pm.tag][s];
+    $('pmQ').textContent = PM_Q[s]; $('pmStepN').textContent = (s + 1) + ' of 4';
+    ['pmStep1', 'pmThreat', 'pmChecked', 'pmStep4'].forEach((id, i) => { $(id).hidden = i !== s; });
+    for (const b of $('pmMoves').children) b.classList.toggle('on', +b.dataset.ply === pm.ply);
+    // the board shows the position after the move you picked (the final position until you pick one, or for "nowhere")
+    const at = pm.ply ? Math.min(pm.ply, pm.fens.length - 1) : pm.fens.length - 1, c = new Chess(pm.fens[at]);
+    renderBoard($('pmBoard'), c, { flip: pm.entry.you === 'b', last: pm.ply ? mv(pm.entry.moves[pm.ply - 1]) : null, check: c.in_check() });
+    pmPills($('pmThreat'), PM_THREAT, pm.threat, (v) => { pm.threat = v; renderPm(); });
+    pmPills($('pmChecked'), PM_CHECKED, pm.checked, (v) => { pm.checked = v; renderPm(); });
+    pmPills($('pmTags'), PM_TAG, pm.tag, (v) => { pm.tag = v; renderPm(); });
+    $('pmBack').disabled = s === 0; $('pmNext').disabled = picked == null; $('pmNext').textContent = s === 3 ? 'Save' : 'Next';
+  }
+  function pmNext() {
+    if (!pm) return;
+    if (pm.step < 3) { pm.step++; renderPm(); return; }
+    const e = pm.entry;
+    e.pm = { ply: pm.ply, threat: pm.threat, checked: pm.checked, tag: pm.tag, note: ($('pmNote').value || '').trim().slice(0, 200), at: new Date().toISOString() };
+    const owner = ownerOf(e);
+    if (e.report) putLedger(owner, e);   // analysed before the post-mortem (an older game): the row learns your call
+    persist(); renderHist(); emit('pm', e);
+    if (!e.report && !analysis) runAnalysis(e);   // not analysed yet: the review (or plan.js) picks this up
+    pmClose(e.pm);
+  }
+  function pmClose(v) { const q = pm; pm = null; sheet('pmSheet', false); if (q && !q.wasOn) $('chess').classList.remove('on'); if (q) q.resolve(v); }
+  // the gate: a recorded game is reviewed only after its post-mortem, old games included. Dismissing it brings the end sheet back.
+  function gate(entry) {
+    if (!entry || entry.pm || entry.practice) return Promise.resolve(true);
+    const endOn = $('chessEnd').classList.contains('on'); sheet('chessEnd', false);
+    return postMortem(entry).then((v) => { if (!v && endOn) sheet('chessEnd', true); return !!v; });
+  }
+  const pmDebt = () => P().games.filter((g) => !g.practice && !g.pm).length;
+
+  // ---------- ledger: one compact row per analysed game, newest first, never pruned (curriculum.js measures the exit criteria from these) ----------
+  // did the learner locate the loss? Within a move either side of the engine's first 2-pawn swing. "Nowhere" is right only when there was none.
+  function pmHit(ply, firstBlunder) { if (!ply) return firstBlunder == null; return firstBlunder != null && Math.abs(firstBlunder - Math.ceil(ply / 2)) <= 1; }
+  function ledgerRow(g) {
+    const rep = g.report; if (!rep || !rep.moves) return null;
+    const mine = rep.moves.filter((m) => m.color === g.you), fb = mine.find((m) => m.loss >= 200), firstBlunder = fb ? Math.ceil(fb.ply / 2) : null;
+    const ci = (g.sans || []).findIndex((s, i) => /^O-O/.test(s) && (i % 2 === 0) === (g.you === 'w'));
+    const ts = Array.isArray(g.times) ? g.times.filter((t) => typeof t === 'number') : [];
+    const h = hitsOf(g), tags = {}; for (const k of PRI) tags[k] = h[k] ? h[k].n : 0;
+    const cnt = (rep.counts && rep.counts[g.you]) || {};
+    return { id: g.id, date: g.date, mode: g.mode || (g.tutor ? 'tutor' : 'play'), ctx: g.ctx || null, you: g.you, result: g.result, elo: g.elo, clean: isClean(g),
+      plies: rep.moves.length, myMoves: mine.length, acc: rep.accuracy ? rep.accuracy[g.you] : null, firstBlunder, hung: mine.filter((m) => m.hung).length,
+      castled: ci >= 0 ? Math.ceil((ci + 1) / 2) : null, longestMs: ts.length ? Math.max.apply(null, ts) : null, meanMs: ts.length ? Math.round(ts.reduce((a, b) => a + b, 0) / ts.length) : null,
+      blunders: cnt.blunder || 0, mistakes: cnt.mistake || 0, inaccuracies: cnt.inaccuracy || 0, endgame: mine.some((m) => m.pieces != null && m.pieces <= 6), tags,
+      pm: g.pm ? { ply: g.pm.ply, tag: g.pm.tag, checked: g.pm.checked, threat: g.pm.threat, hit: pmHit(g.pm.ply, firstBlunder) } : null };
+  }
+  // replace the row for this id (re-analysis, or a post-mortem saved after the analysis), newest first
+  function putLedger(p, g) {
+    const row = ledgerRow(g); if (!row) return null;
+    p.ledger = p.ledger.filter((r) => r.id !== row.id).concat(row).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    return row;
+  }
+  function backfillLedger(p) { let n = 0; for (const g of p.games) if (g.report && g.report.moves && !p.ledger.some((r) => r.id === g.id)) { putLedger(p, g); n++; } return n; }
 
   // ---------- patterns: what keeps going wrong, across the analysed games ----------
   const BADL = { inaccuracy: 1, mistake: 1, blunder: 1 };
@@ -997,7 +1173,7 @@
     g.used += COST[kind]; renderAssist(); return true;
   }
   function renderAssist() {
-    const g = game, el = $('assistLine'); if (!g || g.practice) { el.hidden = true; return; }
+    const g = game, el = $('assistLine'); if (!g || g.practice || silent()) { el.hidden = true; return; }
     el.hidden = false;
     const left = g.budget - g.used;
     el.textContent = left > 0 ? 'Assist budget: ' + left + ' of ' + g.budget + ' left (hint 3, take-back 2, nudge 1).' : 'Assist budget spent. This one is yours.';
@@ -1037,9 +1213,9 @@
       const acc = g.report && g.report.accuracy ? g.report.accuracy[g.you] + '%' : '—';
       d.innerHTML = '<div><b class="res"></b><small></small></div><div class="num"><span></span><small>elo</small></div><div class="num"><span></span><small>acc</small></div><button class="pill rv">Review</button>';
       const b = d.querySelector('.res'); b.textContent = RES[g.result] || '?'; b.classList.add(g.result);
-      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.calib ? ' · level check' : '') + (g.practice ?' · ' + g.practice : '') + (g.tutor ? ' · tutor' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '') + (g.nudges ? ' · ' + g.nudges + ' nudge' + (g.nudges > 1 ? 's' : '') : '') + (g.assist && g.assist.used ? ' · assist ' + g.assist.used + '/' + g.assist.budget : '');
+      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.calib ? ' · level check' : '') + (g.practice ?' · ' + g.practice : '') + (g.tutor ? ' · tutor' : '') + (g.mode === 'train' ? ' · train' : '') + (!g.pm && !g.practice ? ' · post-mortem due' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '') + (g.nudges ? ' · ' + g.nudges + ' nudge' + (g.nudges > 1 ? 's' : '') : '') + (g.assist && g.assist.used ? ' · assist ' + g.assist.used + '/' + g.assist.budget : '');
       d.children[1].firstChild.textContent = g.elo; d.children[2].firstChild.textContent = acc;
-      d.querySelector('.rv').onclick = () => openReview(g);
+      d.querySelector('.rv').onclick = () => gate(g).then((ok) => ok && openReview(g));
       el.appendChild(d);
     }
   }
@@ -1053,15 +1229,16 @@
     }
     for (const b of tr.children) b.classList.toggle('on', b.dataset.theme === P().theme);
     const pr = $('playerRow');
-    if (!pr.children.length) for (const k of ['jesse', 'j']) { const b = document.createElement('button'); b.className = 'pill'; b.dataset.player = k; b.textContent = save.players[k].name; b.onclick = () => { if (save.player !== k) { save.player = k; persist(); applyTheme(); renderSettings(); renderHist(); } }; pr.appendChild(b); }
+    if (!pr.children.length) for (const k of ['jesse', 'j']) { const b = document.createElement('button'); b.className = 'pill'; b.dataset.player = k; b.textContent = save.players[k].name; b.onclick = () => setPlayer(k); pr.appendChild(b); }
     for (const b of pr.children) b.classList.toggle('on', b.dataset.player === save.player);
     $('voiceBtn').textContent = { tough: 'Tough', kind: 'Kind', quiet: 'Quiet' }[voice()];
     $('voiceHint').textContent = { tough: 'Tough: every move judged, out loud, no mercy.', kind: 'Kind: the same facts, said nicely.', quiet: 'Quiet: nothing during the game. The review is still there afterwards.' }[voice()];
     renderPatterns(); renderCalib(); renderFocus();
     $('eloV').textContent = P().elo;
     $('colorBtn').textContent = COLN[P().color];
-    $('modeBtn').textContent = P().mode === 'tutor' ? 'Tutor' : 'Play';
-    $('modeHint').textContent = P().mode === 'tutor' ? 'Tutor: before each move you see your three best options with a reason, and what they would do if you passed. Bad moves can be taken back, and that goes on your record.' : 'Play: no help, every move rated, the coach says what it thinks.';
+    $('modeBtn').textContent = { play: 'Play', tutor: 'Tutor', train: 'Train' }[P().mode];
+    $('modeHint').textContent = { tutor: 'Tutor: before each move you see your three best options with a reason, and what they would do if you passed. Bad moves can be taken back, and that goes on your record.', play: 'Play: no help, every move rated, the coach says what it thinks.',
+      train: 'Train: a training game. No ratings, eval bar, hints or nudges while you play; the engine stays at your strength. Afterwards your post-mortem first, then the review.' }[P().mode];
     $('eloMinus').disabled = P().elo <= 800; $('eloPlus').disabled = P().elo >= 2850;
   }
 
@@ -1092,8 +1269,9 @@
       const rep = await ChessEngine.analyze(e, entry.moves, { depth: 14, color: entry.you, signal: sig,
         onProgress: (i, n) => { if (!sig.cancelled) $('rProgress').textContent = 'Analysing ' + i + '/' + n + '…'; } });
       if (sig.cancelled || !rep) return null;
-      entry.report = rep; persist(); renderHist(); renderPatterns(); renderFocus();
+      entry.report = rep; upgradeEntry(entry); putLedger(ownerOf(entry), entry); persist(); renderHist(); renderPatterns(); renderFocus();
       if (review && review.entry === entry) { review.report = rep; $('rBody').hidden = false; $('rProgress').hidden = true; renderReview(); }
+      emit('analysed', entry);
       return rep;
     } catch (err) {
       if (!sig.cancelled) $('rProgress').textContent = 'Analysis failed: ' + ((err && err.message) || err);
@@ -1109,14 +1287,15 @@
     const r = review, rep = r.report, you = r.you, op = you === 'w' ? 'b' : 'w';
     const c = new Chess(); r.fens = [c.fen()];
     for (const u of r.moves) { c.move(mv(u)); r.fens.push(c.fen()); }
-    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints || r.entry.nudges ? '\nAssisted: ' + [r.entry.hints ? r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') : '', r.entry.nudges ? r.entry.nudges + ' nudge' + (r.entry.nudges > 1 ? 's' : '') : ''].filter(Boolean).join(' and ') + '. The accuracy knows.' : '') + (r.entry.assist && r.entry.assist.used ? ' Assist budget used: ' + r.entry.assist.used + ' of ' + r.entry.assist.budget + '.' + (unassistedAcc(r.entry) != null && (r.entry.hinted || []).length ? ' Accuracy without the hinted moves: ' + unassistedAcc(r.entry) + '%.' : '') : '') + (r.entry.tutor ? '\nTutor game' + (r.entry.takebacks ? ', ' + r.entry.takebacks + ' take-back' + (r.entry.takebacks > 1 ? 's' : '') : '') + '. The moves you kept are the ones being judged.' : '');
+    $('rSummary').textContent = (rep.summary || '') + (r.entry.hints || r.entry.nudges ? '\nAssisted: ' + [r.entry.hints ? r.entry.hints + ' hint' + (r.entry.hints > 1 ? 's' : '') : '', r.entry.nudges ? r.entry.nudges + ' nudge' + (r.entry.nudges > 1 ? 's' : '') : ''].filter(Boolean).join(' and ') + '. The accuracy knows.' : '') + (r.entry.assist && r.entry.assist.used ? ' Assist budget used: ' + r.entry.assist.used + ' of ' + r.entry.assist.budget + '.' + (unassistedAcc(r.entry) != null && (r.entry.hinted || []).length ? ' Accuracy without the hinted moves: ' + unassistedAcc(r.entry) + '%.' : '') : '') + (r.entry.tutor ? '\nTutor game' + (r.entry.takebacks ? ', ' + r.entry.takebacks + ' take-back' + (r.entry.takebacks > 1 ? 's' : '') : '') + '. The moves you kept are the ones being judged.' : '') + (r.entry.mode === 'train' ? '\nTraining game: nothing from the engine during play.' : '');
     showOpening($('rOpening'), r.entry.sans || []);
     const cy = rep.counts[you], st = $('rStats'); st.innerHTML = '';
     for (const [v, k] of [[rep.accuracy[you] + '%', 'you'], [rep.accuracy[op] + '%', 'engine'], [cy.blunder, 'blunders'], [cy.mistake, 'mistakes'], [cy.inaccuracy, 'inacc.']]) {
       const d = document.createElement('div'); d.innerHTML = '<b class="num"></b><small></small>'; d.firstChild.textContent = v; d.lastChild.textContent = k; st.appendChild(d);
     }
     const w = $('rWorst'); w.innerHTML = '';
-    const worst = (rep.worst || []).filter((m) => !GOOD[m.label]);   // only moments worth shouting about
+    const worst = (rep.worst || []).filter((m) => !GOOD[m.label]).slice(0, narrow() ? 1 : 3);   // only moments worth shouting about; narrow: just the one
+    $('rNarrow').hidden = !narrow();
     if (!worst.length) { const p = document.createElement('p'); p.className = 'chint'; p.textContent = 'Nothing worth shouting about. Suspicious.'; w.appendChild(p); }
     for (const m of worst) {
       const b = document.createElement('button'); b.className = 'wm l-' + m.label;
@@ -1133,7 +1312,7 @@
   // the three cards above the review: tap one to jump the replay board there and open αβ; "Drill this" makes it the next three games' focus
   function renderCards() {
     const el = $('rCards'), r = review; el.innerHTML = ''; if (!r) return;
-    const cs = cards(r.entry); el.hidden = !cs.length;
+    const call = callCard(r.entry), cs = (call ? [call] : []).concat(cards(r.entry)); el.hidden = !cs.length;
     for (const c of cs) {
       const d = document.createElement('div'); d.className = 'rcard k-' + c.kind; d.setAttribute('role', 'button'); d.tabIndex = 0;
       d.innerHTML = '<div class="kt"><span></span><small></small></div>' + (c.head ? '<b></b>' : '') + '<p></p>';
@@ -1149,6 +1328,20 @@
       }
       el.appendChild(d);
     }
+  }
+  // your call vs the engine: where you said material went, against the engine's first two-pawn swing. Two sentences, no more.
+  function callCard(entry) {
+    const p = entry.pm, rep = entry.report; if (!p || !rep || !rep.moves) return null;
+    const fb = rep.moves.filter((m) => m.color === entry.you).find((m) => m.loss >= 200);
+    const said = p.ply ? 'move ' + Math.ceil(p.ply / 2) + ' (' + ((entry.sans || [])[p.ply - 1] || '?') + ')' : 'nowhere';
+    let text;
+    if (!fb) text = 'You said ' + said + '. ' + (p.ply ? 'The engine saw no two-pawn swing: nothing was lost outright.' : 'The engine agrees: no two-pawn swing.');
+    else {
+      const d = Math.ceil(fb.ply / 2) - Math.ceil(p.ply / 2), n = Math.abs(d);
+      text = 'You said ' + said + '. The engine’s first big swing was move ' + Math.ceil(fb.ply / 2) + ' (' + fb.san + (SUFFIX[fb.label] || '') + ').'
+        + (!p.ply ? ' It was there to find.' : d === 0 ? ' Same move.' : ' ' + cap(numw(n)) + ' move' + (n > 1 ? 's' : '') + (d < 0 ? ' earlier' : ' later') + ' than you thought.');
+    }
+    return { kind: 'call', title: 'Your call vs the engine', head: null, text, ply: fb ? fb.ply : p.ply, ref: fb ? moveNo(fb.ply) + fb.san : '', pattern: null };
   }
   function showWhy() {
     const r = review; if (!r || !r.report || !r.ply) return;
@@ -1174,8 +1367,10 @@
         + (m.label !== 'forced' && m.loss >= 5 ? ' (' + lossTxt(m.loss) + ')' : '') + (m.best && m.best !== m.uci && m.bestSan && m.label !== 'best' && m.label !== 'forced' ? '. Best was ' + m.bestSan + '.' : '');
       $('rMoveJab').textContent = mine ? (voice() === 'tough' ? (m.jab || '') : kindLine(m.label, { san: m.san, bestSan: m.bestSan, loss: m.loss })) : (m.label === 'blunder' || m.label === 'mistake' ? (voice() === 'tough' ? 'The engine slipped. Did you notice?' : 'The engine made a mistake here.') : '');
       $('rWhyBtn').hidden = false; $('rWhy').hidden = true;
-    } else { $('rMoveHead').textContent = 'Start position'; $('rMoveJab').textContent = 'Step through with Next, tap a move, or drag on the graph.'; $('rWhyBtn').hidden = true; $('rWhy').hidden = true; }
-    renderMoveList($('rMoveList'), rep.moves, r.ply, seek);
+      const ms = mine && r.entry.times ? r.entry.times[r.ply - 1] : null;   // a long think, in plain words (nothing is enforced)
+      $('rThink').hidden = !(ms > LONG); if (ms > LONG) $('rThink').textContent = fmtMs(ms) + ' on this move: a long think means you did not recognise the position.';
+    } else { $('rMoveHead').textContent = 'Start position'; $('rMoveJab').textContent = 'Step through with Next, tap a move, or drag on the graph.'; $('rWhyBtn').hidden = true; $('rWhy').hidden = true; $('rThink').hidden = true; }
+    renderMoveList($('rMoveList'), rep.moves, r.ply, seek, false, r.entry.times);
     drawGraph();
   }
   // eval graph: white advantage up, clamped to ±8 pawns, red dots on your blunders, amber cursor; tap/drag seeks
@@ -1225,11 +1420,15 @@
     setState('home');
     if (window.__hub && typeof window.__hub.show === 'function') window.__hub.show();
   }
-  function analyze() {
-    if (review && review.entry) return review.report ? Promise.resolve(review.report) : openReview(review.entry);
-    if (!game || !game.entry) return Promise.resolve(null);
-    return openReview(game.entry);
+  function analyze() {   // the post-mortem first, then the engine
+    const entry = review && review.entry ? review.entry : game && game.entry;
+    if (!entry) return Promise.resolve(null);
+    if (review && review.entry === entry && review.report) return Promise.resolve(review.report);
+    return gate(entry).then((ok) => ok ? openReview(entry) : null);
   }
+  function setPlayer(k) { if (save.players[k] && save.player !== k) { save.player = k; persist(); applyTheme(); renderSettings(); renderHist(); emit('player', k); } return save.player; }
+  function setMode(m) { if (MODES.includes(m) && P().mode !== m) { P().mode = m; persist(); renderSettings(); emit('mode', m); } return P().mode; }
+  function setReviewLevel(v) { if ((v === 'narrow' || v === 'full') && P().reviewLevel !== v) { P().reviewLevel = v; persist(); if (state === 'review' && review && review.report) renderReview(); } return P().reviewLevel; }
 
   // ---------- wiring --------------------------------------------------------
   $('chessBack').onclick = close;
@@ -1243,7 +1442,7 @@
   $('nudgeBtn').onclick = nudgeToggle;
   $('sandboxBtn').onclick = sandboxToggle;
   $('readBtn').onclick = readTheBoard;
-  $('modeBtn').onclick = () => { P().mode = P().mode === 'tutor' ? 'play' : 'tutor'; persist(); renderSettings(); };
+  $('modeBtn').onclick = () => setMode(MODES[(MODES.indexOf(P().mode) + 1) % MODES.length]);   // Play -> Tutor -> Train
   $('voiceBtn').onclick = () => { P().voice = VOICES[(VOICES.indexOf(voice()) + 1) % VOICES.length]; persist(); renderSettings(); };
   $('whyBtn').onclick = () => { const w = $('why'); if (!w.hidden) { w.hidden = true; return; } if (lastRating && lastRating.why) renderWhy(w, whyText(lastRating.why)); };
   $('rWhyBtn').onclick = () => { const w = $('rWhy'); if (!w.hidden) { w.hidden = true; return; } showWhy(); };
@@ -1251,12 +1450,17 @@
   $('liveWith').onclick = () => { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); } };
   $('analyzeBtn').onclick = analyze;
   $('endAnalyze').onclick = analyze;
-  $('endNew').onclick = () => game && game.practice ? again() : newGame(game && game.calib && P().calib && P().calib.games.length < 3 ? { calib: true } : undefined);
+  $('endNew').onclick = () => game && game.practice ? again() : game && game.drill ? drill(game.drill.opts) : newGame(game && game.calib && P().calib && P().calib.games.length < 3 ? { calib: true } : undefined);
   $('calibGo').onclick = () => newGame({ calib: true });
   $('calibSkip').onclick = () => { P().calibrated = true; P().calib = null; persist(); renderSettings(); };
   $('calibOk').onclick = () => { sheet('calibDone', false); if (state === 'over') goHome(); };
   $('focusClear').onclick = () => { P().focus = null; persist(); renderSettings(); };
-  $('endHome').onclick = () => game && game.practice ? backToLesson() : goHome();
+  $('endHome').onclick = () => game && game.practice ? backToLesson() : game && game.drill ? drillBack() : goHome();
+  for (const b of $('ctxSheet').querySelectorAll('[data-ctx]')) b.onclick = () => pickCtx(b.dataset.ctx);
+  $('ctxSkip').onclick = () => pickCtx(null);
+  $('pmBack').onclick = () => { if (pm && pm.step > 0) { pm.step--; renderPm(); } };
+  $('pmNext').onclick = pmNext;
+  $('pmLater').onclick = () => pmClose(null);
   $('slipBack').onclick = () => answer('back');
   $('slipOn').onclick = () => answer('on');
   $('ldOn').onclick = () => answer('on');
@@ -1271,6 +1475,7 @@
   gr.addEventListener('pointermove', (e) => { if (gr._drag) graphSeek(e); });
   for (const ev of ['pointerup', 'pointercancel']) gr.addEventListener(ev, () => { gr._drag = false; });
   window.addEventListener('resize', () => { if (state === 'review') drawGraph(); });
+  if (Object.keys(save.players).reduce((n, k) => n + backfillLedger(save.players[k]), 0)) persist();   // games analysed before the ledger existed get their rows
   renderSettings(); renderHist();
 
   // test hook
@@ -1281,7 +1486,11 @@
     get think() { return game ? game.think : null; },
     practiceState, playOn() { return answer('on'); }, again, backToLesson,
     get game() { return game; }, get state() { return state; }, get lastRating() { return lastRating; }, get history() { return P().games; },
-    budget() { return assistBudget(P().games); }, get player() { return save.player; }, setPlayer(k) { if (save.players[k]) { save.player = k; persist(); applyTheme(); renderSettings(); renderHist(); } return save.player; },
+    budget() { return assistBudget(P().games); }, get player() { return save.player; }, setPlayer,
+    // training: the ledger, post-mortems, Train mode, the review level, day context, drills, events
+    get ledger() { return P().ledger.slice(); }, pmDebt, postMortem, drill, on, off, ctxToday, setCtx,
+    get mode() { return P().mode; }, setMode, get reviewLevel() { return P().reviewLevel; }, setReviewLevel,
+    get pm() { return pm ? { id: pm.entry.id, step: pm.step, ply: pm.ply, threat: pm.threat, checked: pm.checked, tag: pm.tag } : null; }, ledgerRow, isClean,
     setVoice(v) { if (VOICES.includes(v)) { P().voice = v; persist(); renderSettings(); } return voice(); }, patterns() { return patterns(P().games); }, whyText,
     cards, focusLine: () => focusLine(true), streaks() { return streaksOf(P().games); }, setFocus, get focus() { return P().focus; },
     get calib() { return { calibrated: P().calibrated, elo: P().elo, next: calibElo(), progress: P().calib }; }, startCalib: () => newGame({ calib: true }),
