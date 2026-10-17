@@ -4,6 +4,7 @@
   "private": true,
   "description": "Ghostlap Roma: offline night racer and chess coach. Static web app, wrapped for iOS with Capacitor.",
   "scripts": {
+    "build:icon": "node tools/build-icon.mjs",
     "build:www": "node tools/build-www.mjs",
     "sync:ios": "node tools/build-www.mjs && cap sync ios",
     "open:ios": "cap open ios",

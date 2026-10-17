@@ -8,7 +8,8 @@ What is already set up in the repo:
 - `capacitor.config.json`: app ID `com.muro8120.ghostlap`, name Ghostlap Roma, web files from `www/`, dark background `#0b0d12`.
 - `ios/App/App/Info.plist`: home-screen name **Ghostlap** (same as the PWA; "Ghostlap Roma" gets cut off under the icon),
   portrait only, light status-bar text on the dark app, dark launch screen, and `ITSAppUsesNonExemptEncryption = NO`.
-- iPhone only (no iPad build), iOS 15 or later. App icon and launch screen are made from `icon-512.png`.
+- iPhone only (no iPad build), iOS 15 or later. App icon and launch screen are rendered from `tools/icon.svg` by
+  `npm run build:icon` (also the PWA icons); a new icon shows up with the next TestFlight build, no reinstall.
 - No service worker in the native app: the files are inside the app, so the launcher just says **✓ Ready**.
 
 ## One-time setup
