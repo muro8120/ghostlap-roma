@@ -111,6 +111,15 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
     check(k + ': ' + (t.stoneish ? 'mint selection' : 'amber ring on the selection'), (await p.$eval('#board .sq.sel', (e) => getComputedStyle(e, '::before').boxShadow)).includes(t.stoneish ? (k === 'wire' ? 'rgb(22, 163, 108)' : 'rgb(72, 196, 140)') : 'rgb(242, 178, 76)'));
     await p.evaluate(() => window.scrollTo(0, 0)); await p.$eval('#chess', (e) => { e.scrollTop = 0; });
     await p.screenshot({ path: SHOTS + '/' + k + '-chess.png' });
+    // the last move: Dark rings it in amber over a faint tint, and the ring survives a check tint and sits inside a selection ring
+    const lm = await p.evaluate(() => { const el = document.createElement('div'); el.className = 'board'; document.getElementById('chessGame').appendChild(el);
+      window.__coach.renderBoard(el, new Chess('4k3/8/8/8/8/8/8/4K2r w - - 0 1'), { last: { from: 'e1', to: 'd2' }, sel: 'd2', check: true });
+      const st = (s) => getComputedStyle(el.querySelector('[data-sq="' + s + '"]'), '::before');
+      const r = { plain: st('e1').boxShadow, chkBg: st('e1').backgroundColor, sel: st('d2').boxShadow }; el.remove(); return r; });
+    const amber = 'rgb(242, 178, 76) 0px 0px 0px 3px inset';
+    check(k + ': ' + (k === 'dark' ? 'last move ringed in amber, kept under check and inside the selection ring' : 'no last-move ring'), k === 'dark'
+      ? lm.plain === amber && lm.chkBg === 'rgba(255, 90, 95, 0.6)' && lm.sel.startsWith('rgb(72, 196, 140) 0px 0px 0px 3px inset') && lm.sel.includes('rgb(242, 178, 76) 0px 0px 0px 6px inset')
+      : lm.plain === 'none', JSON.stringify(lm));
     await p.waitForTimeout(1300);
     await p.evaluate(() => window.__coach.close()); await p.waitForTimeout(200);
     // lesson

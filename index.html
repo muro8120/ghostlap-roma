@@ -236,10 +236,11 @@
     --last: rgba(242,178,76,.42); --selSh: inset 0 0 0 3px var(--amber); --tgtBg: rgba(11,13,18,.32); --tgtSh: none; --capBd: 4px solid rgba(11,13,18,.32); --capSh: none;
     --arA: rgba(242,178,76,.9); --arR: rgba(255,90,95,.85); --arG: rgba(169,210,255,.85); --arS: rgba(139,147,161,.9); }
   /* Dark: deep slate squares one step above the app's panels. The graphite pieces get a pale rim so they never sink into a dark
-     square; the speckled white ones only need their shadow. Coordinates and arrows lifted for a dark field. */
+     square; the speckled white ones only need their shadow. Coordinates and arrows lifted for a dark field. The last move is an
+     amber ring over a faint tint: a strong amber fill over slate turns brown. */
   :root[data-theme="dark"] { --sqL: #4b5568; --sqD: #2e3544; --crL: #d3dae5; --crD: #9aa5b8; --crO: .75; --sqSh: none; --bdSh: 0 0 0 1px var(--line);
     --pcF: drop-shadow(0 1px 1.5px rgba(0,0,0,.6)); --pcFb: drop-shadow(0 0 .6px rgba(226,232,240,.95)) drop-shadow(0 0 .6px rgba(226,232,240,.75)) drop-shadow(0 1px 1.5px rgba(0,0,0,.5));
-    --last: rgba(242,178,76,.46); --arA: rgba(242,178,76,.92); --arR: rgba(255,96,100,.9); --arG: rgba(150,200,255,.9); --arS: rgba(196,204,216,.85); }
+    --last: rgba(242,178,76,.05); --lastSh: inset 0 0 0 3px var(--amber); --arA: rgba(242,178,76,.92); --arR: rgba(255,96,100,.9); --arG: rgba(150,200,255,.9); --arS: rgba(196,204,216,.85); }
   /* Wire: a drafting sheet. Paper squares ruled with hairlines, the dark ones hatched rather than filled, ink line-art pieces
      (vendor/pieces-stone-wire), and thin mint outlines for the selection and the moves instead of a glow. A deeper mint, so a
      1.5 px line still reads on paper. */
@@ -316,11 +317,13 @@
   .opening b { color: var(--text); font-weight: 600; }
   #rOpening { margin: 4px 0 8px; }
   .sq::before { content: ""; position: absolute; inset: 0; pointer-events: none; }
-  .sq.last::before { background: var(--last); }
+  .sq.last::before { background: var(--last); box-shadow: var(--lastSh, none); }
   .sq.chk::before { background: rgba(255,90,95,.6); }
   .sq.sel::before { box-shadow: var(--selSh); }
   /* the Stone templates fill the selected square with mint; Classic only rings it, so a check or the last move shows through */
   :root:not([data-theme="classic"]) .sq.sel::before { background: var(--selBg); }
+  /* Dark's last-move ring under a selection: the mint ring stays outermost, the amber one just inside it */
+  [data-theme="dark"] .sq.last.sel::before { box-shadow: var(--selSh), inset 0 0 0 6px var(--amber); }
   .sq.tgt::after, .sq.cap::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: var(--tgtZ); height: var(--tgtZ); border-radius: 50%;
     background: var(--tgtBg); box-shadow: var(--tgtSh); border: var(--tgtBd); pointer-events: none; z-index: 2; }
   .sq.cap::after { width: var(--capZ); height: var(--capZ); background: none; border: var(--capBd); box-shadow: var(--capSh); }
