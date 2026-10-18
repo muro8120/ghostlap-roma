@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 45 45">
+<defs><path id="b" d="M13.4 37C12.6 29 15 18.5 21.6 5.6Q22.5 4.2 23.4 5.6C30 18.5 32.4 29 31.6 37Q31.4 39.5 28.8 39.5H16.2Q13.6 39.5 13.4 37Z"/><clipPath id="kb"><use xlink:href="#b"/></clipPath><mask id="m"><rect width="45" height="45" fill="#fff"/><path d="M34.6 8.6L18.4 21.8" stroke="#000" stroke-width="4"/></mask></defs>
+<g mask="url(#m)"><use xlink:href="#b" fill="#f4f1e8" stroke="#1d2433" stroke-width="2.2" stroke-linejoin="round"/><path d="M34.6 8.6L18.4 21.8" stroke="#1d2433" stroke-width="6.2" clip-path="url(#kb)"/></g>
+</svg>
