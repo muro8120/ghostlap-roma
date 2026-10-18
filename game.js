@@ -10,7 +10,7 @@
   // ---------- saving --------------------------------------------------------
   // v2: cars got 15% slower (Oct 2026), so old times and ghosts were reset; car and sound carry over
   const KEY = 'ghostlap-roma-v2';
-  // cam: 'chase' (3D, the default) | 'follow' | 'north'. camV 1: a saved 'follow' (the old default) moved to chase once
+  // cam: 'chase' (3D, the default) | 'bonnet' (3D) | 'follow' | 'north'. camV 1: a saved 'follow' (the old default) moved to chase once
   // quality: 'auto' | 'low' | 'high' (see Chase.setQuality); fps: the frame-rate readout in the HUD; qToast: Auto's one-time notice shown
   let save = { car: 'maranello', sound: false, help: true, cam: 'chase', camV: 1, quality: 'auto', fps: false, qToast: false, tracks: {} };
   try {
@@ -272,7 +272,7 @@
   function drawSigns(hud) { paintSigns(layoutSigns(hud)); }
   function layoutSigns(hud) {
     const T = race.T, c = race.car, S = ROME.S;
-    const [cx, cy] = toScr(c.x, c.y);
+    const [cx, cy] = carScr(c);
     const targets = [];
     const home = ROME.places.find((p) => p.k === 'hotel');
     if (home) targets.push({ x: home.x, y: home.y, t: 'NYX Hotel', col: '#f2b24c', solid: true });
@@ -287,6 +287,7 @@
     let top = 8;
     for (const r of hud) if (r[1] < vh * 0.4) top = Math.max(top, r[3]);
     const box = { l: 8, t: top + 4, r: vw - 8, b: vh - 14 }, h = 22;
+    if (chaseView && Chase.view === 'bonnet') box.b = Math.min(box.b, bonnetTop() - 6); // the bonnet is the car's: signs stay above it
     g.font = '700 10.5px -apple-system, system-ui, sans-serif';
     // 1) where each off-screen place's direction leaves the sign area
     const chips = [];
@@ -444,7 +445,8 @@
     const cp = P(c.x, c.y) || [vw / 2, vh * 0.65], road = vh * 0.67;
     // the car's reserved rectangle: its projected corners (roof included) with a margin, and never less than a fixed box
     const carBox = [cp[0] - 56, cp[1] - 46, cp[0] + 56, cp[1] + 30], ca = Math.cos(c.a), sa = Math.sin(c.a), cl = c.spec.len / 2, cw = c.spec.wid / 2;
-    for (const [u, v] of [[cl, cw], [cl, -cw], [-cl, cw], [-cl, -cw]]) for (const z of [0, c.spec.wid * 0.7 + 4]) {
+    if (Chase.view === 'bonnet') { const r = Chase.carRect() || [0, vh * 0.85, vw, vh]; carBox.splice(0, 4, 0, r[1] - 16, vw, vh); }
+    else for (const [u, v] of [[cl, cw], [cl, -cw], [-cl, cw], [-cl, -cw]]) for (const z of [0, c.spec.wid * 0.7 + 4]) {
       const q = Chase.toScreen(c.x + u * ca - v * sa, c.y + u * sa + v * ca, z);
       if (q) { carBox[0] = Math.min(carBox[0], q[0] - 18); carBox[1] = Math.min(carBox[1], q[1] - 22); carBox[2] = Math.max(carBox[2], q[0] + 18); carBox[3] = Math.max(carBox[3], q[1] + 14); }
     }
@@ -854,6 +856,10 @@
     const dx = (x - cam.x) * cam.z, dy = (y - cam.y) * cam.z;
     return [cam.ax + dx * cam.c - dy * cam.s, cam.ay + dx * cam.s + dy * cam.c];
   }
+  // where the car is on the screen, for the signs' rays; in Bonnet the car is under the camera, so the middle of the
+  // screen just above the bonnet
+  const bonnetTop = () => { const r = Chase.carRect(); return r ? r[1] : vh * 0.88; };
+  const carScr = (c) => (chaseView && Chase.view === 'bonnet' ? [vw / 2, Math.min(vh * 0.86, bonnetTop() - 40)] : toScr(c.x, c.y));
   function toWorld(sx, sy) {
     const dx = (sx - cam.ax) / cam.z, dy = (sy - cam.ay) / cam.z;
     return [cam.x + dx * cam.c + dy * cam.s, cam.y - dx * cam.s + dy * cam.c];
@@ -968,15 +974,17 @@
   const view3d = $('view3d');
   let chaseBad = false;
   function chaseNow() {
-    if (save.cam !== 'chase' || chaseBad || !window.Chase) return false;
+    if (!is3d(save.cam) || chaseBad || !window.Chase) return false;
     if (!Chase.ready) { Chase.setQuality(lowQ() ? 'low' : 'high'); if (!Chase.init(view3d, dpr)) { chaseBad = true; return false; } }
     return true;
   }
+  const is3d = (m) => m === 'chase' || m === 'bonnet';
   function show3d(on) { if (view3d.classList.contains('on') !== on) view3d.classList.toggle('on', on); }
   let chaseFresh = false; // set by startRace: a scene built at the other quality is rebuilt then, never mid-race
   function renderChase(W, car, ghost, dt) {
     show3d(true);
     Chase.build(W, W.T, W.T.def, chaseFresh); chaseFresh = false;
+    Chase.setView(save.cam);
     Chase.render(car, ghost, dt);
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, vw, vh);
     vignette();
@@ -1063,7 +1071,8 @@
     $('fpsBtn').classList.toggle('on', !!save.fps); $('fpsBtn').setAttribute('aria-pressed', save.fps ? 'true' : 'false');
     if (hud.classList.contains('fps') !== !!save.fps) { hud.classList.toggle('fps', !!save.fps); hudCache = null; }
   }
-  const CAMS = ['chase', 'follow', 'north'], CAM_NAME = { chase: 'Chase', follow: 'Follow', north: 'North-up' };
+  const CAMS = ['chase', 'bonnet', 'follow', 'north'], CAM_NAME = { chase: 'Chase', bonnet: 'Bonnet', follow: 'Follow', north: 'North-up' };
+  if (!CAM_NAME[save.cam]) save.cam = 'chase';
   function setCam(m) { save.cam = m; persist(); syncSoundButtons(); }
   const QUALS = ['auto', 'low', 'high'], Q_NAME = { auto: 'Auto', low: 'Low', high: 'High' };
   if (!Q_NAME[save.quality]) save.quality = 'auto';
@@ -1537,8 +1546,10 @@
 
   // ---------- offline ------------------------------------------------------------------
   const ASSETS = ['./', 'index.html', 'core.js', 'game.js', 'hub.js', 'engine.js', 'coach.js', 'vendor/chess.js', 'vendor/stockfish-19-lite-single.js',
-    'vendor/stockfish-19-lite-single.wasm', 'openings.js', 'lessons.js', 'learn.js', 'chase.js', 'vendor/three/three.module.min.js', 'vendor/three/three.core.min.js',
-    'vendor/pieces/wK.svg', 'vendor/pieces/wQ.svg', 'vendor/pieces/wR.svg', 'vendor/pieces/wB.svg', 'vendor/pieces/wN.svg', 'vendor/pieces/wP.svg', 'vendor/pieces/bK.svg', 'vendor/pieces/bQ.svg', 'vendor/pieces/bR.svg', 'vendor/pieces/bB.svg', 'vendor/pieces/bN.svg', 'vendor/pieces/bP.svg', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'].concat(ROME ? ['rome.js'] : []);
+    'vendor/stockfish-19-lite-single.wasm', 'openings.js', 'lessons.js', 'learn.js', 'chase.js', 'chase-cars.js', 'vendor/three/three.module.min.js', 'vendor/three/three.core.min.js',
+    'vendor/pieces/wK.svg', 'vendor/pieces/wQ.svg', 'vendor/pieces/wR.svg', 'vendor/pieces/wB.svg', 'vendor/pieces/wN.svg', 'vendor/pieces/wP.svg', 'vendor/pieces/bK.svg', 'vendor/pieces/bQ.svg', 'vendor/pieces/bR.svg', 'vendor/pieces/bB.svg', 'vendor/pieces/bN.svg', 'vendor/pieces/bP.svg',
+    'vendor/pieces-stone/wK.svg', 'vendor/pieces-stone/wQ.svg', 'vendor/pieces-stone/wR.svg', 'vendor/pieces-stone/wB.svg', 'vendor/pieces-stone/wN.svg', 'vendor/pieces-stone/wP.svg', 'vendor/pieces-stone/bK.svg', 'vendor/pieces-stone/bQ.svg', 'vendor/pieces-stone/bR.svg', 'vendor/pieces-stone/bB.svg', 'vendor/pieces-stone/bN.svg', 'vendor/pieces-stone/bP.svg',
+    'vendor/pieces-stone-wire/wK.svg', 'vendor/pieces-stone-wire/wQ.svg', 'vendor/pieces-stone-wire/wR.svg', 'vendor/pieces-stone-wire/wB.svg', 'vendor/pieces-stone-wire/wN.svg', 'vendor/pieces-stone-wire/wP.svg', 'vendor/pieces-stone-wire/bK.svg', 'vendor/pieces-stone-wire/bQ.svg', 'vendor/pieces-stone-wire/bR.svg', 'vendor/pieces-stone-wire/bB.svg', 'vendor/pieces-stone-wire/bN.svg', 'vendor/pieces-stone-wire/bP.svg', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'].concat(ROME ? ['rome.js'] : []);
   async function offline() {
     const el = $('offline');
     if (!('serviceWorker' in navigator) || !window.caches || !window.isSecureContext) {

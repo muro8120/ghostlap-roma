@@ -217,19 +217,47 @@
   .ebar.flip b { bottom: auto; top: 0; }
   .ev { font-size: 9px; color: var(--dim); font-weight: 700; white-space: nowrap; }
   .board { position: relative; width: calc(var(--sq) * 8); height: calc(var(--sq) * 8); display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
-    border-radius: 8px; overflow: hidden; touch-action: none; flex: none; }
+    border-radius: var(--bdR); box-shadow: var(--bdSh); overflow: hidden; touch-action: none; flex: none; }
   .board.busy { pointer-events: none; }
   .sq { position: relative; display: grid; place-items: center; font-size: calc(var(--sq) * .78); line-height: 1; }
-  #chess, #review, #lesson, #drill { --sqL: #9aa7b8; --sqD: #4a5568; --crL: #2b3340; --crD: #c7d0dc; }
-  [data-theme="wood"] #chess, [data-theme="wood"] #review, [data-theme="wood"] #lesson, [data-theme="wood"] #drill { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; }
-  [data-theme="modern"] #chess, [data-theme="modern"] #review, [data-theme="modern"] #lesson, [data-theme="modern"] #drill { --sqL: #eeeed2; --sqD: #769656; --crL: #6b7a4a; --crD: #eeeed2; }
-  [data-theme="mono"] #chess, [data-theme="mono"] #review, [data-theme="mono"] #lesson, [data-theme="mono"] #drill { --sqL: #d5d8de; --sqD: #6e7480; --crL: #4a505c; --crD: #e4e7ec; }
-  [data-theme="stone"] #chess, [data-theme="stone"] #review, [data-theme="stone"] #lesson, [data-theme="stone"] #drill { --sqL: #e6e2da; --sqD: #cdc8bf; --crL: #8f897f; --crD: #f6f3ee; --mint: 72,196,140; }
+  /* Board templates. Each one is a block of custom properties on <html> (coach.js sets data-theme per player), so every board
+     in the app follows it: chess, review, the post-mortem, lesson, drill, tactics and endgames, with no per-screen copies.
+     Stone is the base and the default, and its values are the original Stone board's. Classic is the traditional board with
+     the cburnett pieces (what Wood was). Dark and Wire are Stone templates too: the Stone pieces (Wire a line-art copy of them),
+     the mint selection and the piece named under the board. */
+  :root { --sqL: #e6e2da; --sqD: #cdc8bf; --crL: #8f897f; --crD: #f6f3ee; --crO: .55; --mint: 72,196,140; --bdR: 8px; --bdSh: none;
+    --sqSh: inset 0 0 0 .5px rgba(255,255,255,.6); --pcF: drop-shadow(0 1px 1px rgba(0,0,0,.18)); --pcFb: var(--pcF); --last: rgba(236,166,52,.4);
+    --selBg: rgba(var(--mint),.28); --selSh: inset 0 0 0 3px rgb(var(--mint)), inset 0 0 12px rgba(var(--mint),.9);
+    --tgtZ: 30%; --tgtBg: rgba(var(--mint),.85); --tgtSh: 0 0 8px 2px rgba(var(--mint),.7); --tgtBd: 0 none;
+    --capZ: 88%; --capBd: 4px solid rgba(var(--mint),.9); --capSh: 0 0 8px rgba(var(--mint),.7), inset 0 0 8px rgba(var(--mint),.6);
+    --arW: .22; --arA: rgba(222,140,20,.9); --arR: rgba(220,50,60,.85); --arG: rgba(60,120,210,.85); --arS: rgba(84,92,106,.9); }
+  /* Classic: buff and brown, cburnett pieces, an amber ring on the selected square and dark dots for the moves */
+  :root[data-theme="classic"] { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; --sqSh: none; --pcF: drop-shadow(0 1px 1px rgba(0,0,0,.45));
+    --last: rgba(242,178,76,.42); --selSh: inset 0 0 0 3px var(--amber); --tgtBg: rgba(11,13,18,.32); --tgtSh: none; --capBd: 4px solid rgba(11,13,18,.32); --capSh: none;
+    --arA: rgba(242,178,76,.9); --arR: rgba(255,90,95,.85); --arG: rgba(169,210,255,.85); --arS: rgba(139,147,161,.9); }
+  /* Dark: deep slate squares one step above the app's panels. The graphite pieces get a pale rim so they never sink into a dark
+     square; the speckled white ones only need their shadow. Coordinates and arrows lifted for a dark field. The last move is an
+     amber ring over a faint tint: a strong amber fill over slate turns brown. */
+  :root[data-theme="dark"] { --sqL: #4b5568; --sqD: #2e3544; --crL: #d3dae5; --crD: #9aa5b8; --crO: .75; --sqSh: none; --bdSh: 0 0 0 1px var(--line);
+    --pcF: drop-shadow(0 1px 1.5px rgba(0,0,0,.6)); --pcFb: drop-shadow(0 0 .6px rgba(226,232,240,.95)) drop-shadow(0 0 .6px rgba(226,232,240,.75)) drop-shadow(0 1px 1.5px rgba(0,0,0,.5));
+    --last: rgba(242,178,76,.05); --lastSh: inset 0 0 0 3px var(--amber); --arA: rgba(242,178,76,.92); --arR: rgba(255,96,100,.9); --arG: rgba(150,200,255,.9); --arS: rgba(196,204,216,.85); }
+  /* Wire: a drafting sheet. Paper squares ruled with hairlines, the dark ones hatched rather than filled, ink line-art pieces
+     (vendor/pieces-stone-wire), and thin mint outlines for the selection and the moves instead of a glow. A deeper mint, so a
+     1.5 px line still reads on paper. */
+  :root[data-theme="wire"] { --ink: 29,36,51; --sqL: #f4f1e8; --sqD: repeating-linear-gradient(135deg, rgba(var(--ink),.16) 0 1px, transparent 1px 5px) #ebe7dc;
+    --crL: rgb(var(--ink)); --crD: rgb(var(--ink)); --crO: .6; --mint: 22,163,108; --bdR: 3px; --sqSh: inset 0 0 0 .5px rgba(var(--ink),.38); --pcF: none;
+    --last: rgba(236,166,52,.3); --selBg: rgba(var(--mint),.08); --selSh: inset 0 0 0 2px rgb(var(--mint));
+    --tgtZ: 28%; --tgtBg: transparent; --tgtSh: none; --tgtBd: 2px solid rgb(var(--mint)); --capZ: 84%; --capBd: 2px solid rgb(var(--mint)); --capSh: none;
+    --arW: .12; --arA: rgba(214,128,10,.95); --arR: rgba(205,45,55,.9); --arG: rgba(45,105,200,.9); --arS: rgba(var(--ink),.65); }
+  .sq { box-shadow: var(--sqSh); }
   .sq.l { background: var(--sqL); } .sq.d { background: var(--sqD); }
+  /* the picker: one swatch per template, its name underneath */
   .themes { display: flex; gap: 8px; }
-  .themes button { width: 40px; height: 40px; border-radius: 10px; border: 2px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; overflow: hidden; padding: 0; }
-  .themes button.on { border-color: var(--amber); }
+  .themes button { display: grid; justify-items: center; gap: 3px; padding: 0; color: var(--dim); font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+  .themes button .sw { width: 46px; height: 46px; border-radius: 10px; border: 2px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; overflow: hidden; }
+  .themes button.on { color: var(--text); } .themes button.on .sw { border-color: var(--amber); }
   .themes button i { display: block; }
+  .themes button[data-theme="wire"] i { box-shadow: inset 0 0 0 .5px rgba(29,36,51,.45); }
   #tutor { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--ghost); border-radius: 14px; padding: 10px 12px 11px; }
   #tutor .th { display: flex; justify-content: space-between; align-items: baseline; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; color: var(--ghost); }
   #tutor .th small { color: var(--dim); letter-spacing: 0; text-transform: none; font-weight: 500; font-size: 12px; }
@@ -243,14 +271,12 @@
   .threat { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(255,90,95,.1); border: 1px solid rgba(255,90,95,.35); font-size: 13px; line-height: 1.35; }
   .threat b { color: var(--red); font-weight: 800; letter-spacing: .1em; font-size: 11px; display: block; margin-bottom: 2px; }
   .threat.calm { background: var(--panel2); border-color: var(--line); } .threat.calm b { color: var(--dim); }
-  .board .arrow line.red { stroke: rgba(255,90,95,.85); } .board .arrow polygon.red { fill: rgba(255,90,95,.85); }
-  .board .arrow line.ghost { stroke: rgba(169,210,255,.85); } .board .arrow polygon.ghost { fill: rgba(169,210,255,.85); }
   .players { display: flex; gap: 8px; }
   .btn:disabled { opacity: .35; }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   #nudgeRow .btn { font-size: 15px; } #nudgeRow .btn.on { border-color: var(--ghost); color: var(--ghost); }
   .board.sandbox { outline: 3px dashed rgba(169,210,255,.6); outline-offset: 3px; }
-  .board .arrow line.sand { stroke: rgba(139,147,161,.9); stroke-dasharray: .25 .18; } .board .arrow polygon.sand { fill: rgba(139,147,161,.9); }
+  .board .arrow line.sand { stroke-dasharray: .25 .18; }
   .ab { margin-left: auto; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); color: var(--ghost); font-weight: 800; font-size: 13px; letter-spacing: .04em; }
   .ab:active { border-color: var(--ghost); }
   .why { margin-top: 10px; display: grid; gap: 6px; font-size: 14px; line-height: 1.4; color: var(--text); border-top: 1px solid var(--line); padding-top: 10px; }
@@ -291,44 +317,43 @@
   .opening b { color: var(--text); font-weight: 600; }
   #rOpening { margin: 4px 0 8px; }
   .sq::before { content: ""; position: absolute; inset: 0; pointer-events: none; }
-  .sq.last::before { background: rgba(242,178,76,.42); }
+  .sq.last::before { background: var(--last); box-shadow: var(--lastSh, none); }
   .sq.chk::before { background: rgba(255,90,95,.6); }
-  .sq.sel::before { box-shadow: inset 0 0 0 3px var(--amber); }
-  .sq.tgt::after, .sq.cap::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 30%; height: 30%; border-radius: 50%;
-    background: rgba(11,13,18,.32); pointer-events: none; z-index: 2; }
-  .sq.cap::after { width: 88%; height: 88%; background: none; border: 4px solid rgba(11,13,18,.32); }
-  .pc { position: relative; z-index: 1; font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif; }
-  .pc.w { color: #f4f1ea; text-shadow: 0 1px 1px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.8); }
-  .pc.b { color: #1a1d24; text-shadow: 0 0 2px rgba(255,255,255,.55), 0 1px 1px rgba(255,255,255,.25); }
-  .pc.svg { display: block; width: 88%; height: 88%; background: no-repeat center / contain; text-indent: -9999px; overflow: hidden; text-shadow: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,.45)); }
-  .pc.svg.cw.tk { background-image: url(vendor/pieces/wK.svg); } .pc.svg.cw.tq { background-image: url(vendor/pieces/wQ.svg); } .pc.svg.cw.tr { background-image: url(vendor/pieces/wR.svg); }
-  .pc.svg.cw.tb { background-image: url(vendor/pieces/wB.svg); } .pc.svg.cw.tn { background-image: url(vendor/pieces/wN.svg); } .pc.svg.cw.tp { background-image: url(vendor/pieces/wP.svg); }
-  .pc.svg.cb.tk { background-image: url(vendor/pieces/bK.svg); } .pc.svg.cb.tq { background-image: url(vendor/pieces/bQ.svg); } .pc.svg.cb.tr { background-image: url(vendor/pieces/bR.svg); }
-  .pc.svg.cb.tb { background-image: url(vendor/pieces/bB.svg); } .pc.svg.cb.tn { background-image: url(vendor/pieces/bN.svg); } .pc.svg.cb.tp { background-image: url(vendor/pieces/bP.svg); }
-  .sq .cr, .sq .cf { position: absolute; font-size: 9px; font-weight: 700; opacity: .55; pointer-events: none; }
+  .sq.sel::before { box-shadow: var(--selSh); }
+  /* the Stone templates fill the selected square with mint; Classic only rings it, so a check or the last move shows through */
+  :root:not([data-theme="classic"]) .sq.sel::before { background: var(--selBg); }
+  /* Dark's last-move ring under a selection: the mint ring stays outermost, the amber one just inside it */
+  [data-theme="dark"] .sq.last.sel::before { box-shadow: var(--selSh), inset 0 0 0 6px var(--amber); }
+  .sq.tgt::after, .sq.cap::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: var(--tgtZ); height: var(--tgtZ); border-radius: 50%;
+    background: var(--tgtBg); box-shadow: var(--tgtSh); border: var(--tgtBd); pointer-events: none; z-index: 2; }
+  .sq.cap::after { width: var(--capZ); height: var(--capZ); background: none; border: var(--capBd); box-shadow: var(--capSh); }
+  .pc { position: relative; z-index: 1; }
+  .pc.svg { display: block; width: 88%; height: 88%; background: no-repeat center / contain; text-indent: -9999px; overflow: hidden; filter: var(--pcF); }
+  .pc.svg.cb { filter: var(--pcFb); }
+  /* pieces: the Stone set by default, cburnett for Classic, the line-art Stone copy for Wire */
+  .pc.svg.cw.tk { background-image: url(vendor/pieces-stone/wK.svg); } .pc.svg.cw.tq { background-image: url(vendor/pieces-stone/wQ.svg); } .pc.svg.cw.tr { background-image: url(vendor/pieces-stone/wR.svg); }
+  .pc.svg.cw.tb { background-image: url(vendor/pieces-stone/wB.svg); } .pc.svg.cw.tn { background-image: url(vendor/pieces-stone/wN.svg); } .pc.svg.cw.tp { background-image: url(vendor/pieces-stone/wP.svg); }
+  .pc.svg.cb.tk { background-image: url(vendor/pieces-stone/bK.svg); } .pc.svg.cb.tq { background-image: url(vendor/pieces-stone/bQ.svg); } .pc.svg.cb.tr { background-image: url(vendor/pieces-stone/bR.svg); }
+  .pc.svg.cb.tb { background-image: url(vendor/pieces-stone/bB.svg); } .pc.svg.cb.tn { background-image: url(vendor/pieces-stone/bN.svg); } .pc.svg.cb.tp { background-image: url(vendor/pieces-stone/bP.svg); }
+  [data-theme="classic"] .pc.svg.cw.tk { background-image: url(vendor/pieces/wK.svg); } [data-theme="classic"] .pc.svg.cw.tq { background-image: url(vendor/pieces/wQ.svg); } [data-theme="classic"] .pc.svg.cw.tr { background-image: url(vendor/pieces/wR.svg); }
+  [data-theme="classic"] .pc.svg.cw.tb { background-image: url(vendor/pieces/wB.svg); } [data-theme="classic"] .pc.svg.cw.tn { background-image: url(vendor/pieces/wN.svg); } [data-theme="classic"] .pc.svg.cw.tp { background-image: url(vendor/pieces/wP.svg); }
+  [data-theme="classic"] .pc.svg.cb.tk { background-image: url(vendor/pieces/bK.svg); } [data-theme="classic"] .pc.svg.cb.tq { background-image: url(vendor/pieces/bQ.svg); } [data-theme="classic"] .pc.svg.cb.tr { background-image: url(vendor/pieces/bR.svg); }
+  [data-theme="classic"] .pc.svg.cb.tb { background-image: url(vendor/pieces/bB.svg); } [data-theme="classic"] .pc.svg.cb.tn { background-image: url(vendor/pieces/bN.svg); } [data-theme="classic"] .pc.svg.cb.tp { background-image: url(vendor/pieces/bP.svg); }
+  [data-theme="wire"] .pc.svg.cw.tk { background-image: url(vendor/pieces-stone-wire/wK.svg); } [data-theme="wire"] .pc.svg.cw.tq { background-image: url(vendor/pieces-stone-wire/wQ.svg); } [data-theme="wire"] .pc.svg.cw.tr { background-image: url(vendor/pieces-stone-wire/wR.svg); }
+  [data-theme="wire"] .pc.svg.cw.tb { background-image: url(vendor/pieces-stone-wire/wB.svg); } [data-theme="wire"] .pc.svg.cw.tn { background-image: url(vendor/pieces-stone-wire/wN.svg); } [data-theme="wire"] .pc.svg.cw.tp { background-image: url(vendor/pieces-stone-wire/wP.svg); }
+  [data-theme="wire"] .pc.svg.cb.tk { background-image: url(vendor/pieces-stone-wire/bK.svg); } [data-theme="wire"] .pc.svg.cb.tq { background-image: url(vendor/pieces-stone-wire/bQ.svg); } [data-theme="wire"] .pc.svg.cb.tr { background-image: url(vendor/pieces-stone-wire/bR.svg); }
+  [data-theme="wire"] .pc.svg.cb.tb { background-image: url(vendor/pieces-stone-wire/bB.svg); } [data-theme="wire"] .pc.svg.cb.tn { background-image: url(vendor/pieces-stone-wire/bN.svg); } [data-theme="wire"] .pc.svg.cb.tp { background-image: url(vendor/pieces-stone-wire/bP.svg); }
+  .sq .cr, .sq .cf { position: absolute; font-size: 9px; font-weight: 700; opacity: var(--crO); pointer-events: none; }
   .sq .cr { left: 2px; top: 1px; } .sq .cf { right: 3px; bottom: 1px; }
   .sq.l .cr, .sq.l .cf { color: var(--crL); } .sq.d .cr, .sq.d .cf { color: var(--crD); }
   .board .arrow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
-  .board .arrow line { stroke: rgba(242,178,76,.9); stroke-width: .22; stroke-linecap: round; }
-  .board .arrow polygon { fill: rgba(242,178,76,.9); }
-  /* Stone: original abstract piece set on a pale board, mint glow for the selection and legal moves */
-  [data-theme="stone"] .pc.svg.cw.tk { background-image: url(vendor/pieces-stone/wK.svg); } [data-theme="stone"] .pc.svg.cw.tq { background-image: url(vendor/pieces-stone/wQ.svg); } [data-theme="stone"] .pc.svg.cw.tr { background-image: url(vendor/pieces-stone/wR.svg); }
-  [data-theme="stone"] .pc.svg.cw.tb { background-image: url(vendor/pieces-stone/wB.svg); } [data-theme="stone"] .pc.svg.cw.tn { background-image: url(vendor/pieces-stone/wN.svg); } [data-theme="stone"] .pc.svg.cw.tp { background-image: url(vendor/pieces-stone/wP.svg); }
-  [data-theme="stone"] .pc.svg.cb.tk { background-image: url(vendor/pieces-stone/bK.svg); } [data-theme="stone"] .pc.svg.cb.tq { background-image: url(vendor/pieces-stone/bQ.svg); } [data-theme="stone"] .pc.svg.cb.tr { background-image: url(vendor/pieces-stone/bR.svg); }
-  [data-theme="stone"] .pc.svg.cb.tb { background-image: url(vendor/pieces-stone/bB.svg); } [data-theme="stone"] .pc.svg.cb.tn { background-image: url(vendor/pieces-stone/bN.svg); } [data-theme="stone"] .pc.svg.cb.tp { background-image: url(vendor/pieces-stone/bP.svg); }
-  [data-theme="stone"] .pc.svg { filter: drop-shadow(0 1px 1px rgba(0,0,0,.18)); }
-  [data-theme="stone"] .sq { box-shadow: inset 0 0 0 .5px rgba(255,255,255,.6); }
-  [data-theme="stone"] .sq.last::before { background: rgba(236,166,52,.4); }
-  [data-theme="stone"] .sq.sel::before { background: rgba(var(--mint),.28); box-shadow: inset 0 0 0 3px rgb(var(--mint)), inset 0 0 12px rgba(var(--mint),.9); }
-  [data-theme="stone"] .sq.tgt::after { background: rgba(var(--mint),.85); box-shadow: 0 0 8px 2px rgba(var(--mint),.7); }
-  [data-theme="stone"] .sq.cap::after { background: none; border-color: rgba(var(--mint),.9); box-shadow: 0 0 8px rgba(var(--mint),.7), inset 0 0 8px rgba(var(--mint),.6); }
-  [data-theme="stone"] .board .arrow line { stroke: rgba(222,140,20,.9); } [data-theme="stone"] .board .arrow polygon { fill: rgba(222,140,20,.9); }
-  [data-theme="stone"] .board .arrow line.red { stroke: rgba(220,50,60,.85); } [data-theme="stone"] .board .arrow polygon.red { fill: rgba(220,50,60,.85); }
-  [data-theme="stone"] .board .arrow line.ghost { stroke: rgba(60,120,210,.85); } [data-theme="stone"] .board .arrow polygon.ghost { fill: rgba(60,120,210,.85); }
-  [data-theme="stone"] .board .arrow line.sand { stroke: rgba(84,92,106,.9); } [data-theme="stone"] .board .arrow polygon.sand { fill: rgba(84,92,106,.9); }
+  .board .arrow line { stroke: var(--arA); stroke-width: var(--arW); stroke-linecap: round; } .board .arrow polygon { fill: var(--arA); }
+  .board .arrow line.red { stroke: var(--arR); } .board .arrow polygon.red { fill: var(--arR); }
+  .board .arrow line.ghost { stroke: var(--arG); } .board .arrow polygon.ghost { fill: var(--arG); }
+  .board .arrow line.sand { stroke: var(--arS); } .board .arrow polygon.sand { fill: var(--arS); }
   .prow { position: relative; }
   .prow[data-pc]::after { content: attr(data-pc); position: absolute; left: 50%; top: 50%; transform: translate(-50%, -55%); padding: 2px 10px; border-radius: 999px;
-    background: rgba(72,196,140,.16); border: 1px solid rgba(72,196,140,.55); color: #9fe6c4; font-size: 12px; font-weight: 700; letter-spacing: .06em; pointer-events: none; }
+    background: rgba(var(--mint),.16); border: 1px solid rgba(var(--mint),.55); color: #9fe6c4; font-size: 12px; font-weight: 700; letter-spacing: .06em; pointer-events: none; }
   /* label colours, shared by the rating strip, the move lists and the review panels */
   [data-label=best], [data-label=great], .l-best, .l-great { --lc: var(--green); }
   [data-label=good], .l-good { --lc: var(--ghost); }

@@ -11,7 +11,7 @@
     "test:curriculum": "node tools/curriculum-test.js",
     "test:puzzles": "node tools/puzzles-test.js",
     "test:endgames": "node tools/endgames-test.js",
-    "test:chess": "node tools/chess-e2e.js",
+    "test:chess": "node tools/chess-e2e.js && node tools/themes-e2e.js",
     "test:train": "node tools/puzzles-e2e.js && node tools/endgames-e2e.js && node tools/plan-e2e.js"
   },
   "dependencies": {

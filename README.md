@@ -14,22 +14,35 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   with a minimap, landmark labels, and the list of streets you drove at the finish. Direction signs at the screen edge point
   to the hotel, the next stop and the nearest of your Andiamo places (gold stars). Map data © OpenStreetMap contributors (ODbL).
 - **Garage:** Cinquecento, Maranello 12, Modena GT, San Cesario, Sant'Agata. These are homages named after towns, not brands.
+  In the 3D view each has its own low-poly body (the tall round Cinquecento with its white roof, the long-bonnet
+  Maranello, the longer-roofed Modena, the cab-forward San Cesario and the Sant'Agata wedge, both with a wing): wheels
+  that roll and steer, a body that leans in the corners and dips under braking, brake lights and a reverse light.
 - **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake; keep holding to reverse.
-- **Camera:** three views, picked with the *Camera* pill on the drive menu or pause sheet (tap to cycle; the choice is saved).
-  *Chase* (the default) is a 2.5D view from behind and above the car: the same 2D race drawn with real perspective by
+- **Camera:** four views, picked with the *Camera* pill on the drive menu or pause sheet (tap to cycle Chase, Bonnet,
+  Follow, North-up; the choice is saved).
+  *Chase* (the default) is a 3D view from behind and above the car: the same race drawn with real perspective by
   three.js, with the OpenStreetMap footprints round the route extruded into buildings (3 to 6 storeys, churches and monuments
   taller and floodlit, lit windows), street lamps, the car's headlight and the night vignette. Streets get kerbs and paved
-  pavements, with parked cars, plane trees or bollards where the building line opens up, and parapets on the bridges; the
-  circuits are lit all the way round, lined with trees, with the city on the horizon. The ghost is pale blue glass. *Follow* is the flat top-down
+  pavements, with parked cars, plane trees or bollards where the building line opens up, and parapets on the bridges. The
+  road has a slight crown with the markings painted on it (a white dashed centre line in town), patches of older and
+  newer asphalt and manhole covers, and the nearest street lamps shine back off the wet asphalt as long streaks (on the road only); hard braking and slides
+  leave tyre marks and smoke, a wall scrape smokes, and a knock on a wall gives the camera a small shake. The
+  circuits are lit all the way round, lined with trees, with the city on the horizon. The ghost is pale blue glass. The lens
+  widens a little with speed and the camera falls back a touch, and it leans a degree or two into a corner. *Bonnet* is
+  the same 3D world from just above the bonnet, looking down the road: rigid on the car, so it rolls and dips with the
+  body; the bonnet is a curved strip at the bottom of the screen, the headlight's glare right under the lens is left
+  out so the road stays readable, and the signs sit just above the bonnet. *Follow* is the flat top-down
   view with the car's heading up the screen, and *North-up* the fixed map view. In every view the left thumb turns the car left
-  on screen, and the minimap stays north-up, with the car as an arrow. A phone without WebGL gets Follow instead of Chase.
-  In Chase the map labels thin out to what you can read: at most six, nearest first, faded with distance, never overlapping,
+  on screen, and the minimap stays north-up, with the car as an arrow. A phone without WebGL gets Follow instead of Chase
+  or Bonnet. How the race was turned 3D, and what stays 2D, is in [docs/drive/3d-conversion.md](docs/drive/3d-conversion.md).
+  In Chase and Bonnet the map labels thin out to what you can read: at most six, nearest first, faded with distance, never overlapping,
   kept off the car and the road, and never repeating the street at the top; the gold stars always show.
 - **Quality:** the *Quality* pill next to Camera (drive menu and pause sheet, saved) sets how much the Chase view draws.
   *High* is the full scene: pixel ratio up to 2, buildings up to 1100 units either side of the route, four street lamps that
   really light the road, the full fog distance. *Low* draws at 1x (in every view), builds buildings only 40% as far out, keeps
   one real lamp light plus the headlight, pulls the fog (and in town the far plane) in, halves the parked cars, trees and
-  bollards, and uses plain windows; on a phone that starts on Low there is no MSAA either. *Auto* (the default) starts on
+  bollards, and uses plain windows and plain asphalt (no patches or manholes), keeps 400 tyre marks instead of 1200, no
+  tyre smoke and no lamp reflections; on a phone that starts on Low there is no MSAA either. *Auto* (the default) starts on
   High and, if a race runs under about 45 fps for 3 seconds, drops to Low for the rest of the session (never back up mid-way),
   saying "Lowered graphics to keep it smooth" the first time it ever happens. Lights, pixel ratio, fog and windows change at
   once; the buildings and furniture are rebuilt at the next race (or straight away from the pause sheet when that takes
@@ -125,15 +138,27 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   what is better, twice a turn. *Read the board* describes the position plainly for both sides: material, the engine's
   view, development, kings, centre, hanging pieces, the opponent's idea, and each side's priority. Both count as nudges
   in your history, separately from hints.
-- **Board themes:** Stone (the default), Night, Wood, Modern and Mono, chosen per player. The first four use the cburnett SVG piece set;
-  Stone is a pale, low-contrast board with its own abstract stone piece set (speckled white, graphite black), one bold
-  cue per piece (cross-cut king, crowned queen, notched rook, slit bishop, bitten knight, bud pawn), a mint glow on the
-  selected square and legal moves, and the piece's name shown under the board for a second when you pick it up. Chess
-  only; the racer keeps its look.
+- **Board templates:** four, chosen per player from the swatches on the chess home, and followed by every board in the
+  app (game, review, post-mortem, lesson, drill cards, Tactics, Endgames). Chess only; the racer keeps its look. Themes
+  saved before the templates move over: Wood becomes Classic; Night, Modern and Mono become Stone.
+  - *Stone* (the default): a pale, low-contrast board with the app's own abstract stone piece set (speckled white,
+    graphite black), one bold cue per piece (cross-cut king, crowned queen, notched rook, slit bishop, bitten knight, bud
+    pawn), a mint glow on the selected square and legal moves, and the piece's name shown under the board for a second
+    when you pick it up.
+  - *Classic*: the tournament look, buff and brown squares with the cburnett pieces, an amber ring on the selection and
+    dark dots for the moves.
+  - *Dark*: the Stone pieces on deep slate squares that sit in the app's dark UI; the graphite pieces get a pale rim so
+    they never sink into a dark square, and the last move is ringed in amber (a fill would go brown on slate). Mint glow
+    and the piece name as in Stone.
+  - *Wire*: a drafting sheet. Paper squares ruled with hairlines, the dark ones hatched, and a line-art copy of the Stone
+    pieces: White is a hollow ink outline, Black a solid ink silhouette with a paper hairline inside its edge (the printed
+    diagram convention, so the sides read at a glance even on the small post-mortem board). Thin mint outlines instead
+    of the glow, and the piece name as in Stone.
 - **History:** your last 20 games and their reports are kept on the phone. Promotion is always to a queen.
 - Credits: [Stockfish](https://stockfishchess.org) (GPL-3.0, `vendor/STOCKFISH-LICENSE.txt`) via
   [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause); [three.js](https://threejs.org) r184 for the chase camera (MIT, `vendor/three/LICENSE`); piece set by Colin M.L. Burnett (GPLv2+, from lichess,
-  `vendor/pieces/`); the Stone pieces in `vendor/pieces-stone/` are original drawings for this app; opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
+  `vendor/pieces/`, the Classic board); the Stone pieces in `vendor/pieces-stone/` are original drawings for this app, and the Wire pieces in
+  `vendor/pieces-stone-wire/` are line-art derivatives of them (`node tools/build-wire-pieces.mjs`); opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
 
 ## Train
 
@@ -301,13 +326,16 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `puzzles.js`, `puzzles-data.js`: the Tactics screen and its lichess puzzle set (`tools/build-puzzles.mjs`, `node tools/puzzles-test.js`)
 - `endgames.js`: the Endgames catalogue and drill screen (`node tools/endgames-test.js`)
 - `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)
-- `vendor/`: chess.js, the Stockfish lite WASM engine, the piece SVGs, and three.js (`vendor/three/`, the ES module build, loaded by `chase.js`)
+- `vendor/`: chess.js, the Stockfish lite WASM engine, the piece SVGs (`pieces/` cburnett for Classic, `pieces-stone/` for Stone and Dark,
+  `pieces-stone-wire/` for Wire, generated from the Stone set by `tools/build-wire-pieces.mjs`), and three.js (`vendor/three/`, the ES module build, loaded by `chase.js`)
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
 - `game.js`: rendering, input, menus, sound, saving, offline status
-- `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`)
+- `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`, and for the two 3D cameras `setView`, `view`, `yaw`, `carRect`)
+- `chase-cars.js`: the cars in 3D (bodies from a side profile per style, rolling and steering wheels, body roll and pitch, lights), imported by `chase.js`
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `docs/chess/`: the research report, the learning plan and the curriculum JSON behind Train
-- `tools/`: OSM fetch and build scripts, synthetic test map, headless tests (`tools/e2e.js`, `tools/chess-e2e.js`, `tools/puzzles-e2e.js`, `tools/endgames-e2e.js`, `tools/plan-e2e.js`)
+- `docs/drive/3d-conversion.md`: how the race became 3D: what stays 2D, what changed, the draw-call budget per quality level
+- `tools/`: OSM fetch and build scripts, synthetic test map, headless tests (`tools/e2e.js`, `tools/chess-e2e.js`, `tools/themes-e2e.js` (the four board templates on every board, with screenshots), `tools/puzzles-e2e.js`, `tools/endgames-e2e.js`, `tools/plan-e2e.js`)
 - `package.json`, `capacitor.config.json`, `ios/`, `tools/build-www.mjs`: the native iOS wrapper (see TESTFLIGHT.md)
 

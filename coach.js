@@ -6,7 +6,12 @@
 
   // ---------- saving --------------------------------------------------------
   const KEY = 'ghostlap-chess-v1';
-  const THEMES = { night: ['#9aa7b8', '#4a5568'], wood: ['#f0d9b5', '#b58863'], modern: ['#eeeed2', '#769656'], mono: ['#d5d8de', '#6e7480'], stone: ['#e6e2da', '#cdc8bf'] };
+  // board templates, in picker order: [name, light square, dark square] for the swatch. The looks themselves are in index.html.
+  // Stone, Dark and Wire share the Stone pieces and the Stone cues (mint selection, the piece named under the board); Classic is
+  // the traditional board with the cburnett pieces and the amber ring.
+  const THEMES = { stone: ['Stone', '#e6e2da', '#cdc8bf'], classic: ['Classic', '#f0d9b5', '#b58863'], dark: ['Dark', '#4b5568', '#2e3544'],
+    wire: ['Wire', '#f4f1e8', 'repeating-linear-gradient(135deg, rgba(29,36,51,.22) 0 1px, transparent 1px 4px) #ebe7dc'] };
+  const OLD_THEMES = { wood: 'classic' };   // the five themes before the templates: Wood lives on as Classic, Night, Modern and Mono go to Stone
   const VOICES = ['tough', 'kind', 'quiet'];
   const MODES = ['play', 'tutor', 'train'];   // Train: a training game. Nothing from the engine during play (the research: no live verdicts, narrative before engine)
   const clampElo = (e) => Math.max(800, Math.min(2850, Math.round((+e || 1600) / 50) * 50));
@@ -26,6 +31,7 @@
     if (q.calib && !Array.isArray(q.calib.games)) q.calib = null;
     if (!'wbr'.includes(q.color) || q.color.length !== 1) q.color = 'w';
     q.elo = clampElo(q.elo);
+    if (OLD_THEMES[q.theme]) q.theme = OLD_THEMES[q.theme];
     if (!THEMES[q.theme]) q.theme = 'stone';
     if (!MODES.includes(q.mode)) q.mode = 'play';
     if (!Array.isArray(q.ledger)) q.ledger = [];               // one compact row per analysed game, kept forever (games themselves are capped at 20)
@@ -38,6 +44,7 @@
   if (!save.players[save.player]) save.player = 'jesse';
   const P = () => save.players[save.player];
   const voice = () => P().voice;
+  const stoneish = () => P().theme !== 'classic';   // the Stone templates (Stone, Dark, Wire) name the piece you pick up
   const narrow = () => P().reviewLevel !== 'full';   // the engine's job before Stage 3: where material went, where the eval swung. No lines.
   function applyTheme() { document.documentElement.dataset.theme = P().theme; }
   applyTheme();
@@ -455,7 +462,7 @@
     if (p && p.color === game.you && c.turn() === game.you && sq !== sel) {
       sel = sq;
       targets = c.moves({ square: sq, verbose: true }).map((m) => ({ to: m.to, capture: !!m.captured, promotion: !!m.promotion }));
-      if (P().theme === 'stone') { const n = $('youName').parentNode; n.dataset.pc = cap(PIECE[p.type]); clearTimeout(n._pt); n._pt = setTimeout(() => delete n.dataset.pc, 1200); }   // Stone: name the piece
+      if (stoneish()) { const n = $('youName').parentNode; n.dataset.pc = cap(PIECE[p.type]); clearTimeout(n._pt); n._pt = setTimeout(() => delete n.dataset.pc, 1200); }   // Stone templates: name the piece
     } else { sel = null; targets = []; }
     drawGame();
   }
@@ -1265,7 +1272,8 @@
     const tr = $('themeRow');
     if (!tr.children.length) for (const k of Object.keys(THEMES)) {
       const b = document.createElement('button'); b.dataset.theme = k; b.setAttribute('aria-label', k + ' board');
-      const [l, d] = THEMES[k]; b.innerHTML = '<i style="background:' + l + '"></i><i style="background:' + d + '"></i><i style="background:' + d + '"></i><i style="background:' + l + '"></i>';
+      const [name, l, d] = THEMES[k], sq = (c) => '<i style="background:' + c + '"></i>';
+      b.innerHTML = '<span class="sw">' + sq(l) + sq(d) + sq(d) + sq(l) + '</span>'; b.appendChild(document.createTextNode(name));
       b.onclick = () => { P().theme = k; persist(); applyTheme(); renderSettings(); };
       tr.appendChild(b);
     }

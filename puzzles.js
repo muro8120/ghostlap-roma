@@ -89,12 +89,7 @@
   // ---------- the screen, built from here so index.html stays untouched ----------
   const CSS = `
   #puzzles { overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; background: var(--bg); overflow-x: hidden;
-    padding: calc(var(--st) + 10px) calc(var(--sr) + 16px) calc(var(--sb) + 28px) calc(var(--sl) + 16px); --sq: calc(min(100vw - 32px, 52vh) / 8);
-    --sqL: #9aa7b8; --sqD: #4a5568; --crL: #2b3340; --crD: #c7d0dc; }
-  [data-theme="wood"] #puzzles { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; }
-  [data-theme="modern"] #puzzles { --sqL: #eeeed2; --sqD: #769656; --crL: #6b7a4a; --crD: #eeeed2; }
-  [data-theme="mono"] #puzzles { --sqL: #d5d8de; --sqD: #6e7480; --crL: #4a505c; --crD: #e4e7ec; }
-  [data-theme="stone"] #puzzles { --sqL: #e6e2da; --sqD: #cdc8bf; --crL: #8f897f; --crD: #f6f3ee; --mint: 72,196,140; }
+    padding: calc(var(--st) + 10px) calc(var(--sr) + 16px) calc(var(--sb) + 28px) calc(var(--sl) + 16px); --sq: calc(min(100vw - 32px, 52vh) / 8); }   /* square colours, pieces and marks come from the board template on <html> (index.html) */
   #puzzles [hidden] { display: none !important; }
   #puzzles .brow { justify-content: center; margin-top: 4px; }
   #puzzles .bar { margin-bottom: 4px; } #puzzles .bar b { transition: width .3s; }
