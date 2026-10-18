@@ -3,11 +3,11 @@
 // the car's headlight. World (x, y) maps to three (x, height, y), so headings and turns carry over unchanged.
 // Loaded as a module (three is ESM only); sets window.Chase. game.js calls init / build / render / toScreen.
 import * as THREE from './vendor/three/three.module.min.js';
+import { carMesh, poseCar, resetCar, carInfo } from './chase-cars.js';
 
 const CL = 30;                       // the car length the camera is framed on (world units)
 const BACK = CL * 5.0, UP = CL * 1.6, LOOK = CL * 20; // chase distance, eye height, and how far ahead it looks
 const LAG = 0.44;                    // the most the camera's yaw may trail the car's heading (25 degrees)
-const CAR_SC = 1.2;                  // the cars drawn a touch bigger than their physics box, so they don't read as toys
 const STOREY = 3.2;                  // metres
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const C = (c) => new THREE.Color(c);
@@ -19,7 +19,7 @@ function hash(a, b) { // stable 0..1 from two integers, so the skyline is the sa
 
 let R = null, scene = null, cam = null, cw = 1, ch = 1, dprNow = 1;
 let curT = null, world = null, sky = null, hemi = null, head = null, headT = null, pool = [], lampHeads = [];
-let carM = null, ghostM = null, carKey = '', ghostKey = '', tailMat = null, bMat = null, stats = {};
+let carM = null, ghostM = null, carKey = '', ghostKey = '', bMat = null, stats = {};
 // quality: 'high' (pixel ratio up to 2, four real lamp lights, buildings 1100 out from the route) or 'low' (pixel ratio 1, one
 // lamp light plus the headlight, buildings 40% closer in, half the street furniture, nearer fog, plain windows, no MSAA).
 // The lights, pixel ratio, fog and windows change live; the rest waits for the next build (or rebuild()).
@@ -181,7 +181,6 @@ function init(canvas, dpr) {
   for (let k = 0; k < 4; k++) { const l = new THREE.PointLight('#ffb36b', 0, 330, 1.25); pool.push(l); scene.add(l); }
   sky = makeSky(); scene.add(sky);
   bMat = buildingMaterial();
-  tailMat = new THREE.MeshBasicMaterial({ color: '#7a1010' });
   resize(window.innerWidth, window.innerHeight, dpr);
   setQuality(qLevel);
   return true;
@@ -224,7 +223,7 @@ function disposeObj(o) {
   o.traverse((m) => {
     if (m.geometry) m.geometry.dispose();
     const ms = Array.isArray(m.material) ? m.material : m.material ? [m.material] : [];
-    for (const x of ms) { if (x === bMat || x === tailMat) continue; if (x.map && !Object.values(TEX || {}).includes(x.map)) x.map.dispose(); x.dispose(); }
+    for (const x of ms) { if (x === bMat) continue; if (x.map && !Object.values(TEX || {}).includes(x.map)) x.map.dispose(); x.dispose(); }
   });
 }
 function dispose() {
@@ -343,7 +342,7 @@ function groundMat(o, kind) {
 }
 
 const PAVE = 2.3; // the top of the city pavements (the road is at 1.3: a kerb of about 20 cm)
-let paveSide = null, carLift = 0;
+let paveSide = null, carLift = 1.3;
 function buildWorld(W, T, def) {
   const city = !!(W.city && window.ROME), ROME = window.ROME, S = city ? ROME.S : 4.5;
   const tx = textures();
@@ -984,46 +983,11 @@ function merged(parts) { // [[geometry, x, y, z, colour?], ...]; with colours, a
   if (tinted) g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
   return g;
 }
-function carMesh(sp, ghost) {
-  const g = new THREE.Group(), L = sp.len, Wd = sp.wid, st = sp.style;
-  const bh = st === 'bubble' ? Wd * 0.42 : st === 'wedge' ? Wd * 0.27 : Wd * 0.31, y0 = 2.6;
-  const B = (w, h, d, x, y, z) => [new THREE.BoxGeometry(w, h, d), x, y, z];
-  const cl = st === 'bubble' ? 0.55 : st === 'gt' ? 0.4 : 0.42, cx = st === 'gt' ? -L * 0.12 : -L * 0.04, chh = st === 'bubble' ? Wd * 0.36 : Wd * 0.27;
-  const body = [B(L, bh, Wd, 0, y0 + bh / 2, 0)], cabin = [B(L * cl, chh, Wd * 0.8, cx, y0 + bh + chh / 2, 0)];
-  const roof = [B(L * cl * 0.8, 0.8, Wd * 0.72, cx - L * 0.02, y0 + bh + chh + 0.4, 0)];
-  if (st === 'hyper' || st === 'wedge') roof.push(B(L * 0.08, 1.2, Wd * 0.9, -L * 0.46, y0 + bh + 2.6, 0)); // wing
-  g.scale.setScalar(CAR_SC);
-  if (ghost) {
-    // a ghost: pale blue glass with a faint bright outline, and a cold glow on the road so it shows on dark asphalt
-    const all = body.concat(cabin, roof), edges = all.map(([b0, x, y, z]) => [new THREE.EdgesGeometry(b0), x, y, z]);
-    g.add(new THREE.Mesh(merged(all),new THREE.MeshBasicMaterial({ color: '#a9d3ff', transparent: true, opacity: 0.42, depthWrite: false })));
-    const ol = new THREE.LineSegments(merged(edges), new THREE.LineBasicMaterial({ color: '#e4f3ff', transparent: true, opacity: 0.4, depthWrite: false }));
-    ol.renderOrder = 4; g.add(ol);
-    const gl = new THREE.Mesh(new THREE.PlaneGeometry(L * 2, Wd * 2.6).rotateX(-Math.PI / 2), additive({ map: textures().glow, color: C('#5f9dff').multiplyScalar(0.4) }));
-    gl.position.y = 2.1; gl.renderOrder = 2; g.add(gl);
-    return g;
-  }
-  g.add(new THREE.Mesh(merged(body), lambert({ color: sp.body, emissive: C(sp.body).multiplyScalar(0.08) })));
-  g.add(new THREE.Mesh(merged(cabin), lambert({ color: '#0d1117' })));
-  g.add(new THREE.Mesh(merged(roof), lambert({ color: sp.roof })));
-  const wheels = []; for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) wheels.push([new THREE.CylinderGeometry(3, 3, 2.6, 10).rotateX(Math.PI / 2), sx * L * 0.32, 3, sz * (Wd / 2 - 0.6)]);
-  g.add(new THREE.Mesh(merged(wheels), lambert({ color: '#0b0b0c' })));
-  const hl = [], tl = [];
-  for (const sz of [-1, 1]) { hl.push(B(0.8, 1.6, Wd * 0.2, L / 2 + 0.2, y0 + bh * 0.62, sz * Wd * 0.3)); tl.push(B(0.8, 1.6, Wd * 0.24, -L / 2 - 0.2, y0 + bh * 0.66, sz * Wd * 0.3)); }
-  g.add(new THREE.Mesh(merged(hl), new THREE.MeshBasicMaterial({ color: '#fff4d6' })), new THREE.Mesh(merged(tl), tailMat));
-  const blob = new THREE.Mesh(new THREE.PlaneGeometry(L * 1.5, Wd * 1.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: textures().blob, transparent: true, depthWrite: false, opacity: 0.8 }));
-  blob.position.y = 2.0; blob.renderOrder = 1; g.add(blob);
-  const beam = new THREE.Mesh(new THREE.PlaneGeometry(300, 190).rotateX(-Math.PI / 2), additive({ map: textures().beam, color: C('#ffe9c4').multiplyScalar(0.22) }));
-  beam.position.set(L * 0.45 + 150, 2.3, 0); beam.renderOrder = 3; g.add(beam);
-  // the beam's sheen on wet asphalt: a long soft streak down the middle of the throw
-  const wet = new THREE.Mesh(new THREE.PlaneGeometry(230, 30).rotateX(-Math.PI / 2), additive({ map: textures().glow, color: C('#ffe2b8').multiplyScalar(0.14) }));
-  wet.position.set(L * 0.5 + 100, 2.4, 0); wet.renderOrder = 3; g.add(wet);
-  return g;
-}
-function placeCar(m, c) { m.position.set(c.x, 0, c.y); m.rotation.y = -c.a; }
+// the cars themselves are in chase-cars.js: bodies, wheels, lights, roll and pitch
+const carTex = () => { const t = textures(); return { glow: t.glow, blob: t.blob, beam: t.beam }; };
 
 // ---------- public: render ----------------------------------------------------------------
-function snap(car) { cs.yaw = car.a; cs.ao = 0; cs.x = car.x - Math.cos(car.a) * BACK; cs.y = car.y - Math.sin(car.a) * BACK; cs.ok = true; }
+function snap(car) { cs.yaw = car.a; cs.ao = 0; cs.x = car.x - Math.cos(car.a) * BACK; cs.y = car.y - Math.sin(car.a) * BACK; cs.ok = true; carLift = 1.3; resetCar(carM); resetCar(ghostM); }
 function render(car, ghost, dt) {
   if (!R || !world) return;
   if (!cs.ok) snap(car);
@@ -1048,21 +1012,22 @@ function render(car, ghost, dt) {
 
   // the player's car, its headlight and tail lights
   const key = car.spec.id;
-  if (key !== carKey) { if (carM) { scene.remove(carM); disposeObj(carM); } carM = carMesh(car.spec, false); scene.add(carM); carKey = key; }
-  placeCar(carM, car);
-  // up the kerb onto the pavement when the car runs wide in town
-  let lift = 0;
-  if (paveSide && car.idx != null && Math.abs(car.off || 0) > curT.hw + 8 && !car.zone) { const on = paveSide[car.off > 0 ? 1 : 0][car.idx]; if (on) lift = PAVE - 1.3; }
+  if (key !== carKey) { if (carM) { scene.remove(carM); disposeObj(carM); } carM = carMesh(car.spec, false, carTex()); scene.add(carM); carKey = key; }
+  // the road surface under the car: asphalt, the run-off a little lower, the pavement up the kerb when it runs wide in town
+  let lift = 1.3;
+  const off = Math.abs(car.off || 0);
+  if (car.zone) lift = 1.65;
+  else if (off > curT.hw + 4) lift = paveSide ? 1.2 : 1.0;
+  if (paveSide && car.idx != null && off > curT.hw + 8 && !car.zone && paveSide[car.off > 0 ? 1 : 0][car.idx]) lift = PAVE;
   carLift += (lift - carLift) * (1 - Math.exp(-25 * dt));
-  carM.position.y = carLift;
-  tailMat.color.set(car.rev ? '#f4f6ff' : car.braking ? '#ff2a2a' : '#8a1414');
+  poseCar(carM, car, dt, carLift, { low: qLevel === 'low' });
   const cx = Math.cos(car.a), cy = Math.sin(car.a);
   head.position.set(car.x + cx * car.spec.len * 0.5, 9, car.y + cy * car.spec.len * 0.5);
   headT.position.set(car.x + cx * 260, 0, car.y + cy * 260);
   // ghost
   const gk = ghost && ghost.spec ? ghost.spec.id : '';
-  if (gk !== ghostKey) { if (ghostM) { scene.remove(ghostM); disposeObj(ghostM); ghostM = null; } if (gk) { ghostM = carMesh(ghost.spec, true); scene.add(ghostM); } ghostKey = gk; }
-  if (ghostM) { ghostM.visible = !!ghost; if (ghost) placeCar(ghostM, ghost); }
+  if (gk !== ghostKey) { if (ghostM) { scene.remove(ghostM); disposeObj(ghostM); ghostM = null; } if (gk) { ghostM = carMesh(ghost.spec, true, carTex()); scene.add(ghostM); } ghostKey = gk; }
+  if (ghostM) { ghostM.visible = !!ghost; if (ghost) poseCar(ghostM, ghost, dt, 1.3); }
 
   // the four street lamps nearest the road ahead (one on Low) get a real light; their strength fades with distance so swaps don't pop
   const ax = car.x + fx * 140, ay = car.y + fy * 140, best = [], nl = Q.lamps;
@@ -1079,7 +1044,7 @@ function render(car, ghost, dt) {
   }
   R.render(scene, cam);
   const i = R.info.render;
-  stats.calls = i.calls; stats.triangles = i.triangles;
+  stats.calls = i.calls; stats.triangles = i.triangles; stats.car = carInfo(carM);
 }
 
 // world point -> CSS pixels on the screen, plus its depth; null when behind the camera

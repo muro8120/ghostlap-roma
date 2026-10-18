@@ -14,6 +14,9 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   with a minimap, landmark labels, and the list of streets you drove at the finish. Direction signs at the screen edge point
   to the hotel, the next stop and the nearest of your Andiamo places (gold stars). Map data © OpenStreetMap contributors (ODbL).
 - **Garage:** Cinquecento, Maranello 12, Modena GT, San Cesario, Sant'Agata. These are homages named after towns, not brands.
+  In the 3D view each has its own low-poly body (the tall round Cinquecento with its white roof, the long-bonnet
+  Maranello, the longer-roofed Modena, the cab-forward San Cesario and the Sant'Agata wedge, both with a wing): wheels
+  that roll and steer, a body that leans in the corners and dips under braking, brake lights and a reverse light.
 - **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake; keep holding to reverse.
 - **Camera:** three views, picked with the *Camera* pill on the drive menu or pause sheet (tap to cycle; the choice is saved).
   *Chase* (the default) is a 2.5D view from behind and above the car: the same 2D race drawn with real perspective by
@@ -305,6 +308,7 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
 - `game.js`: rendering, input, menus, sound, saving, offline status
 - `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`)
+- `chase-cars.js`: the cars in 3D (bodies from a side profile per style, rolling and steering wheels, body roll and pitch, lights), imported by `chase.js`
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `docs/chess/`: the research report, the learning plan and the curriculum JSON behind Train

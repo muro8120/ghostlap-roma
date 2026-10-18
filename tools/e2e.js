@@ -211,6 +211,21 @@ if (process.env.ROME_JS) {
   await p2.waitForFunction(() => window.__ghostlap.view.chase, null, { timeout: 8000 }).catch(() => {});
   const vch = await p2.evaluate(() => window.__ghostlap.view);
   check('chase camera is the default: straight behind the car, low in the middle', vch.mode === 'chase' && vch.chase && Math.abs(vch.a + Math.PI / 2) < 0.1 && vch.y > 0.55 && vch.y < 0.8 && Math.abs(vch.x - 0.5) < 0.05, JSON.stringify(vch));
+  // the 3D car: a real body within its triangle budget, front wheels that steer with the thumb, a body that leans in the
+  // corner and wheels that roll; both thumbs light the brake lights, and reversing the reverse light
+  const down = (id, x) => p2.evaluate(([id, x]) => document.getElementById('view').dispatchEvent(new PointerEvent('pointerdown', { pointerId: id, clientX: x, clientY: 700, bubbles: true, pointerType: 'touch' })), [id, x]);
+  const up = (id) => p2.evaluate((id) => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: id, bubbles: true, pointerType: 'touch' })), id);
+  await p2.waitForTimeout(600);
+  const k0 = await p2.evaluate(() => window.__ghostlap.chase.car);
+  await down(21, 60); await p2.waitForTimeout(500);
+  const k1 = await p2.evaluate(() => window.__ghostlap.chase.car);
+  await down(22, 330); await p2.waitForTimeout(400);
+  const k2 = await p2.evaluate(() => window.__ghostlap.chase.car);
+  await p2.waitForTimeout(1500);
+  const k3 = await p2.evaluate(() => ({ ...window.__ghostlap.chase.car, rev: window.__ghostlap.chase.car.rev, isRev: !!window.__ghostlap.race.car.rev }));
+  await up(21); await up(22); await p2.waitForTimeout(300);
+  check('chase car: under 800 triangles, steers, leans, rolls, brake and reverse lights', k0.tris > 200 && k0.tris < 800 && k1.steer > 0.2 && Math.abs(k1.roll) > 0.003 && k1.spin !== k0.spin &&
+    k0.tail === 'a31717' && k2.tail === 'ff3a30' && (!k3.isRev || k3.rev === 'f4f6ff'), JSON.stringify({ k0, k1, k2, k3 }));
   await p2.evaluate(() => { window.__ghostlap.setCam('follow'); window.__ghostlap.startRace(0); });
   await p2.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
   const v0 = await p2.evaluate(() => window.__ghostlap.view);
@@ -377,8 +392,8 @@ if (process.env.ROME_JS) {
   check('loads in airplane mode', ok === true && hubOn && cards >= 4, `ok=${ok} hub=${hubOn} cards=${cards}`);
   const chessOff = await p3.evaluate(() => Promise.all(['coach.js', 'engine.js', 'openings.js', 'vendor/stockfish-19-lite-single.wasm', 'vendor/pieces/wK.svg'].map((a) => caches.match(a).then((r) => !!r)))).catch(() => []);
   check('chess files cached for offline', chessOff.length === 5 && chessOff.every(Boolean), JSON.stringify(chessOff));
-  const chaseOff = await p3.evaluate(() => Promise.all(['chase.js', 'vendor/three/three.module.min.js', 'vendor/three/three.core.min.js'].map((a) => caches.match(a).then((r) => !!r)))).catch(() => []);
-  check('chase camera files cached for offline', chaseOff.length === 3 && chaseOff.every(Boolean), JSON.stringify(chaseOff));
+  const chaseOff = await p3.evaluate(() => Promise.all(['chase.js', 'chase-cars.js', 'vendor/three/three.module.min.js', 'vendor/three/three.core.min.js'].map((a) => caches.match(a).then((r) => !!r)))).catch(() => []);
+  check('chase camera files cached for offline', chaseOff.length === 4 && chaseOff.every(Boolean), JSON.stringify(chaseOff));
   await p3.screenshot({ path: SHOTS + '/10-offline.png' });
   check('no JS errors', errs.length === 0, errs.slice(0, 5).join(' | '));
   await b.close(); srv.close();
