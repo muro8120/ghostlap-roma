@@ -14,7 +14,8 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   with a minimap, landmark labels, and the list of streets you drove at the finish. Direction signs at the screen edge point
   to the hotel, the next stop and the nearest of your Andiamo places (gold stars). Map data © OpenStreetMap contributors (ODbL).
 - **Garage:** Cinquecento, Maranello 12, Modena GT, San Cesario, Sant'Agata. These are homages named after towns, not brands.
-  In the 3D view each has its own low-poly body (the tall round Cinquecento with its white roof, the long-bonnet
+  The garage shows the chosen car turning on a dark plinth in 3D, lit as in the race (a phone without WebGL gets the
+  top view); it only draws while it is on screen. In the 3D view each has its own low-poly body (the tall round Cinquecento with its white roof, the long-bonnet
   Maranello, the longer-roofed Modena, the cab-forward San Cesario and the Sant'Agata wedge, both with a wing): wheels
   that roll and steer, a body that leans in the corners and dips under braking, brake lights and a reverse light.
 - **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake; keep holding to reverse.
@@ -41,7 +42,8 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   *High* is the full scene: pixel ratio up to 2, buildings up to 1100 units either side of the route, four street lamps that
   really light the road, the full fog distance. *Low* draws at 1x (in every view), builds buildings only 40% as far out, keeps
   one real lamp light plus the headlight, pulls the fog (and in town the far plane) in, halves the parked cars, trees and
-  bollards, and uses plain windows and plain asphalt (no patches or manholes), keeps 400 tyre marks instead of 1200, no
+  bollards, and uses plain windows and plain asphalt (no patches or manholes, the crown shaded in more strongly so it
+  still reads), keeps 400 tyre marks instead of 1200, no
   tyre smoke and no lamp reflections; on a phone that starts on Low there is no MSAA either. *Auto* (the default) starts on
   High and, if a race runs under about 45 fps for 3 seconds, drops to Low for the rest of the session (never back up mid-way),
   saying "Lowered graphics to keep it smooth" the first time it ever happens. Lights, pixel ratio, fog and windows change at
@@ -330,7 +332,7 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
   `pieces-stone-wire/` for Wire, generated from the Stone set by `tools/build-wire-pieces.mjs`), and three.js (`vendor/three/`, the ES module build, loaded by `chase.js`)
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
 - `game.js`: rendering, input, menus, sound, saving, offline status
-- `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`, and for the two 3D cameras `setView`, `view`, `yaw`, `carRect`)
+- `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`, and for the two 3D cameras `setView`, `view`, `yaw`, `carRect`, and `garage` for the garage turntable)
 - `chase-cars.js`: the cars in 3D (bodies from a side profile per style, rolling and steering wheels, body roll and pitch, lights), imported by `chase.js`
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).

@@ -246,10 +246,10 @@ function disposeObj(o) {
 }
 function dispose() {
   if (!R) return;
-  for (const o of [world, carM, ghostM, sky, FX.marks, FX.smoke, FX.refl]) if (o) disposeObj(o);
+  for (const o of [world, carM, ghostM, sky, FX.marks, FX.smoke, FX.refl, GR && GR.scene]) if (o) disposeObj(o);
   if (bMat) bMat.dispose();
   if (TEX) for (const t of Object.values(TEX)) t.dispose();
-  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = rMat = FX.marks = FX.smoke = FX.refl = null; pool = []; curT = null; carKey = ghostKey = ''; builtQ = ''; lastArgs = fogBase = null;
+  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = rMat = FX.marks = FX.smoke = FX.refl = GR = null; pool = []; curT = null; carKey = ghostKey = ''; builtQ = ''; lastArgs = fogBase = null;
 }
 
 function makeSky() {
@@ -343,17 +343,25 @@ if (vFn > 0.5) {
 }
 // The road surface and its markings: asphalt grain and damp patches as before; on High, older and newer patches of
 // asphalt where the road has been dug up, and in town manhole covers. The crown is in the geometry; its normals are
-// tipped four times as far as the slope, so the light falls off a little towards the gutters.
+// tipped four times as far as the slope, so the light falls off a little towards the gutters. That alone is lost on
+// Low (no patches, one lamp light), so the crown is also painted in: each vertex carries how far across the road it is
+// (lat: 0 on the centre line, 1 at the edge) and the asphalt darkens towards the edges with a faint sheen down the
+// middle. It costs nothing extra: same mesh, same draw call.
 function roadMat(city) {
   const m = lambert({ vertexColors: true });
   m.defines = Object.assign(qLevel === 'low' ? { LOWQ: 1 } : {}, city ? { CITY: 1 } : {});
   m.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vF;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvF = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vF;' + NOISE)
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float lat;\nvarying vec3 vF;\nvarying float vLat;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvF = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvLat = lat;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vF;\nvarying float vLat;' + NOISE)
       .replace('#include <map_fragment>', `#include <map_fragment>
 { float fw = length(fwidth(vF.xz)), fine = clamp(1.0 - fw / 5.0, 0.0, 1.0);
   diffuseColor.rgb *= 0.84 + 0.2 * gn(vF.xz / 90.0) + 0.1 * mix(0.5, gn(vF.xz / 3.0), fine);
+#ifdef LOWQ
+  diffuseColor.rgb *= 1.08 - 0.34 * pow(vLat, 1.6) + 0.07 * (1.0 - smoothstep(0.0, 0.18, vLat));
+#else
+  diffuseColor.rgb *= 1.04 - 0.18 * pow(vLat, 1.6) + 0.04 * (1.0 - smoothstep(0.0, 0.18, vLat));
+#endif
 #ifndef LOWQ
   vec2 pq = vF.xz / vec2(64.0, 42.0), pc = floor(pq), pl = fract(pq);
   float ph = gh(pc + 5.3), px = 0.12 + 0.3 * gh(pc + 1.7), pz = 0.15 + 0.3 * gh(pc + 8.1);
@@ -593,7 +601,14 @@ function buildWorld(W, T, def) {
     }
   }
   world.add(toMesh(F, flatMat()));
-  world.add(toMesh(RD, (rMat = roadMat(city))));
+  // lat for the crown's shading: how far across the road each vertex is (built once; a turning circle counts as mid-road)
+  const roadM = toMesh(RD, (rMat = roadMat(city))), lat = new Float32Array(RD.p.length / 3);
+  for (let v = 0; v < lat.length; v++) {
+    const x = RD.p[v * 3], y = RD.p[v * 3 + 2];
+    lat[v] = inZone(x, y) ? 0.4 : Math.min(1, near(x, y, hw + 10).d / hw);
+  }
+  roadM.geometry.setAttribute('lat', new THREE.Float32BufferAttribute(lat, 1));
+  world.add(roadM);
 
   // soft walls: barriers on the circuits; in town the building line is the wall, so only bridges get one (a parapet),
   // and the turning circles their round kerb. None across the other carriageway where a route comes back on itself
@@ -1096,12 +1111,16 @@ function makeFx() {
   sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SCAP * 3), 3).setUsage(THREE.DynamicDrawUsage));
   sg.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(SCAP), 1).setUsage(THREE.DynamicDrawUsage));
   sg.setAttribute('aAlpha', new THREE.BufferAttribute(new Float32Array(SCAP), 1).setUsage(THREE.DynamicDrawUsage));
+  sg.setAttribute('aLit', new THREE.BufferAttribute(new Float32Array(SCAP), 1).setUsage(THREE.DynamicDrawUsage));
   FX.smoke = new THREE.Points(sg, new THREE.ShaderMaterial({
-    uniforms: { uScale: { value: 800 }, uCol: { value: C('#8b8f99') } }, transparent: true, depthWrite: false,
-    vertexShader: `attribute float aSize; attribute float aAlpha; uniform float uScale; varying float vA;
-void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = min(aSize * uScale / max(-mv.z, 1.0), 320.0); vA = aAlpha; }`,
-    fragmentShader: `uniform vec3 uCol; varying float vA;
-void main() { vec2 p = gl_PointCoord - 0.5; float d = dot(p, p) * 4.0; if (d > 1.0) discard; float a = (1.0 - d); gl_FragColor = vec4(uCol, vA * a * a); }`,
+    // aLit: how close the puff still is to the car, whose headlight and tail lights light it from inside (warm and
+    // brighter there; the plain grey of the night further back)
+    uniforms: { uScale: { value: 800 }, uCol: { value: C('#8b8f99') }, uLit: { value: C('#ffe0c0') } }, transparent: true, depthWrite: false,
+    vertexShader: `attribute float aSize; attribute float aAlpha; attribute float aLit; uniform float uScale; varying float vA; varying float vL;
+void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = min(aSize * uScale / max(-mv.z, 1.0), 320.0); vA = aAlpha; vL = aLit; }`,
+    fragmentShader: `uniform vec3 uCol; uniform vec3 uLit; varying float vA; varying float vL;
+void main() { vec2 p = gl_PointCoord - 0.5; float d = dot(p, p) * 4.0; if (d > 1.0) discard; float a = (1.0 - d);
+  gl_FragColor = vec4(mix(uCol, uLit, vL * 0.5) * (1.0 + 0.45 * vL * a), vA * a * a); }`,
   }));
   FX.smoke.frustumCulled = false; FX.smoke.renderOrder = 5; FX.smoke.visible = false; scene.add(FX.smoke);
   // the street lamps mirrored in the wet road: a soft streak each, laid on the road between the lamp and the camera
@@ -1131,7 +1150,7 @@ function puff(x, y, z, vx, vz, s0) {
   if (!Q.smoke) return;
   const p = FX.ps.find((q) => q.age >= q.life);
   if (!p) return;
-  Object.assign(p, { x, y, z, vx: vx + (Math.random() - 0.5) * 20, vy: 7 + Math.random() * 6, vz: vz + (Math.random() - 0.5) * 20, age: 0, life: 0.9 + Math.random() * 0.6, s0 });
+  Object.assign(p, { x, y, z, vx: vx + (Math.random() - 0.5) * 20, vy: 7 + Math.random() * 6, vz: vz + (Math.random() - 0.5) * 20, age: 0, life: 1.2 + Math.random() * 0.7, s0 });
 }
 // per frame, from the player's car: lay marks and puff smoke while it slides, brakes hard or scrapes a wall
 function tyres(car, dt) {
@@ -1152,21 +1171,23 @@ function tyres(car, dt) {
   FX.emit += dt * (hard ? 26 : 0) + dt * (scrape ? 20 : 0);
   while (FX.emit >= 1) {
     FX.emit -= 1;
-    if (scrape) { const s = Math.sign(car.off), fx = car.x + ca * u.nose * sc - sa * u.W * 0.5 * sc * s, fy = car.y + sa * u.nose * sc + ca * u.W * 0.5 * sc * s; puff(fx, carLift + 4, fy, car.vx * 0.3, car.vy * 0.3, 14); }
-    if (hard) { const s = Math.random() < 0.5 ? -1 : 1; puff(car.x + ca * u.axR * sc - sa * u.track * sc * s, carLift + 3, car.y + sa * u.axR * sc + ca * u.track * sc * s, car.vx * 0.25, car.vy * 0.25, 10); }
+    if (scrape) { const s = Math.sign(car.off), fx = car.x + ca * u.nose * sc - sa * u.W * 0.5 * sc * s, fy = car.y + sa * u.nose * sc + ca * u.W * 0.5 * sc * s; puff(fx, carLift + 4, fy, car.vx * 0.3, car.vy * 0.3, 20); }
+    if (hard) { const s = Math.random() < 0.5 ? -1 : 1; puff(car.x + ca * u.axR * sc - sa * u.track * sc * s, carLift + 3, car.y + sa * u.axR * sc + ca * u.track * sc * s, car.vx * 0.1, car.vy * 0.1, 15); }
   }
   // move and fade the live puffs
-  const P = FX.smoke.geometry.attributes.position, Sz = FX.smoke.geometry.attributes.aSize, Al = FX.smoke.geometry.attributes.aAlpha;
+  const P = FX.smoke.geometry.attributes.position, Sz = FX.smoke.geometry.attributes.aSize, Al = FX.smoke.geometry.attributes.aAlpha, Lt = FX.smoke.geometry.attributes.aLit;
   let live = 0;
   FX.ps.forEach((p, k) => {
     if (p.age < p.life) {
       p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.vx *= Math.exp(-2 * dt); p.vz *= Math.exp(-2 * dt);
       const t = Math.min(1, p.age / p.life);
-      P.setXYZ(k, p.x, p.y, p.z); Sz.setX(k, p.s0 * (1 + 3 * t)); Al.setX(k, 0.42 * (1 - t) * Math.min(1, p.age * 8));
+      // bigger to start, a little longer to live, and fading out over the last two thirds so they never pile up
+      P.setXYZ(k, p.x, p.y, p.z); Sz.setX(k, p.s0 * (1 + 2.6 * t)); Al.setX(k, 0.55 * Math.min(1, (1 - t) * 1.5) * Math.min(1, p.age * 8));
+      Lt.setX(k, Math.exp(-Math.hypot(p.x - car.x, p.z - car.y) / 45));
       if (p.age < p.life) live++;
     } else Al.setX(k, 0);
   });
-  P.needsUpdate = Sz.needsUpdate = Al.needsUpdate = true;
+  P.needsUpdate = Sz.needsUpdate = Al.needsUpdate = Lt.needsUpdate = true;
   FX.live = live; FX.smoke.visible = live > 0;
 }
 
@@ -1325,6 +1346,42 @@ function render(car, ghost, dt) {
   stats.calls = i.calls; stats.triangles = i.triangles; stats.car = carInfo(carM); stats.marks = Math.min(FX.n, Q.marks); stats.smoke = FX.live; stats.refl = FX.refl ? FX.refl.count : 0; stats.shake = +cs.shake.toFixed(2);
 }
 
+// ---------- the garage turntable -------------------------------------------------------------
+// The selected car on a dark plinth, turning slowly, lit like the race (headlights on, brake lights off). It is its own
+// tiny scene drawn by the race's renderer into a corner of its canvas (hidden on the menu), then copied into the
+// garage's 2D canvas, so there is still only one WebGL context. game.js only calls it while the garage is on screen.
+let GR = null;
+const grClear = new THREE.Color();
+function garage(out, sp, t) {
+  if (!R || !out || !out.width || !out.height) return false;
+  if (!GR) {
+    GR = { scene: new THREE.Scene(), cam: new THREE.PerspectiveCamera(24, 1, 5, 600), key: '', car: null, frames: 0 };
+    GR.scene.add(new THREE.HemisphereLight('#c4cfff', '#8a6a52', 2.6));
+    const key = new THREE.SpotLight('#ffe2bf', 2400, 400, 0.55, 0.7, 1.2); key.position.set(-50, 110, 60);
+    const rim = new THREE.PointLight('#9fbfff', 1600, 260, 1.2); rim.position.set(60, 40, -70);
+    const base = new THREE.Mesh(merged([[new THREE.CylinderGeometry(27, 29, 3, 48), 0, 1.5, 0, '#1b1d23'], [new THREE.CylinderGeometry(29.4, 29.4, 0.6, 48, 1, true), 0, 2.7, 0, '#4a4136']]), lambert({ vertexColors: true }));
+    GR.scene.add(key, key.target, rim, base);
+  }
+  if (sp.id !== GR.key) {
+    if (GR.car) { GR.scene.remove(GR.car); disposeObj(GR.car); }
+    GR.car = carMesh(sp, false, carTex()); GR.key = sp.id;
+    GR.scene.add(GR.car);
+  }
+  poseCar(GR.car, { x: 0, y: 0, a: t * 0.5, vx: 0, vy: 0, steer: 0, braking: false, rev: false }, 0, 3);
+  { const u = GR.car.userData; u.beam.visible = u.wet.visible = false; } // on a plinth the throw would light nothing
+  const pr = R.getPixelRatio(), cv = R.domElement, w = Math.min(out.width, cv.width), h = Math.min(out.height, cv.height);
+  GR.cam.aspect = w / h; GR.cam.position.set(98, 40, 0).applyAxisAngle(UPY, 0.5); GR.cam.lookAt(0, 5, 0); GR.cam.updateProjectionMatrix();
+  R.getClearColor(grClear);
+  R.setScissorTest(true); R.setViewport(0, 0, w / pr, h / pr); R.setScissor(0, 0, w / pr, h / pr); R.setClearColor('#151922'); // the garage panel's colour
+  R.render(GR.scene, GR.cam);
+  const g = out.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, out.width, out.height);
+  g.drawImage(cv, 0, cv.height - h, w, h, (out.width - w) / 2, (out.height - h) / 2, w, h);
+  R.setScissorTest(false); R.setViewport(0, 0, cw, ch); R.setClearColor(grClear);
+  GR.frames++;
+  return true;
+}
+
 // world point -> CSS pixels on the screen, plus its depth; null when behind the camera
 function toScreen(x, y, z) {
   if (!cam) return null;
@@ -1354,12 +1411,13 @@ function carRect() {
 }
 
 const Chase = {
-  init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild, setView, carRect,
+  init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild, setView, carRect, garage,
   get ready() { return !!R; },
   get view() { return view; },                        // 'chase' or 'bonnet'
   get yaw() { return cs.yaw; },                       // the camera's heading in world terms (same convention as car.a)
   // lights: the real ones in the scene (lamps that light the road, and the headlight); built: the quality the scene was built at
   info() { return Object.assign({ revision: THREE.REVISION, view, dpr: dprNow, quality: qLevel, built: builtQ, lights: pool.filter((l) => l.visible).length + 1, reach: Q.reach,
-    msaa: R ? !!R.getContextAttributes().antialias : false, geometries: R ? R.info.memory.geometries : 0, textures: R ? R.info.memory.textures : 0 }, stats); },
+    msaa: R ? !!R.getContextAttributes().antialias : false, geometries: R ? R.info.memory.geometries : 0, textures: R ? R.info.memory.textures : 0,
+    garage: GR ? { car: GR.key, frames: GR.frames } : null }, stats); },
 };
 window.Chase = Chase;
