@@ -3,11 +3,11 @@
 // the car's headlight. World (x, y) maps to three (x, height, y), so headings and turns carry over unchanged.
 // Loaded as a module (three is ESM only); sets window.Chase. game.js calls init / build / render / toScreen.
 import * as THREE from './vendor/three/three.module.min.js';
+import { carMesh, poseCar, resetCar, carInfo, bonnetEye } from './chase-cars.js';
 
 const CL = 30;                       // the car length the camera is framed on (world units)
 const BACK = CL * 5.0, UP = CL * 1.6, LOOK = CL * 20; // chase distance, eye height, and how far ahead it looks
 const LAG = 0.44;                    // the most the camera's yaw may trail the car's heading (25 degrees)
-const CAR_SC = 1.2;                  // the cars drawn a touch bigger than their physics box, so they don't read as toys
 const STOREY = 3.2;                  // metres
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const C = (c) => new THREE.Color(c);
@@ -19,14 +19,19 @@ function hash(a, b) { // stable 0..1 from two integers, so the skyline is the sa
 
 let R = null, scene = null, cam = null, cw = 1, ch = 1, dprNow = 1;
 let curT = null, world = null, sky = null, hemi = null, head = null, headT = null, pool = [], lampHeads = [];
-let carM = null, ghostM = null, carKey = '', ghostKey = '', tailMat = null, bMat = null, stats = {};
+let carM = null, ghostM = null, carKey = '', ghostKey = '', bMat = null, stats = {};
 // quality: 'high' (pixel ratio up to 2, four real lamp lights, buildings 1100 out from the route) or 'low' (pixel ratio 1, one
 // lamp light plus the headlight, buildings 40% closer in, half the street furniture, nearer fog, plain windows, no MSAA).
 // The lights, pixel ratio, fog and windows change live; the rest waits for the next build (or rebuild()).
-const QUAL = { high: { pr: 2, lamps: 4, reach: 1100, fog: 1, furn: 1 }, low: { pr: 1, lamps: 1, reach: 660, fog: 0.74, furn: 2 } };
+// marks: tyre-mark segments kept; smoke: puffs in the pool (none on Low); refl: lamp reflections on the wet road
+const QUAL = { high: { pr: 2, lamps: 4, reach: 1100, fog: 1, furn: 1, marks: 1200, smoke: 48, refl: 1 }, low: { pr: 1, lamps: 1, reach: 660, fog: 0.74, furn: 2, marks: 400, smoke: 0, refl: 0 } };
 let qLevel = 'high', Q = QUAL.high, builtQ = '', lastArgs = null, lastDpr = 1, fogBase = null;
 const buildMsAt = {};
-const cs = { x: 0, y: 0, yaw: 0, ao: 0, ok: false };
+// the camera's state. view: 'chase' (behind and above) or 'bonnet' (on the bonnet); sp: the eased speed (0..1) that
+// widens the lens and lets the camera fall back a little; lean: its roll into a corner; pa: the car's last heading
+let view = 'chase';
+const cs = { x: 0, y: 0, yaw: 0, ao: 0, sp: 0, lean: 0, pa: 0, shake: 0, pb: 0, t: 0, ok: false };
+const eyeV = new THREE.Vector3(), aheadV = new THREE.Vector3(), upV = new THREE.Vector3(), UPY = new THREE.Vector3(0, 1, 0);
 const U = { uCam: { value: new THREE.Vector3() }, uCar: { value: new THREE.Vector3() } };
 const tmp = new THREE.Vector3();
 
@@ -181,7 +186,7 @@ function init(canvas, dpr) {
   for (let k = 0; k < 4; k++) { const l = new THREE.PointLight('#ffb36b', 0, 330, 1.25); pool.push(l); scene.add(l); }
   sky = makeSky(); scene.add(sky);
   bMat = buildingMaterial();
-  tailMat = new THREE.MeshBasicMaterial({ color: '#7a1010' });
+  makeFx();
   resize(window.innerWidth, window.innerHeight, dpr);
   setQuality(qLevel);
   return true;
@@ -201,6 +206,8 @@ function setQuality(level) {
   applyFog();
   const low = qLevel === 'low';
   if (!!(bMat.defines && bMat.defines.LOWQ) !== low) { bMat.defines = low ? { LOWQ: 1 } : {}; bMat.needsUpdate = true; }
+  if (rMat && !!rMat.defines.LOWQ !== low) { if (low) rMat.defines.LOWQ = 1; else delete rMat.defines.LOWQ; rMat.needsUpdate = true; }
+  if (low) clearFx(true);
   return !!world && builtQ !== qLevel;
 }
 // Low pulls the fog in; in town (where everything past the fog is the fog colour anyway) the far plane and the sky come in with it
@@ -224,15 +231,15 @@ function disposeObj(o) {
   o.traverse((m) => {
     if (m.geometry) m.geometry.dispose();
     const ms = Array.isArray(m.material) ? m.material : m.material ? [m.material] : [];
-    for (const x of ms) { if (x === bMat || x === tailMat) continue; if (x.map && !Object.values(TEX || {}).includes(x.map)) x.map.dispose(); x.dispose(); }
+    for (const x of ms) { if (x === bMat) continue; if (x.map && !Object.values(TEX || {}).includes(x.map)) x.map.dispose(); x.dispose(); }
   });
 }
 function dispose() {
   if (!R) return;
-  for (const o of [world, carM, ghostM, sky]) if (o) disposeObj(o);
+  for (const o of [world, carM, ghostM, sky, FX.marks, FX.smoke, FX.refl]) if (o) disposeObj(o);
   if (bMat) bMat.dispose();
   if (TEX) for (const t of Object.values(TEX)) t.dispose();
-  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = null; pool = []; curT = null; carKey = ghostKey = ''; builtQ = ''; lastArgs = fogBase = null;
+  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = rMat = FX.marks = FX.smoke = FX.refl = null; pool = []; curT = null; carKey = ghostKey = ''; builtQ = ''; lastArgs = fogBase = null;
 }
 
 function makeSky() {
@@ -264,6 +271,7 @@ function makeSky() {
 // fresh: a new race is starting, so a scene built at the other quality level is rebuilt now (mid-race it waits)
 function build(W, T, def, fresh) {
   if (!R) return;
+  if (fresh || curT !== T) clearFx();
   if (curT === T && world && !(fresh && builtQ !== qLevel)) return;
   const t0 = performance.now();
   if (world) { scene.remove(world); disposeObj(world); }
@@ -323,6 +331,40 @@ if (vFn > 0.5) {
   };
   return m;
 }
+// The road surface and its markings: asphalt grain and damp patches as before; on High, older and newer patches of
+// asphalt where the road has been dug up, and in town manhole covers. The crown is in the geometry; its normals are
+// tipped four times as far as the slope, so the light falls off a little towards the gutters.
+function roadMat(city) {
+  const m = lambert({ vertexColors: true });
+  m.defines = Object.assign(qLevel === 'low' ? { LOWQ: 1 } : {}, city ? { CITY: 1 } : {});
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vF;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvF = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vF;' + NOISE)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+{ float fw = length(fwidth(vF.xz)), fine = clamp(1.0 - fw / 5.0, 0.0, 1.0);
+  diffuseColor.rgb *= 0.84 + 0.2 * gn(vF.xz / 90.0) + 0.1 * mix(0.5, gn(vF.xz / 3.0), fine);
+#ifndef LOWQ
+  vec2 pq = vF.xz / vec2(64.0, 42.0), pc = floor(pq), pl = fract(pq);
+  float ph = gh(pc + 5.3), px = 0.12 + 0.3 * gh(pc + 1.7), pz = 0.15 + 0.3 * gh(pc + 8.1);
+  if (ph > 0.78) { // a patch: newer (darker) or older (paler) asphalt with a crisp seam
+    float pin = step(px, pl.x) * step(pl.x, px + 0.25 + 0.4 * gh(pc + 2.9)) * step(pz, pl.y) * step(pl.y, pz + 0.3 + 0.35 * gh(pc + 4.4));
+    diffuseColor.rgb *= 1.0 + pin * fine * (ph > 0.9 ? 0.14 : -0.16);
+  }
+#ifdef CITY
+  vec2 mc = floor(vF.xz / 80.0); float mh = gh(mc + 11.0);
+  if (mh > 0.8) { // a manhole cover: cast iron with a dark rim, on its own spot in an 80-unit cell
+    vec2 mp = (mc + 0.2 + 0.6 * vec2(gh(mc + 1.3), gh(mc + 2.7))) * 80.0;
+    float d = length(vF.xz - mp), disc = 1.0 - smoothstep(3.4 - fw, 3.4 + fw, d), rim = smoothstep(2.7, 3.1, d) * disc;
+    vec3 iron = vec3(0.23, 0.22, 0.21) * (0.8 + 0.4 * step(0.5, fract((vF.x + vF.z) * 0.9)));
+    diffuseColor.rgb = mix(diffuseColor.rgb, iron, disc * fine) * (1.0 - 0.45 * rim * fine);
+  }
+#endif
+#endif
+}`);
+  };
+  return m;
+}
 // the ground: a world-space mottle so it isn't a flat sheet. kind 1: grass, 2: paving stones
 function groundMat(o, kind) {
   const m = lambert(o);
@@ -343,7 +385,10 @@ function groundMat(o, kind) {
 }
 
 const PAVE = 2.3; // the top of the city pavements (the road is at 1.3: a kerb of about 20 cm)
-let paveSide = null, carLift = 0;
+// the road has a crown: CROWN higher in the middle than at the edges (about 15 cm), a parabola across the width
+const ROAD = 1.3, CROWN = 0.7;
+const roadY = (o, hw) => ROAD + CROWN * Math.max(0, 1 - (o / hw) * (o / hw));
+let paveSide = null, carLift = ROAD, rMat = null;
 function buildWorld(W, T, def) {
   const city = !!(W.city && window.ROME), ROME = window.ROME, S = city ? ROME.S : 4.5;
   const tx = textures();
@@ -473,10 +518,35 @@ function buildWorld(W, T, def) {
       quad(F, [a0[0], 1.38, a0[1]], [b0[0], 1.38, b0[1]], [b1[0], 2.1, b1[1]], [a1[0], 2.1, a1[1]], UPN, stripe(i));
     }
   }
-  const asphalt = C(W.asphalt), edge = C(W.edge);
-  ribbon(-hw, hw, 1.3, asphalt);
-  ribbon(-(hw - 4), hw - 4, 1.45, edge);
-  ribbon(-(hw - 6.5), hw - 6.5, 1.6, asphalt);
+  // the road: its own mesh and material. The asphalt is crowned (four strips across, normals from the slope), and the
+  // markings sit just above it: solid edge lines, a dashed centre line (white in town), the zones and the chequer
+  const asphalt = C(W.asphalt), edge = C(W.edge), RD = Geo();
+  // a triangle of crowned asphalt with a normal per vertex (wound to face up, as tri() does)
+  const rtri = (A, B, Cc) => {
+    const d = (B[2] - A[2]) * (Cc[0] - A[0]) - (B[0] - A[0]) * (Cc[2] - A[2]);
+    for (const v of d < 0 ? [A, Cc, B] : [A, B, Cc]) { RD.p.push(v[0], v[1], v[2]); RD.n.push(v[3], v[4], v[5]); RD.c.push(asphalt.r, asphalt.g, asphalt.b); }
+  };
+  const OS = [-1, -0.5, 0, 0.5, 1].map((k) => k * hw);
+  const P = (q, o) => { // a point on the crown and its normal: the slope across the road, turned to the road's direction
+    const [x, y] = at(q, o), sl = ((-2 * CROWN * o) / (hw * hw)) * 4, l = Math.hypot(sl, 1);
+    return [x, roadY(o, hw), y, (-T.ty[q] * sl) / l, 1 / l, (T.tx[q] * sl) / l];
+  };
+  for (let k = 0; k < KEY.length; k++) {
+    const i = KEY[k], j = KEY[(k + 1) % KEY.length];
+    for (let s = 0; s < OS.length - 1; s++) {
+      const a = P(i, OS[s]), b = P(j, OS[s]), c = P(j, OS[s + 1]), d = P(i, OS[s + 1]);
+      rtri(a, b, c); rtri(a, c, d);
+    }
+  }
+  const mark = (o0, o1, lift, col, on) => { // a strip of paint following the crown
+    for (let k = 0; k < (on ? T.N : KEY.length); k++) {
+      const i = on ? k : KEY[k], j = on ? (k + 1) % T.N : KEY[(k + 1) % KEY.length];
+      if (on && !on(i)) continue;
+      const P = (q, o) => { const [x, y] = at(q, o); return [x, roadY((o0 + o1) / 2, hw) + lift, y]; };
+      quad(RD, P(i, o0), P(j, o0), P(j, o1), P(i, o1), UPN, col);
+    }
+  };
+  for (const s of [-1, 1]) mark(s * (hw - 6.5), s * (hw - 4), 0.12, edge);
   for (const z of zones) {
     if (city) { // a round piazza: paving round the asphalt, except where the road comes in and goes out
       for (let k = 0; k < 64; k++) {
@@ -487,22 +557,32 @@ function buildWorld(W, T, def) {
         quad(F, [ax, 1.2, ay], [bx, 1.2, by], [bx, PAVE, by], [ax, PAVE, ay], [-Math.cos(a0), 0, -Math.sin(a0)], KFACE);
       }
     }
-    disc(z.x, z.y, z.r, 1.65, asphalt, 48);
+    // the turning circle is flat, at the height of the crown, so it covers the road where they meet
+    const ZY = ROAD + CROWN + 0.05;
+    for (let k = 0; k < 48; k++) {
+      const a0 = (k / 48) * Math.PI * 2, a1 = ((k + 1) / 48) * Math.PI * 2;
+      tri(RD, [z.x, ZY, z.y], [z.x + Math.cos(a0) * z.r, ZY, z.y + Math.sin(a0) * z.r], [z.x + Math.cos(a1) * z.r, ZY, z.y + Math.sin(a1) * z.r], UPN, asphalt);
+    }
+    const ringL = (pts, w, y, col) => { for (let i = 1; i < pts.length; i++) {
+      const [ax, ay] = pts[i - 1], [bx, by] = pts[i], l = Math.hypot(bx - ax, by - ay) || 1, nx = (-(by - ay) / l) * w / 2, ny = ((bx - ax) / l) * w / 2;
+      quad(RD, [ax + nx, y, ay + ny], [bx + nx, y, by + ny], [bx - nx, y, by - ny], [ax - nx, y, ay - ny], UPN, col);
+    } };
     const ring = []; for (let k = 0; k <= 48; k++) { const a = (k / 48) * Math.PI * 2; ring.push([z.x + Math.cos(a) * (z.r - 6), z.y + Math.sin(a) * (z.r - 6)]); }
-    line(ring, 3, 1.7, edge);
+    ringL(ring, 3, ZY + 0.07, edge);
     const arc = []; for (let k = 0; k <= 24; k++) { const a = 0.6 + (k / 24) * 4.8; arc.push([z.x + Math.cos(a) * z.r * 0.5, z.y + Math.sin(a) * z.r * 0.5]); }
-    line(arc, 7, 1.75, C('#8a6a35'));
+    ringL(arc, 7, ZY + 0.12, C('#8a6a35'));
   }
-  const dash = C('#53555b');
-  ribbon(-1.5, 1.5, 1.8, dash, (i) => (i * T.ds) % 84 < 36 && !inZone(T.xs[i], T.ys[i]));
-  { // start / finish chequer
+  // the centre line: dashed, white paint in town, a dim grey on the circuits (as in the 2D view)
+  mark(-1.5, 1.5, 0.12, C(city ? '#9a978f' : '#53555b'), (i) => (i * T.ds) % 84 < 36 && !inZone(T.xs[i], T.ys[i]));
+  { // start / finish chequer, laid over the crown
     const n0 = Math.floor((hw * 2) / 12), tx0 = T.tx[0], ty0 = T.ty[0], nx = -ty0, ny = tx0, cw2 = (hw * 2) / n0;
     for (let r = 0; r < 2; r++) for (let k = 0; k < n0; k++) {
-      const a0 = -12 + r * 12, o0 = -hw + k * cw2, P = (a, o) => [T.xs[0] + tx0 * a + nx * o, T.ys[0] + ty0 * a + ny * o];
-      flatQuad(F, P(a0, o0), P(a0 + 12, o0), P(a0 + 12, o0 + cw2), P(a0, o0 + cw2), 1.9, C((r + k) % 2 ? '#e8e6e0' : '#16171a'));
+      const a0 = -12 + r * 12, o0 = -hw + k * cw2, P = (a, o) => [T.xs[0] + tx0 * a + nx * o, roadY(o, hw) + 0.16, T.ys[0] + ty0 * a + ny * o];
+      quad(RD, P(a0, o0), P(a0 + 12, o0), P(a0 + 12, o0 + cw2), P(a0, o0 + cw2), UPN, C((r + k) % 2 ? '#e8e6e0' : '#16171a'));
     }
   }
   world.add(toMesh(F, flatMat()));
+  world.add(toMesh(RD, (rMat = roadMat(city))));
 
   // soft walls: barriers on the circuits; in town the building line is the wall, so only bridges get one (a parapet),
   // and the turning circles their round kerb. None across the other carriageway where a route comes back on itself
@@ -984,88 +1064,211 @@ function merged(parts) { // [[geometry, x, y, z, colour?], ...]; with colours, a
   if (tinted) g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
   return g;
 }
-function carMesh(sp, ghost) {
-  const g = new THREE.Group(), L = sp.len, Wd = sp.wid, st = sp.style;
-  const bh = st === 'bubble' ? Wd * 0.42 : st === 'wedge' ? Wd * 0.27 : Wd * 0.31, y0 = 2.6;
-  const B = (w, h, d, x, y, z) => [new THREE.BoxGeometry(w, h, d), x, y, z];
-  const cl = st === 'bubble' ? 0.55 : st === 'gt' ? 0.4 : 0.42, cx = st === 'gt' ? -L * 0.12 : -L * 0.04, chh = st === 'bubble' ? Wd * 0.36 : Wd * 0.27;
-  const body = [B(L, bh, Wd, 0, y0 + bh / 2, 0)], cabin = [B(L * cl, chh, Wd * 0.8, cx, y0 + bh + chh / 2, 0)];
-  const roof = [B(L * cl * 0.8, 0.8, Wd * 0.72, cx - L * 0.02, y0 + bh + chh + 0.4, 0)];
-  if (st === 'hyper' || st === 'wedge') roof.push(B(L * 0.08, 1.2, Wd * 0.9, -L * 0.46, y0 + bh + 2.6, 0)); // wing
-  g.scale.setScalar(CAR_SC);
-  if (ghost) {
-    // a ghost: pale blue glass with a faint bright outline, and a cold glow on the road so it shows on dark asphalt
-    const all = body.concat(cabin, roof), edges = all.map(([b0, x, y, z]) => [new THREE.EdgesGeometry(b0), x, y, z]);
-    g.add(new THREE.Mesh(merged(all),new THREE.MeshBasicMaterial({ color: '#a9d3ff', transparent: true, opacity: 0.42, depthWrite: false })));
-    const ol = new THREE.LineSegments(merged(edges), new THREE.LineBasicMaterial({ color: '#e4f3ff', transparent: true, opacity: 0.4, depthWrite: false }));
-    ol.renderOrder = 4; g.add(ol);
-    const gl = new THREE.Mesh(new THREE.PlaneGeometry(L * 2, Wd * 2.6).rotateX(-Math.PI / 2), additive({ map: textures().glow, color: C('#5f9dff').multiplyScalar(0.4) }));
-    gl.position.y = 2.1; gl.renderOrder = 2; g.add(gl);
-    return g;
-  }
-  g.add(new THREE.Mesh(merged(body), lambert({ color: sp.body, emissive: C(sp.body).multiplyScalar(0.08) })));
-  g.add(new THREE.Mesh(merged(cabin), lambert({ color: '#0d1117' })));
-  g.add(new THREE.Mesh(merged(roof), lambert({ color: sp.roof })));
-  const wheels = []; for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) wheels.push([new THREE.CylinderGeometry(3, 3, 2.6, 10).rotateX(Math.PI / 2), sx * L * 0.32, 3, sz * (Wd / 2 - 0.6)]);
-  g.add(new THREE.Mesh(merged(wheels), lambert({ color: '#0b0b0c' })));
-  const hl = [], tl = [];
-  for (const sz of [-1, 1]) { hl.push(B(0.8, 1.6, Wd * 0.2, L / 2 + 0.2, y0 + bh * 0.62, sz * Wd * 0.3)); tl.push(B(0.8, 1.6, Wd * 0.24, -L / 2 - 0.2, y0 + bh * 0.66, sz * Wd * 0.3)); }
-  g.add(new THREE.Mesh(merged(hl), new THREE.MeshBasicMaterial({ color: '#fff4d6' })), new THREE.Mesh(merged(tl), tailMat));
-  const blob = new THREE.Mesh(new THREE.PlaneGeometry(L * 1.5, Wd * 1.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: textures().blob, transparent: true, depthWrite: false, opacity: 0.8 }));
-  blob.position.y = 2.0; blob.renderOrder = 1; g.add(blob);
-  const beam = new THREE.Mesh(new THREE.PlaneGeometry(300, 190).rotateX(-Math.PI / 2), additive({ map: textures().beam, color: C('#ffe9c4').multiplyScalar(0.22) }));
-  beam.position.set(L * 0.45 + 150, 2.3, 0); beam.renderOrder = 3; g.add(beam);
-  // the beam's sheen on wet asphalt: a long soft streak down the middle of the throw
-  const wet = new THREE.Mesh(new THREE.PlaneGeometry(230, 30).rotateX(-Math.PI / 2), additive({ map: textures().glow, color: C('#ffe2b8').multiplyScalar(0.14) }));
-  wet.position.set(L * 0.5 + 100, 2.4, 0); wet.renderOrder = 3; g.add(wet);
-  return g;
+// the cars themselves are in chase-cars.js: bodies, wheels, lights, roll and pitch
+const carTex = () => { const t = textures(); return { glow: t.glow, blob: t.blob, beam: t.beam }; };
+
+// ---------- tyre marks and smoke ---------------------------------------------------------------
+// Marks: one mesh used as a ring buffer of short quads behind the rear wheels, laid while the car slides or brakes
+// hard; the oldest are overwritten (1200 segments on High, 400 on Low). Smoke: a pool of soft puffs (one point cloud,
+// sized and faded per puff) from the rear wheels in a slide or a hard stop and from the front corner scraping a wall.
+// No smoke on Low. Both are cleared at the start of each race.
+const FX = { marks: null, smoke: null, n: 0, last: [null, null], live: 0, ps: [], emit: 0 };
+const MCAP = 1200, SCAP = 48, RCAP = 12;
+function makeFx() {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MCAP * 18), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MCAP * 24), 4).setUsage(THREE.DynamicDrawUsage));
+  g.setDrawRange(0, 0);
+  FX.marks = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  FX.marks.frustumCulled = false; FX.marks.renderOrder = 1; scene.add(FX.marks);
+  const sg = new THREE.BufferGeometry();
+  sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SCAP * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  sg.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(SCAP), 1).setUsage(THREE.DynamicDrawUsage));
+  sg.setAttribute('aAlpha', new THREE.BufferAttribute(new Float32Array(SCAP), 1).setUsage(THREE.DynamicDrawUsage));
+  FX.smoke = new THREE.Points(sg, new THREE.ShaderMaterial({
+    uniforms: { uScale: { value: 800 }, uCol: { value: C('#8b8f99') } }, transparent: true, depthWrite: false,
+    vertexShader: `attribute float aSize; attribute float aAlpha; uniform float uScale; varying float vA;
+void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = min(aSize * uScale / max(-mv.z, 1.0), 320.0); vA = aAlpha; }`,
+    fragmentShader: `uniform vec3 uCol; varying float vA;
+void main() { vec2 p = gl_PointCoord - 0.5; float d = dot(p, p) * 4.0; if (d > 1.0) discard; float a = (1.0 - d); gl_FragColor = vec4(uCol, vA * a * a); }`,
+  }));
+  FX.smoke.frustumCulled = false; FX.smoke.renderOrder = 5; FX.smoke.visible = false; scene.add(FX.smoke);
+  // the street lamps mirrored in the wet road: a soft streak each, laid on the road between the lamp and the camera
+  FX.refl = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), additive({ map: textures().glow }), RCAP);
+  FX.refl.frustumCulled = false; FX.refl.renderOrder = 2; FX.refl.count = 0; scene.add(FX.refl);
+  for (let k = 0; k < SCAP; k++) FX.ps.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 1, life: 1, s0: 0 });
 }
-function placeCar(m, c) { m.position.set(c.x, 0, c.y); m.rotation.y = -c.a; }
+function clearFx(smokeOnly) {
+  if (!FX.marks) return;
+  if (!smokeOnly) { FX.n = 0; FX.marks.geometry.setDrawRange(0, 0); FX.last = [null, null]; }
+  for (const p of FX.ps) p.age = p.life;
+  FX.live = 0; FX.smoke.visible = false;
+}
+const markCol = new THREE.Color('#0a0a0c');
+function addMark(a, b, w, y, alpha) { // a quad from point a to b (world x, y), w wide, at height y
+  const k = FX.n % MCAP, P = FX.marks.geometry.attributes.position, Cl = FX.marks.geometry.attributes.color;
+  const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = (-dy / l) * w / 2, ny = (dx / l) * w / 2;
+  const v = [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] + nx, a[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]];
+  v.forEach(([x, z], j) => { P.setXYZ(k * 6 + j, x, y, z); Cl.setXYZW(k * 6 + j, markCol.r, markCol.g, markCol.b, alpha); });
+  P.addUpdateRange(k * 18, 18); Cl.addUpdateRange(k * 24, 24); P.needsUpdate = Cl.needsUpdate = true;
+  FX.n++;
+  // the visible ring is Q.marks long: past it, the slot just written over is the oldest still drawn
+  FX.marks.geometry.setDrawRange(0, Math.min(FX.n, MCAP) * 6);
+  if (FX.n > Q.marks && Q.marks < MCAP) { const o = (FX.n - Q.marks - 1) % MCAP; for (let j = 0; j < 6; j++) Cl.setW(o * 6 + j, 0); Cl.addUpdateRange(o * 24, 24); }
+}
+function puff(x, y, z, vx, vz, s0) {
+  if (!Q.smoke) return;
+  const p = FX.ps.find((q) => q.age >= q.life);
+  if (!p) return;
+  Object.assign(p, { x, y, z, vx: vx + (Math.random() - 0.5) * 20, vy: 7 + Math.random() * 6, vz: vz + (Math.random() - 0.5) * 20, age: 0, life: 0.9 + Math.random() * 0.6, s0 });
+}
+// per frame, from the player's car: lay marks and puff smoke while it slides, brakes hard or scrapes a wall
+function tyres(car, dt) {
+  if (!FX.marks || !carM || dt <= 0) return;
+  const u = carM.userData, sc = carM.scale.x, a = car.a, ca = Math.cos(a), sa = Math.sin(a), sp = car.speed || 0;
+  const slide = car.slip > 0.3 && sp > 110, lock = car.braking && sp > 150, onRoad = car.onRoad !== false && carLift < PAVE - 0.3;
+  const scrape = curT && !car.zone && Math.abs(car.off || 0) > curT.hw + curT.wall - 1.5 && sp > 40;
+  const hard = (slide || lock) && onRoad, y = carLift + 0.25;
+  [-1, 1].forEach((s, k) => {
+    const wx = car.x + ca * u.axR * sc - sa * u.track * sc * s, wy = car.y + sa * u.axR * sc + ca * u.track * sc * s;
+    // a fresh mark starts where the wheel was a moment ago (from its velocity), so even one frame of it shows
+    const last = FX.last[k] || (hard && [wx - (car.vx || 0) * Math.min(dt, 0.05), wy - (car.vy || 0) * Math.min(dt, 0.05)]);
+    if (hard && last && Math.hypot(wx - last[0], wy - last[1]) < 150) { // (further than that is a jump, not a skid)
+      if (Math.hypot(wx - last[0], wy - last[1]) > 3) { addMark(last, [wx, wy], 2.6, y, Math.min(0.55, 0.25 + (slide ? car.slip * 0.4 : 0.2))); FX.last[k] = [wx, wy]; }
+    } else FX.last[k] = hard ? [wx, wy] : null;
+  });
+  // smoke: a few puffs a second, more the harder it goes
+  FX.emit += dt * (hard ? 26 : 0) + dt * (scrape ? 20 : 0);
+  while (FX.emit >= 1) {
+    FX.emit -= 1;
+    if (scrape) { const s = Math.sign(car.off), fx = car.x + ca * u.nose * sc - sa * u.W * 0.5 * sc * s, fy = car.y + sa * u.nose * sc + ca * u.W * 0.5 * sc * s; puff(fx, carLift + 4, fy, car.vx * 0.3, car.vy * 0.3, 14); }
+    if (hard) { const s = Math.random() < 0.5 ? -1 : 1; puff(car.x + ca * u.axR * sc - sa * u.track * sc * s, carLift + 3, car.y + sa * u.axR * sc + ca * u.track * sc * s, car.vx * 0.25, car.vy * 0.25, 10); }
+  }
+  // move and fade the live puffs
+  const P = FX.smoke.geometry.attributes.position, Sz = FX.smoke.geometry.attributes.aSize, Al = FX.smoke.geometry.attributes.aAlpha;
+  let live = 0;
+  FX.ps.forEach((p, k) => {
+    if (p.age < p.life) {
+      p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.vx *= Math.exp(-2 * dt); p.vz *= Math.exp(-2 * dt);
+      const t = Math.min(1, p.age / p.life);
+      P.setXYZ(k, p.x, p.y, p.z); Sz.setX(k, p.s0 * (1 + 3 * t)); Al.setX(k, 0.42 * (1 - t) * Math.min(1, p.age * 8));
+      if (p.age < p.life) live++;
+    } else Al.setX(k, 0);
+  });
+  P.needsUpdate = Sz.needsUpdate = Al.needsUpdate = true;
+  FX.live = live; FX.smoke.visible = live > 0;
+}
+
+// The nearest lamps ahead, mirrored in the wet asphalt: a mirror image of a lamp HEAD units up shows where the line from
+// the camera to the image crosses the road, stretched towards the camera as wet roads do. Dimmer with distance. High only.
+const rq = new THREE.Quaternion(), rs = new THREE.Vector3(), rp = new THREE.Vector3(), rm = new THREE.Matrix4(), rc = new THREE.Color();
+function reflections() {
+  const m = FX.refl;
+  if (!m) return;
+  if (!Q.refl || !lampHeads.length) { m.count = 0; m.visible = false; return; }
+  const ex = cam.position.x, ez = cam.position.z, h = Math.max(4, cam.position.y - ROAD), fx = Math.cos(cs.yaw), fy = Math.sin(cs.yaw), list = [];
+  for (const l of lampHeads) {
+    const dx = l.x - ex, dz = l.y - ez, d = Math.hypot(dx, dz), ahead = (dx * fx + dz * fy) / (d || 1);
+    if (d < 40 || d > 900 || ahead < 0.35) continue;
+    if (list.length < RCAP || d < list[list.length - 1][0]) { list.push([d, l, dx / d, dz / d]); list.sort((a, b) => a[0] - b[0]); if (list.length > RCAP) list.pop(); }
+  }
+  list.forEach(([d, l, ux, uz], k) => {
+    const t = d * h / (h + 30), len = Math.min(160, 40 + d * 0.22), a = 0.55 * Math.max(0, 1 - d / 900);
+    rp.set(ex + ux * (t - len * 0.25), ROAD + CROWN + 0.25, ez + uz * (t - len * 0.25));
+    rm.compose(rp, rq.setFromAxisAngle(UPY, -Math.atan2(uz, ux)), rs.set(len, 1, 9 + d * 0.012));
+    m.setMatrixAt(k, rm); m.setColorAt(k, rc.set(l.c === 'cool' ? '#9fbfff' : '#ffb46a').multiplyScalar(a));
+  });
+  m.count = list.length; m.visible = list.length > 0;
+  m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
+}
 
 // ---------- public: render ----------------------------------------------------------------
-function snap(car) { cs.yaw = car.a; cs.ao = 0; cs.x = car.x - Math.cos(car.a) * BACK; cs.y = car.y - Math.sin(car.a) * BACK; cs.ok = true; }
+function snap(car) { // (also the start of a race and a resume from the pause sheet)
+  const sp = Math.min(1, (car.speed || 0) / 420), back = BACK * (1 + 0.1 * sp);
+  Object.assign(cs, { yaw: car.a, ao: 0, sp, lean: 0, pa: car.a, shake: 0, pb: car.bump || 0, x: car.x - Math.cos(car.a) * back, y: car.y - Math.sin(car.a) * back, ok: true });
+  carLift = roadY(car.off || 0, curT ? curT.hw : 60); resetCar(carM); resetCar(ghostM); FX.last = [null, null];
+}
+// 'chase' or 'bonnet'; a change snaps the camera at the next frame
+function setView(v) { v = v === 'bonnet' ? 'bonnet' : 'chase'; if (v !== view) { view = v; cs.ok = false; } }
 function render(car, ghost, dt) {
   if (!R || !world) return;
   if (!cs.ok) snap(car);
   dt = Math.min(0.1, dt || 0);
-  // yaw springs after the heading (shortest way round) and never trails it by more than LAG, so in a hairpin the car
-  // stays pointing up the screen instead of swinging out sideways; the position follows the eased yaw
-  cs.yaw = wrap(cs.yaw + wrap(car.a - cs.yaw) * (1 - Math.exp(-7.5 * dt)));
-  const lag = wrap(car.a - cs.yaw);
-  if (Math.abs(lag) > LAG) cs.yaw = wrap(car.a - Math.sign(lag) * LAG);
-  const fx = Math.cos(cs.yaw), fy = Math.sin(cs.yaw), kp = 1 - Math.exp(-12 * dt);
-  cs.x += (car.x - fx * BACK - cs.x) * kp; cs.y += (car.y - fy * BACK - cs.y) * kp;
-  // the look-at point leans part way round towards the heading (eased), so a corner reads before the car is in it
-  cs.ao += (wrap(car.a - cs.yaw) * 0.25 - cs.ao) * (1 - Math.exp(-5 * dt));
-  cam.position.set(cs.x, UP, cs.y);
-  cam.lookAt(car.x + Math.cos(cs.yaw + cs.ao) * LOOK, -22, car.y + Math.sin(cs.yaw + cs.ao) * LOOK); // a touch below the road: less sky
-  const fov0 = cam.aspect < 0.8 ? 68 : cam.aspect < 1.3 ? 60 : 50;
-  cam.fov = fov0 + 7 * Math.min(1, (car.speed || 0) / 420);
-  cam.updateProjectionMatrix();
-  cam.updateMatrixWorld();
-  sky.position.copy(cam.position);
-  U.uCam.value.copy(cam.position); U.uCar.value.set(car.x, 8, car.y);
-
-  // the player's car, its headlight and tail lights
+  // the player's car first: the bonnet camera rides on it
   const key = car.spec.id;
-  if (key !== carKey) { if (carM) { scene.remove(carM); disposeObj(carM); } carM = carMesh(car.spec, false); scene.add(carM); carKey = key; }
-  placeCar(carM, car);
-  // up the kerb onto the pavement when the car runs wide in town
-  let lift = 0;
-  if (paveSide && car.idx != null && Math.abs(car.off || 0) > curT.hw + 8 && !car.zone) { const on = paveSide[car.off > 0 ? 1 : 0][car.idx]; if (on) lift = PAVE - 1.3; }
+  if (key !== carKey) { if (carM) { scene.remove(carM); disposeObj(carM); } carM = carMesh(car.spec, false, carTex()); scene.add(carM); carKey = key; }
+  // the road surface under the car: asphalt, the run-off a little lower, the pavement up the kerb when it runs wide in town
+  const off = Math.abs(car.off || 0);
+  let lift = roadY(off, curT.hw);
+  if (car.zone) lift = ROAD + CROWN + 0.05;
+  else if (off > curT.hw + 4) lift = paveSide ? 1.2 : 1.0;
+  if (paveSide && car.idx != null && off > curT.hw + 8 && !car.zone && paveSide[car.off > 0 ? 1 : 0][car.idx]) lift = PAVE;
   carLift += (lift - carLift) * (1 - Math.exp(-25 * dt));
-  carM.position.y = carLift;
-  tailMat.color.set(car.rev ? '#f4f6ff' : car.braking ? '#ff2a2a' : '#8a1414');
+  poseCar(carM, car, dt, carLift, { low: qLevel === 'low', bonnet: view === 'bonnet' });
+  tyres(car, dt);
   const cx = Math.cos(car.a), cy = Math.sin(car.a);
   head.position.set(car.x + cx * car.spec.len * 0.5, 9, car.y + cy * car.spec.len * 0.5);
   headT.position.set(car.x + cx * 260, 0, car.y + cy * 260);
+  head.intensity = view === 'bonnet' ? 950 : 1500; // seen from just behind it, the pool of light right ahead would glare
+
+  // speed widens the lens a little and (chase) lets the camera fall back and down; eased, so a launch or a hard stop
+  // shows as the car pulling away or closing in. The camera leans a degree or two into a corner (from the turn rate).
+  cs.sp += (Math.min(1, (car.speed || 0) / 420) - cs.sp) * (1 - Math.exp(-2.5 * dt));
+  if (dt > 1e-4) {
+    const yr = wrap(car.a - cs.pa) / dt, lean = Math.max(-0.03, Math.min(0.03, -yr * (car.speed || 0) * 6e-5));
+    cs.lean += (lean - cs.lean) * (1 - Math.exp(-4 * dt));
+  }
+  cs.pa = car.a;
+  const portrait = cam.aspect < 0.8, fov0 = portrait ? 68 : cam.aspect < 1.3 ? 60 : 50;
+  if (view === 'bonnet') {
+    // the eye just above the bonnet, rigid on the body (it rolls and pitches with it), looking down the road; the lens
+    // is wider than the chase one, since a portrait screen sees a narrow slice of road from down here
+    bonnetEye(carM, eyeV, aheadV, upV);
+    cam.position.copy(eyeV); cam.up.copy(upV); cam.lookAt(aheadV);
+    cs.yaw = car.a; cs.ao = 0; cs.x = eyeV.x; cs.y = eyeV.z;
+    cam.fov = fov0 + (portrait ? 8 : 4) + 6 * cs.sp;
+    if (cam.near !== 2.5) cam.near = 2.5;
+  } else {
+    // yaw springs after the heading (shortest way round) and never trails it by more than LAG, so in a hairpin the car
+    // stays pointing up the screen instead of swinging out sideways; the position follows the eased yaw
+    cs.yaw = wrap(cs.yaw + wrap(car.a - cs.yaw) * (1 - Math.exp(-7.5 * dt)));
+    const lag = wrap(car.a - cs.yaw);
+    if (Math.abs(lag) > LAG) cs.yaw = wrap(car.a - Math.sign(lag) * LAG);
+    const fx = Math.cos(cs.yaw), fy = Math.sin(cs.yaw), kp = 1 - Math.exp(-12 * dt), back = BACK * (1 + 0.1 * cs.sp);
+    cs.x += (car.x - fx * back - cs.x) * kp; cs.y += (car.y - fy * back - cs.y) * kp;
+    // the look-at point leans part way round towards the heading (eased), so a corner reads before the car is in it
+    cs.ao += (wrap(car.a - cs.yaw) * 0.25 - cs.ao) * (1 - Math.exp(-5 * dt));
+    cam.position.set(cs.x, UP * (1 - 0.05 * cs.sp), cs.y); cam.up.copy(UPY);
+    cam.lookAt(car.x + Math.cos(cs.yaw + cs.ao) * LOOK, -22, car.y + Math.sin(cs.yaw + cs.ao) * LOOK); // a touch below the road: less sky
+    cam.rotateZ(cs.lean);
+    cam.fov = fov0 + 7 * cs.sp;
+    if (cam.near !== 5) cam.near = 5;
+  }
+  // a knock on a wall shakes the camera for a moment, harder the faster you hit it
+  cs.t += dt;
+  if ((car.bump || 0) > cs.pb + 0.1) cs.shake = Math.min(1, cs.shake + (car.speed || 0) / 260 + 0.25);
+  cs.pb = car.bump || 0; cs.shake *= Math.exp(-7 * dt);
+  if (cs.shake > 0.01) {
+    const k = cs.shake * (view === 'bonnet' ? 0.6 : 2.2);
+    cam.position.x += Math.sin(cs.t * 71) * k; cam.position.y += Math.sin(cs.t * 53 + 1) * k * 0.7; cam.position.z += Math.sin(cs.t * 61 + 2) * k;
+  }
+  cam.updateProjectionMatrix();
+  cam.updateMatrixWorld();
+  sky.position.copy(cam.position);
+  reflections();
+  U.uCam.value.copy(cam.position); U.uCar.value.set(car.x, 8, car.y);
+
   // ghost
   const gk = ghost && ghost.spec ? ghost.spec.id : '';
-  if (gk !== ghostKey) { if (ghostM) { scene.remove(ghostM); disposeObj(ghostM); ghostM = null; } if (gk) { ghostM = carMesh(ghost.spec, true); scene.add(ghostM); } ghostKey = gk; }
-  if (ghostM) { ghostM.visible = !!ghost; if (ghost) placeCar(ghostM, ghost); }
+  if (gk !== ghostKey) { if (ghostM) { scene.remove(ghostM); disposeObj(ghostM); ghostM = null; } if (gk) { ghostM = carMesh(ghost.spec, true, carTex()); scene.add(ghostM); } ghostKey = gk; }
+  if (ghostM) {
+    // on the bonnet a ghost right on top of you would be drawn round the camera: it steps aside until it is a car ahead
+    ghostM.visible = !!ghost && !(view === 'bonnet' && Math.hypot(ghost.x - car.x, ghost.y - car.y) < car.spec.len * 1.6);
+    if (ghost) poseCar(ghostM, ghost, dt, ROAD + CROWN * 0.6);
+  }
 
   // the four street lamps nearest the road ahead (one on Low) get a real light; their strength fades with distance so swaps don't pop
-  const ax = car.x + fx * 140, ay = car.y + fy * 140, best = [], nl = Q.lamps;
+  const ax = car.x + Math.cos(cs.yaw) * 140, ay = car.y + Math.sin(cs.yaw) * 140, best = [], nl = Q.lamps;
   for (const l of lampHeads) {
     const d = (l.x - ax) ** 2 + (l.y - ay) ** 2;
     if (best.length < nl || d < best[nl - 1][0]) { best.push([d, l]); best.sort((a, b) => a[0] - b[0]); if (best.length > nl) best.pop(); }
@@ -1077,9 +1280,10 @@ function render(car, ghost, dt) {
     P.color.set(e[1].c === 'cool' ? '#a9c4ff' : '#ffb36b');
     P.intensity = 420 * Math.max(0, Math.min(1, (420 - d) / 220));
   }
+  if (FX.smoke) FX.smoke.material.uniforms.uScale.value = R.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360));
   R.render(scene, cam);
   const i = R.info.render;
-  stats.calls = i.calls; stats.triangles = i.triangles;
+  stats.calls = i.calls; stats.triangles = i.triangles; stats.car = carInfo(carM); stats.marks = Math.min(FX.n, Q.marks); stats.smoke = FX.live; stats.refl = FX.refl ? FX.refl.count : 0; stats.shake = +cs.shake.toFixed(2);
 }
 
 // world point -> CSS pixels on the screen, plus its depth; null when behind the camera
@@ -1091,13 +1295,32 @@ function toScreen(x, y, z) {
   tmp.applyMatrix4(cam.projectionMatrix);
   return [(tmp.x + 1) / 2 * cw, (1 - tmp.y) / 2 * ch, d];
 }
+// the player's car on the screen (CSS pixels, [left, top, right, bottom]): in Chase the corners of its body's box, in
+// Bonnet the visible bonnet down to the bottom of the screen, full width. A corner behind the camera counts as the
+// bottom of the screen, full width.
+const cnr = new THREE.Vector3();
+function carRect() {
+  if (!carM || !cam) return null;
+  const m = carM.userData.body.children[0], bb = m.geometry.boundingBox || (m.geometry.computeBoundingBox(), m.geometry.boundingBox);
+  const pts = view === 'bonnet' ? carM.userData.hoodPts : [0, 1, 2, 3, 4, 5, 6, 7].map((k) => [k & 1 ? bb.max.x : bb.min.x, k & 2 ? bb.max.y : bb.min.y, k & 4 ? bb.max.z : bb.min.z]);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  if (view === 'bonnet') { x0 = 0; x1 = cw; y1 = ch; }
+  for (const q of pts) {
+    cnr.set(q[0], q[1], q[2]).applyMatrix4(m.matrixWorld);
+    const p = toScreen(cnr.x, cnr.z, cnr.y);
+    if (!p) { x0 = 0; x1 = cw; y1 = ch; continue; }
+    x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]);
+  }
+  return [Math.max(0, x0), Math.max(0, Math.min(ch, y0)), Math.min(cw, x1), Math.min(ch, y1)];
+}
 
 const Chase = {
-  init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild,
+  init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild, setView, carRect,
   get ready() { return !!R; },
+  get view() { return view; },                        // 'chase' or 'bonnet'
   get yaw() { return cs.yaw; },                       // the camera's heading in world terms (same convention as car.a)
   // lights: the real ones in the scene (lamps that light the road, and the headlight); built: the quality the scene was built at
-  info() { return Object.assign({ revision: THREE.REVISION, dpr: dprNow, quality: qLevel, built: builtQ, lights: pool.filter((l) => l.visible).length + 1, reach: Q.reach,
+  info() { return Object.assign({ revision: THREE.REVISION, view, dpr: dprNow, quality: qLevel, built: builtQ, lights: pool.filter((l) => l.visible).length + 1, reach: Q.reach,
     msaa: R ? !!R.getContextAttributes().antialias : false, geometries: R ? R.info.memory.geometries : 0, textures: R ? R.info.memory.textures : 0 }, stats); },
 };
 window.Chase = Chase;
