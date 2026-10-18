@@ -51,6 +51,16 @@ function textures() {
     glow: radial([[0, 'rgba(255,255,255,1)'], [0.3, 'rgba(255,255,255,.4)'], [1, 'rgba(255,255,255,0)']]),
     halo: radial([[0, 'rgba(255,255,255,1)'], [0.12, 'rgba(255,255,255,.75)'], [0.4, 'rgba(255,255,255,.12)'], [1, 'rgba(255,255,255,0)']]),
     blob: radial([[0, 'rgba(0,0,0,.85)'], [0.55, 'rgba(0,0,0,.55)'], [1, 'rgba(0,0,0,0)']]),
+    // a lamp's streak on the wet road: brightest at the lamp's end (the left edge), fading towards the camera, soft at the sides
+    streak: canvasTex(64, (g, n) => {
+      const along = g.createLinearGradient(0, 0, n, 0);
+      along.addColorStop(0, 'rgba(255,255,255,1)'); along.addColorStop(0.25, 'rgba(255,255,255,.75)'); along.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = along; g.fillRect(0, 0, n, n);
+      g.globalCompositeOperation = 'destination-in';
+      const across = g.createLinearGradient(0, 0, 0, n);
+      across.addColorStop(0, 'rgba(0,0,0,0)'); across.addColorStop(0.5, 'rgba(0,0,0,1)'); across.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = across; g.fillRect(0, 0, n, n);
+    }),
     beam: canvasTex(128, (g, n) => { // the headlight's throw on the road, drawn pointing +x from the left edge
       const gr = g.createRadialGradient(0, n / 2, 0, 0, n / 2, n);
       gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(0.45, 'rgba(255,255,255,.28)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
@@ -388,11 +398,12 @@ const PAVE = 2.3; // the top of the city pavements (the road is at 1.3: a kerb o
 // the road has a crown: CROWN higher in the middle than at the edges (about 15 cm), a parabola across the width
 const ROAD = 1.3, CROWN = 0.7;
 const roadY = (o, hw) => ROAD + CROWN * Math.max(0, 1 - (o / hw) * (o / hw));
-let paveSide = null, carLift = ROAD, rMat = null;
+let paveSide = null, carLift = ROAD, rMat = null, roadAt = null; // roadAt(x, y): on the asphalt (for the lamp streaks)
 function buildWorld(W, T, def) {
   const city = !!(W.city && window.ROME), ROME = window.ROME, S = city ? ROME.S : 4.5;
   const tx = textures();
   const hw = T.hw, wall = T.hw + T.wall, near = trackGrid(T, 220);
+  roadAt = (x, y) => near(x, y, hw + 10).d < hw - 3 || (T.zones || []).some((z) => Math.hypot(x - z.x, y - z.y) < z.r - 4);
   const zones = T.zones || [];
   const inZone = (x, y, pad) => zones.some((z) => Math.hypot(x - z.x, y - z.y) < z.r + (pad || 0));
   // samples far along the track from i: where a route comes back on itself the other carriageway is "far"
@@ -1094,7 +1105,7 @@ void main() { vec2 p = gl_PointCoord - 0.5; float d = dot(p, p) * 4.0; if (d > 1
   }));
   FX.smoke.frustumCulled = false; FX.smoke.renderOrder = 5; FX.smoke.visible = false; scene.add(FX.smoke);
   // the street lamps mirrored in the wet road: a soft streak each, laid on the road between the lamp and the camera
-  FX.refl = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), additive({ map: textures().glow }), RCAP);
+  FX.refl = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), streakMat(), RCAP);
   FX.refl.frustumCulled = false; FX.refl.renderOrder = 2; FX.refl.count = 0; scene.add(FX.refl);
   for (let k = 0; k < SCAP; k++) FX.ps.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 1, life: 1, s0: 0 });
 }
@@ -1159,26 +1170,54 @@ function tyres(car, dt) {
   FX.live = live; FX.smoke.visible = live > 0;
 }
 
-// The nearest lamps ahead, mirrored in the wet asphalt: a mirror image of a lamp HEAD units up shows where the line from
-// the camera to the image crosses the road, stretched towards the camera as wet roads do. Dimmer with distance. High only.
+// The nearest lamps ahead, mirrored in the wet asphalt as long thin streaks: each starts where the line from the lamp
+// to the camera first reaches the asphalt and runs towards the camera, about four times as long on screen as it is
+// wide (so on the ground it is longer the lower and further the camera is), cut short where it would leave the road:
+// no streaks on the run-off or the pavement. Brightest at the lamp's end and broken up by the same noise as the
+// asphalt grain. One instanced mesh, High only.
+function streakMat() {
+  const m = additive({ map: textures().streak });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vRW;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+#ifdef USE_INSTANCING
+vRW = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xz;
+#else
+vRW = (modelMatrix * vec4(transformed, 1.0)).xz;
+#endif`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vRW;' + NOISE)
+      .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= 0.35 + 0.9 * gn(vRW / 2.6) * (0.6 + 0.4 * gn(vRW / 11.0));');
+  };
+  return m;
+}
 const rq = new THREE.Quaternion(), rs = new THREE.Vector3(), rp = new THREE.Vector3(), rm = new THREE.Matrix4(), rc = new THREE.Color();
 function reflections() {
   const m = FX.refl;
   if (!m) return;
-  if (!Q.refl || !lampHeads.length) { m.count = 0; m.visible = false; return; }
+  if (!Q.refl || !lampHeads.length || !roadAt) { m.count = 0; m.visible = false; return; }
   const ex = cam.position.x, ez = cam.position.z, h = Math.max(4, cam.position.y - ROAD), fx = Math.cos(cs.yaw), fy = Math.sin(cs.yaw), list = [];
   for (const l of lampHeads) {
     const dx = l.x - ex, dz = l.y - ez, d = Math.hypot(dx, dz), ahead = (dx * fx + dz * fy) / (d || 1);
-    if (d < 40 || d > 900 || ahead < 0.35) continue;
-    if (list.length < RCAP || d < list[list.length - 1][0]) { list.push([d, l, dx / d, dz / d]); list.sort((a, b) => a[0] - b[0]); if (list.length > RCAP) list.pop(); }
+    if (d < 60 || d > 900 || ahead < 0.35) continue;
+    if (list.length < RCAP * 2 || d < list[list.length - 1][0]) { list.push([d, l, -dx / d, -dz / d]); list.sort((a, b) => a[0] - b[0]); if (list.length > RCAP * 2) list.pop(); }
   }
-  list.forEach(([d, l, ux, uz], k) => {
-    const t = d * h / (h + 30), len = Math.min(160, 40 + d * 0.22), a = 0.55 * Math.max(0, 1 - d / 900);
-    rp.set(ex + ux * (t - len * 0.25), ROAD + CROWN + 0.25, ez + uz * (t - len * 0.25));
-    rm.compose(rp, rq.setFromAxisAngle(UPY, -Math.atan2(uz, ux)), rs.set(len, 1, 9 + d * 0.012));
-    m.setMatrixAt(k, rm); m.setColorAt(k, rc.set(l.c === 'cool' ? '#9fbfff' : '#ffb46a').multiplyScalar(a));
-  });
-  m.count = list.length; m.visible = list.length > 0;
+  let n = 0;
+  for (const [d, l, ux, uz] of list) { // u: from the lamp towards the camera
+    if (n >= RCAP) break;
+    const w = 4 + d * 0.006, want = Math.min(380, Math.max(50, (4 * w * d) / h)), top = Math.min(d - 30, 420);
+    let s0 = -1, s1 = -1;
+    for (let s = 0; s <= top; s += 8) if (roadAt(l.x + ux * s, l.y + uz * s)) { s0 = s; break; }
+    if (s0 < 0) continue;
+    for (let s = s0; s <= Math.min(d - 30, s0 + want); s += 10) { if (!roadAt(l.x + ux * s, l.y + uz * s)) break; s1 = s; }
+    if (s1 - s0 < 24) continue;
+    const len = s1 - s0, mid = (s0 + s1) / 2, a = (view === 'bonnet' ? 0.4 : 0.6) * Math.max(0, 1 - d / 900);
+    rp.set(l.x + ux * mid, ROAD + CROWN + 0.25, l.y + uz * mid);
+    // the plane's +x runs from the lamp's end (u = 0, the bright edge of the texture) towards the camera
+    rm.compose(rp, rq.setFromAxisAngle(UPY, -Math.atan2(uz, ux)), rs.set(len, 1, w));
+    m.setMatrixAt(n, rm); m.setColorAt(n, rc.set(l.c === 'cool' ? '#9fbfff' : '#ffb46a').multiplyScalar(a));
+    n++;
+  }
+  m.count = n; m.visible = n > 0;
   m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
 }
 
@@ -1209,7 +1248,7 @@ function render(car, ghost, dt) {
   const cx = Math.cos(car.a), cy = Math.sin(car.a);
   head.position.set(car.x + cx * car.spec.len * 0.5, 9, car.y + cy * car.spec.len * 0.5);
   headT.position.set(car.x + cx * 260, 0, car.y + cy * 260);
-  head.intensity = view === 'bonnet' ? 950 : 1500; // seen from just behind it, the pool of light right ahead would glare
+  head.intensity = view === 'bonnet' ? 420 : 1500; // seen from just behind it, the pool of light right ahead would glare
 
   // speed widens the lens a little and (chase) lets the camera fall back and down; eased, so a launch or a hard stop
   // shows as the car pulling away or closing in. The camera leans a degree or two into a corner (from the turn rate).

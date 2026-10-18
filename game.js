@@ -287,6 +287,7 @@
     let top = 8;
     for (const r of hud) if (r[1] < vh * 0.4) top = Math.max(top, r[3]);
     const box = { l: 8, t: top + 4, r: vw - 8, b: vh - 14 }, h = 22;
+    if (chaseView && Chase.view === 'bonnet') box.b = Math.min(box.b, bonnetTop() - 6); // the bonnet is the car's: signs stay above it
     g.font = '700 10.5px -apple-system, system-ui, sans-serif';
     // 1) where each off-screen place's direction leaves the sign area
     const chips = [];
@@ -855,8 +856,10 @@
     const dx = (x - cam.x) * cam.z, dy = (y - cam.y) * cam.z;
     return [cam.ax + dx * cam.c - dy * cam.s, cam.ay + dx * cam.s + dy * cam.c];
   }
-  // where the car is on the screen, for the signs' rays; in Bonnet the car is under the camera, so the bottom middle
-  const carScr = (c) => (chaseView && Chase.view === 'bonnet' ? [vw / 2, vh * 0.86] : toScr(c.x, c.y));
+  // where the car is on the screen, for the signs' rays; in Bonnet the car is under the camera, so the middle of the
+  // screen just above the bonnet
+  const bonnetTop = () => { const r = Chase.carRect(); return r ? r[1] : vh * 0.88; };
+  const carScr = (c) => (chaseView && Chase.view === 'bonnet' ? [vw / 2, Math.min(vh * 0.86, bonnetTop() - 40)] : toScr(c.x, c.y));
   function toWorld(sx, sy) {
     const dx = (sx - cam.ax) / cam.z, dy = (sy - cam.ay) / cam.z;
     return [cam.x + dx * cam.c + dy * cam.s, cam.y - dx * cam.s + dy * cam.c];

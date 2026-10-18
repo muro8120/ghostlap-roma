@@ -25,12 +25,13 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   taller and floodlit, lit windows), street lamps, the car's headlight and the night vignette. Streets get kerbs and paved
   pavements, with parked cars, plane trees or bollards where the building line opens up, and parapets on the bridges. The
   road has a slight crown with the markings painted on it (a white dashed centre line in town), patches of older and
-  newer asphalt and manhole covers, and the nearest street lamps shine back off the wet asphalt; hard braking and slides
+  newer asphalt and manhole covers, and the nearest street lamps shine back off the wet asphalt as long streaks (on the road only); hard braking and slides
   leave tyre marks and smoke, a wall scrape smokes, and a knock on a wall gives the camera a small shake. The
   circuits are lit all the way round, lined with trees, with the city on the horizon. The ghost is pale blue glass. The lens
   widens a little with speed and the camera falls back a touch, and it leans a degree or two into a corner. *Bonnet* is
   the same 3D world from just above the bonnet, looking down the road: rigid on the car, so it rolls and dips with the
-  body; the bonnet is a strip at the bottom of the screen and the signs point out from there. *Follow* is the flat top-down
+  body; the bonnet is a curved strip at the bottom of the screen, the headlight's glare right under the lens is left
+  out so the road stays readable, and the signs sit just above the bonnet. *Follow* is the flat top-down
   view with the car's heading up the screen, and *North-up* the fixed map view. In every view the left thumb turns the car left
   on screen, and the minimap stays north-up, with the car as an arrow. A phone without WebGL gets Follow instead of Chase
   or Bonnet. How the race was turned 3D, and what stays 2D, is in [docs/drive/3d-conversion.md](docs/drive/3d-conversion.md).

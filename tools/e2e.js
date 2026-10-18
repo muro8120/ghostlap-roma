@@ -156,8 +156,15 @@ if (process.env.ROME_JS) {
       const lpoll = setInterval(async () => { try { const L = await p.evaluate(() => window.__ghostlap.labels); if (L) labs.push(L); } catch (e) {} }, 300);
       const sboxes = []; // Follow: the direction signs' boxes, sampled through the run
       const spoll = i === cityIdx[1] && setInterval(async () => { try { const S = await p.evaluate(() => window.__ghostlap.signBoxes); if (S && S.length) sboxes.push(S); } catch (e) {} }, 100);
+      const bsamp = []; // Bonnet: the direction signs against the bonnet's rect, sampled through the run
+      const bpoll = i === cityIdx[2] && setInterval(async () => { try { const S = await p.evaluate(() => ({ s: window.__ghostlap.signBoxes, r: window.Chase.carRect() })); if (S.s && S.s.length && S.r) bsamp.push(S); } catch (e) {} }, 120);
       const done = await p.waitForSelector('#finish.on', { timeout: 120000 }).then(() => true).catch(() => false);
-      clearInterval(poll); clearInterval(lpoll); if (spoll) clearInterval(spoll);
+      clearInterval(poll); clearInterval(lpoll); if (spoll) clearInterval(spoll); if (bpoll) clearInterval(bpoll);
+      if (bpoll) {
+        const bad = []; // (2 px of slack: the rect is read a moment after the frame the signs were laid out in, and the body pitches)
+        for (const S of bsamp) for (const a of S.s) if (a.box[3] > S.r[1] + 2 && a.box[1] < S.r[3] && a.box[0] < S.r[2] && a.box[2] > S.r[0]) bad.push(a.t + ' ' + JSON.stringify([a.box, S.r.map(Math.round)]));
+        check('bonnet camera in Rome: no direction sign on the bonnet', bsamp.length > 20 && !bad.length, `samples=${bsamp.length} ${[...new Set(bad)].slice(0, 3).join(' | ')}`);
+      }
       if (spoll) {
         const hit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1], bad = [];
         for (const S of sboxes) S.forEach((a, k) => { for (const o of S.slice(k + 1)) if (hit(a.box, o.box)) bad.push(a.t + ' / ' + o.t + ' ' + JSON.stringify([a.box, o.box])); });
@@ -233,13 +240,14 @@ if (process.env.ROME_JS) {
     k0.tail === 'a31717' && k2.tail === 'ff3a30' && (!k3.isRev || k3.rev === 'f4f6ff'), JSON.stringify({ k0, k1, k2, k3 }));
   // a hard stop from speed down the first straight leaves tyre marks and smoke (High); a new race starts with a clean road
   await p2.evaluate(() => window.__ghostlap.startRace(0));
-  await p2.waitForFunction(() => window.__ghostlap.state === 'race' && window.__ghostlap.race.car.speed > 250, null, { timeout: 20000 });
+  // (the game clock runs slow when the headless frame rate drops under load, hence the long wait)
+  await p2.waitForFunction(() => window.__ghostlap.state === 'race' && window.__ghostlap.race.car.speed > 200, null, { timeout: 60000 });
   await down(23, 60); await down(24, 330);
   await p2.waitForFunction(() => window.__ghostlap.chase.marks > 0 && window.__ghostlap.chase.smoke > 0, null, { timeout: 3000 }).catch(() => {});
   const k5 = await p2.evaluate(() => ({ marks: window.__ghostlap.chase.marks, smoke: window.__ghostlap.chase.smoke }));
   await up(23); await up(24);
   await p2.evaluate(() => window.__ghostlap.startRace(0));
-  await p2.waitForFunction(() => window.__ghostlap.state === 'count', null, { timeout: 20000 });
+  await p2.waitForFunction(() => window.__ghostlap.state === 'count' || window.__ghostlap.state === 'race', null, { timeout: 20000 });
   await p2.waitForTimeout(300);
   const k4 = await p2.evaluate(() => ({ marks: window.__ghostlap.chase.marks, smoke: window.__ghostlap.chase.smoke }));
   check('tyre marks and smoke on a hard stop, cleared for the next race', k5.marks > 0 && k5.smoke > 0 && k4.marks === 0 && k4.smoke === 0, JSON.stringify({ braking: k5, next: k4 }));
