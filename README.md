@@ -135,7 +135,8 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   - *Classic*: the tournament look, buff and brown squares with the cburnett pieces, an amber ring on the selection and
     dark dots for the moves.
   - *Dark*: the Stone pieces on deep slate squares that sit in the app's dark UI; the graphite pieces get a pale rim so
-    they never sink into a dark square. Mint glow and the piece name as in Stone.
+    they never sink into a dark square, and the last move is ringed in amber (a fill would go brown on slate). Mint glow
+    and the piece name as in Stone.
   - *Wire*: a drafting sheet. Paper squares ruled with hairlines, the dark ones hatched, and a line-art copy of the Stone
     pieces: White is a hollow ink outline, Black a solid ink silhouette with a paper hairline inside its edge (the printed
     diagram convention, so the sides read at a glance even on the small post-mortem board). Thin mint outlines instead
