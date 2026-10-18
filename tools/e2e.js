@@ -420,6 +420,24 @@ if (process.env.ROME_JS) {
   await p5.evaluate(() => { window.__ghostlap.fakeMs = null; window.__ghostlap.toMenu(); window.__ghostlap.setQuality('high'); });
   await p5.close();
 
+  // a phone without WebGL: Chase and Bonnet both fall back to the flat Follow view (and the choice is kept)
+  const ctx6 = await b.newContext({ ...devices['iPhone 13'] });
+  await ctx6.addInitScript(() => { const g = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function (k, o) { return /webgl/.test(k) ? null : g.call(this, k, o); }; });
+  const p6 = await ctx6.newPage();
+  p6.on('pageerror', (e) => errs.push('p6 pageerror: ' + e.message));
+  await p6.goto(base + '?game=drive');
+  await p6.waitForTimeout(500);
+  const nw = [];
+  for (const cam of ['chase', 'bonnet']) {
+    await p6.evaluate((c) => { window.__ghostlap.setCam(c); window.__ghostlap.startRace(0); }, cam);
+    await p6.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
+    await p6.waitForTimeout(300);
+    nw.push(await p6.evaluate(() => ({ ...window.__ghostlap.view, on: document.getElementById('view3d').classList.contains('on'), ready: !!(window.Chase && window.Chase.ready) })));
+    await p6.evaluate(() => window.__ghostlap.toMenu());
+  }
+  check('no WebGL: Chase and Bonnet fall back to Follow (car heading up), the setting is kept', nw.every((v, k) => v.mode === ['chase', 'bonnet'][k] && !v.chase && !v.on && !v.ready && Math.abs(v.a + Math.PI / 2) < 0.1), JSON.stringify(nw));
+  await ctx6.close();
+
   // offline reload
   await ctx.setOffline(true);
   const p3 = await ctx.newPage();
