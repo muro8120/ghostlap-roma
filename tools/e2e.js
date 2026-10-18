@@ -132,7 +132,7 @@ if (process.env.ROME_JS) {
         const v = await p.evaluate(() => ({ ...window.__ghostlap.view, on: document.getElementById('view3d').classList.contains('on') }));
         check('chase camera in Rome: 3D view on, car in the lower middle, pointing away', v.mode === 'chase' && v.chase && v.on && Math.abs(v.x - 0.5) < 0.15 && v.y > 0.55 && v.y < 0.85 && Math.abs(v.a + Math.PI / 2) < 0.8, JSON.stringify(v));
         const info = await p.evaluate(() => window.__ghostlap.chase);
-        check('chase renderer numbers are sane (Rome), within the budget of 40 draw calls', info && !info.error && info.calls >= 5 && info.calls <= 40 && info.triangles > 5000 && info.triangles < 600000 && info.buildings > 200 && info.revision >= 160, JSON.stringify(info));
+        check('chase renderer numbers are sane (Rome), within the budget of 40 draw calls', info && !info.error && info.calls >= 5 && info.calls <= 40 && info.triangles > 5000 && info.triangles < 600000 && info.buildings > 200 && info.revision >= 160 && info.refl > 0, JSON.stringify(info));
         console.log('chase renderer, Rome ' + JSON.stringify(info));
       }
       if (i === cityIdx[1]) {
@@ -383,7 +383,7 @@ if (process.env.ROME_JS) {
   const qL = await p5.evaluate(() => ({ ...window.__ghostlap.chase, dprCap: window.__ghostlap.fps.dprCap }));
   const fewer = qTrack ? qL.buildings < qH.buildings * 0.85 && qL.parked < qH.parked : true;
   check('Quality Low: fewer buildings and lights, pixel ratio 1, live from the pause sheet', qH.quality === 'high' && qP.btn === 'Quality: Low' && qP.quality === 'low' && qP.dpr === 1 && qP.lights === 2 &&
-    qL.built === 'low' && fewer && qL.lights < qH.lights && qL.dpr < qH.dpr && qL.dpr === 1 && qL.dprCap === 1 && !qL.error && qH.calls <= 40 && qL.calls <= 36,
+    qL.built === 'low' && fewer && qL.lights < qH.lights && qL.dpr < qH.dpr && qL.dpr === 1 && qL.dprCap === 1 && !qL.error && qH.calls <= 40 && qL.calls <= 36 && qL.refl === 0 && qL.smoke === 0,
     JSON.stringify({ high: [qH.buildings, qH.parked, qH.lights, qH.dpr, qH.calls, qH.buildMs], paused: [qP.built, qP.lights, qP.dpr], low: [qL.buildings, qL.parked, qL.lights, qL.dpr, qL.calls, qL.buildMs] }));
   await p5.screenshot({ path: SHOTS + '/42-quality-low.png' });
   // Auto: under 45 fps for 3 s of a race steps down to Low for the session, with a one-time notice; never back up

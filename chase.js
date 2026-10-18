@@ -23,14 +23,14 @@ let carM = null, ghostM = null, carKey = '', ghostKey = '', bMat = null, stats =
 // quality: 'high' (pixel ratio up to 2, four real lamp lights, buildings 1100 out from the route) or 'low' (pixel ratio 1, one
 // lamp light plus the headlight, buildings 40% closer in, half the street furniture, nearer fog, plain windows, no MSAA).
 // The lights, pixel ratio, fog and windows change live; the rest waits for the next build (or rebuild()).
-// marks: tyre-mark segments kept; smoke: puffs in the pool (none on Low)
-const QUAL = { high: { pr: 2, lamps: 4, reach: 1100, fog: 1, furn: 1, marks: 1200, smoke: 48 }, low: { pr: 1, lamps: 1, reach: 660, fog: 0.74, furn: 2, marks: 400, smoke: 0 } };
+// marks: tyre-mark segments kept; smoke: puffs in the pool (none on Low); refl: lamp reflections on the wet road
+const QUAL = { high: { pr: 2, lamps: 4, reach: 1100, fog: 1, furn: 1, marks: 1200, smoke: 48, refl: 1 }, low: { pr: 1, lamps: 1, reach: 660, fog: 0.74, furn: 2, marks: 400, smoke: 0, refl: 0 } };
 let qLevel = 'high', Q = QUAL.high, builtQ = '', lastArgs = null, lastDpr = 1, fogBase = null;
 const buildMsAt = {};
 // the camera's state. view: 'chase' (behind and above) or 'bonnet' (on the bonnet); sp: the eased speed (0..1) that
 // widens the lens and lets the camera fall back a little; lean: its roll into a corner; pa: the car's last heading
 let view = 'chase';
-const cs = { x: 0, y: 0, yaw: 0, ao: 0, sp: 0, lean: 0, pa: 0, ok: false };
+const cs = { x: 0, y: 0, yaw: 0, ao: 0, sp: 0, lean: 0, pa: 0, shake: 0, pb: 0, t: 0, ok: false };
 const eyeV = new THREE.Vector3(), aheadV = new THREE.Vector3(), upV = new THREE.Vector3(), UPY = new THREE.Vector3(0, 1, 0);
 const U = { uCam: { value: new THREE.Vector3() }, uCar: { value: new THREE.Vector3() } };
 const tmp = new THREE.Vector3();
@@ -236,10 +236,10 @@ function disposeObj(o) {
 }
 function dispose() {
   if (!R) return;
-  for (const o of [world, carM, ghostM, sky, FX.marks, FX.smoke]) if (o) disposeObj(o);
+  for (const o of [world, carM, ghostM, sky, FX.marks, FX.smoke, FX.refl]) if (o) disposeObj(o);
   if (bMat) bMat.dispose();
   if (TEX) for (const t of Object.values(TEX)) t.dispose();
-  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = rMat = FX.marks = FX.smoke = null; pool = []; curT = null; carKey = ghostKey = ''; builtQ = ''; lastArgs = fogBase = null;
+  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = rMat = FX.marks = FX.smoke = FX.refl = null; pool = []; curT = null; carKey = ghostKey = ''; builtQ = ''; lastArgs = fogBase = null;
 }
 
 function makeSky() {
@@ -1073,7 +1073,7 @@ const carTex = () => { const t = textures(); return { glow: t.glow, blob: t.blob
 // sized and faded per puff) from the rear wheels in a slide or a hard stop and from the front corner scraping a wall.
 // No smoke on Low. Both are cleared at the start of each race.
 const FX = { marks: null, smoke: null, n: 0, last: [null, null], live: 0, ps: [], emit: 0 };
-const MCAP = 1200, SCAP = 48;
+const MCAP = 1200, SCAP = 48, RCAP = 12;
 function makeFx() {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MCAP * 18), 3).setUsage(THREE.DynamicDrawUsage));
@@ -1093,6 +1093,9 @@ void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = pro
 void main() { vec2 p = gl_PointCoord - 0.5; float d = dot(p, p) * 4.0; if (d > 1.0) discard; float a = (1.0 - d); gl_FragColor = vec4(uCol, vA * a * a); }`,
   }));
   FX.smoke.frustumCulled = false; FX.smoke.renderOrder = 5; FX.smoke.visible = false; scene.add(FX.smoke);
+  // the street lamps mirrored in the wet road: a soft streak each, laid on the road between the lamp and the camera
+  FX.refl = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), additive({ map: textures().glow }), RCAP);
+  FX.refl.frustumCulled = false; FX.refl.renderOrder = 2; FX.refl.count = 0; scene.add(FX.refl);
   for (let k = 0; k < SCAP; k++) FX.ps.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 1, life: 1, s0: 0 });
 }
 function clearFx(smokeOnly) {
@@ -1156,10 +1159,33 @@ function tyres(car, dt) {
   FX.live = live; FX.smoke.visible = live > 0;
 }
 
+// The nearest lamps ahead, mirrored in the wet asphalt: a mirror image of a lamp HEAD units up shows where the line from
+// the camera to the image crosses the road, stretched towards the camera as wet roads do. Dimmer with distance. High only.
+const rq = new THREE.Quaternion(), rs = new THREE.Vector3(), rp = new THREE.Vector3(), rm = new THREE.Matrix4(), rc = new THREE.Color();
+function reflections() {
+  const m = FX.refl;
+  if (!m) return;
+  if (!Q.refl || !lampHeads.length) { m.count = 0; m.visible = false; return; }
+  const ex = cam.position.x, ez = cam.position.z, h = Math.max(4, cam.position.y - ROAD), fx = Math.cos(cs.yaw), fy = Math.sin(cs.yaw), list = [];
+  for (const l of lampHeads) {
+    const dx = l.x - ex, dz = l.y - ez, d = Math.hypot(dx, dz), ahead = (dx * fx + dz * fy) / (d || 1);
+    if (d < 40 || d > 900 || ahead < 0.35) continue;
+    if (list.length < RCAP || d < list[list.length - 1][0]) { list.push([d, l, dx / d, dz / d]); list.sort((a, b) => a[0] - b[0]); if (list.length > RCAP) list.pop(); }
+  }
+  list.forEach(([d, l, ux, uz], k) => {
+    const t = d * h / (h + 30), len = Math.min(160, 40 + d * 0.22), a = 0.55 * Math.max(0, 1 - d / 900);
+    rp.set(ex + ux * (t - len * 0.25), ROAD + CROWN + 0.25, ez + uz * (t - len * 0.25));
+    rm.compose(rp, rq.setFromAxisAngle(UPY, -Math.atan2(uz, ux)), rs.set(len, 1, 9 + d * 0.012));
+    m.setMatrixAt(k, rm); m.setColorAt(k, rc.set(l.c === 'cool' ? '#9fbfff' : '#ffb46a').multiplyScalar(a));
+  });
+  m.count = list.length; m.visible = list.length > 0;
+  m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
+}
+
 // ---------- public: render ----------------------------------------------------------------
 function snap(car) { // (also the start of a race and a resume from the pause sheet)
   const sp = Math.min(1, (car.speed || 0) / 420), back = BACK * (1 + 0.1 * sp);
-  Object.assign(cs, { yaw: car.a, ao: 0, sp, lean: 0, pa: car.a, x: car.x - Math.cos(car.a) * back, y: car.y - Math.sin(car.a) * back, ok: true });
+  Object.assign(cs, { yaw: car.a, ao: 0, sp, lean: 0, pa: car.a, shake: 0, pb: car.bump || 0, x: car.x - Math.cos(car.a) * back, y: car.y - Math.sin(car.a) * back, ok: true });
   carLift = roadY(car.off || 0, curT ? curT.hw : 60); resetCar(carM); resetCar(ghostM); FX.last = [null, null];
 }
 // 'chase' or 'bonnet'; a change snaps the camera at the next frame
@@ -1218,9 +1244,18 @@ function render(car, ghost, dt) {
     cam.fov = fov0 + 7 * cs.sp;
     if (cam.near !== 5) cam.near = 5;
   }
+  // a knock on a wall shakes the camera for a moment, harder the faster you hit it
+  cs.t += dt;
+  if ((car.bump || 0) > cs.pb + 0.1) cs.shake = Math.min(1, cs.shake + (car.speed || 0) / 260 + 0.25);
+  cs.pb = car.bump || 0; cs.shake *= Math.exp(-7 * dt);
+  if (cs.shake > 0.01) {
+    const k = cs.shake * (view === 'bonnet' ? 0.6 : 2.2);
+    cam.position.x += Math.sin(cs.t * 71) * k; cam.position.y += Math.sin(cs.t * 53 + 1) * k * 0.7; cam.position.z += Math.sin(cs.t * 61 + 2) * k;
+  }
   cam.updateProjectionMatrix();
   cam.updateMatrixWorld();
   sky.position.copy(cam.position);
+  reflections();
   U.uCam.value.copy(cam.position); U.uCar.value.set(car.x, 8, car.y);
 
   // ghost
@@ -1248,7 +1283,7 @@ function render(car, ghost, dt) {
   if (FX.smoke) FX.smoke.material.uniforms.uScale.value = R.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360));
   R.render(scene, cam);
   const i = R.info.render;
-  stats.calls = i.calls; stats.triangles = i.triangles; stats.car = carInfo(carM); stats.marks = Math.min(FX.n, Q.marks); stats.smoke = FX.live;
+  stats.calls = i.calls; stats.triangles = i.triangles; stats.car = carInfo(carM); stats.marks = Math.min(FX.n, Q.marks); stats.smoke = FX.live; stats.refl = FX.refl ? FX.refl.count : 0; stats.shake = +cs.shake.toFixed(2);
 }
 
 // world point -> CSS pixels on the screen, plus its depth; null when behind the camera
