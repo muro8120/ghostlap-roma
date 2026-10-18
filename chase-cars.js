@@ -5,7 +5,7 @@
 import * as THREE from './vendor/three/three.module.min.js';
 
 export const CAR_SC = 1.2;           // the cars drawn a touch bigger than their physics box, so they don't read as toys
-const C = (c) => new THREE.Color(c);
+const C = (c) => new THREE.Color(c), WHITE = new THREE.Color('#ffffff');
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -117,9 +117,39 @@ function bodyGeometry(sp) {
   // the bonnet camera: a hand's width above the bonnet, far enough forward that the bonnet is a strip at the bottom
   const eyeX = Math.max(cowl + 1, X(0.5) - 6.5);
   // what of the car the bonnet camera sees: the bonnet from just ahead of the eye to the nose, both edges
-  const hoodPts = [];
-  for (const [x, y] of [[eyeX + 0.5, hood(eyeX + 0.5)], [X(0.5), nose]]) for (const s of [-1, 1]) hoodPts.push([x, y, s * (W / 2) * half(x)]);
-  return { geo: mergeAll(parts), S, L, W, r, nose, sill, tail, cowl, bF, half, eyeX, eyeY: hood(eyeX) + 3.2, hoodPts };
+  // (the domed panel from bonnetGeometry included: its crown is the highest thing the camera sees of the car)
+  const hoodPts = [], dome = S.flat ? 0.35 : 0.7;
+  for (const x of [eyeX + 0.5, X(0.5) - 0.4]) for (const s of [-1, 0, 1]) hoodPts.push([x, hood(x) + 0.12 + (s ? 0 : dome), s * (W / 2) * half(x)]);
+  return { geo: mergeAll(parts), S, L, W, r, nose, sill, tail, cowl, bF, half, eyeX, eyeY: hood(eyeX) + 3.2, hoodPts, hoodGeo: bonnetGeometry(sp, S, X(0.5), eyeX - 2, hood, half, W) };
+}
+
+// What the bonnet camera sees of its own car: the bonnet as a curved panel laid just over the body's flat one, domed
+// across and creased down the middle, shading darker towards the camera and to its edges, with a bright edge where it
+// turns over the nose and a dark lip below. Shown only on the bonnet camera. (A portrait screen sees only the middle
+// few units of it, so the headlight housings at the corners stay out of frame and are not modelled here.)
+function bonnetGeometry(sp, S, xn, x0, hood, half, W) {
+  const ZN = [-1, -0.8, -0.5, -0.16, 0, 0.16, 0.5, 0.8, 1], NX = 8, dome = S.flat ? 0.35 : 0.7, // (the same dome as hoodPts)
+    p = [], c = [], idx = [], col = new THREE.Color(), base = C(sp.body);
+  const at = (i) => x0 + ((xn - 0.4 - x0) * i) / NX;
+  for (let i = 0; i <= NX + 1; i++) {
+    const lip = i > NX, x = lip ? xn - 0.1 : at(i), t = Math.min(1, i / NX); // the last row turns down over the nose: the far edge
+    for (const z of ZN) {
+      const hw = (W / 2 - 0.2) * half(x), y = hood(x) + 0.12 + (lip ? -0.9 : dome * (1 - Math.abs(z) ** 1.6));
+      p.push(x, y, z * hw);
+      // a highlight down the crease and along the far edge where the panel turns over; darker towards the camera
+      // (the highlights mix towards white rather than scale, so a saturated paint still shows them)
+      const near = 0.3 + 0.7 * clamp(1 - (xn - x) / 6, 0, 1), edge = 1 - 0.35 * Math.abs(z) ** 2;
+      col.copy(base).multiplyScalar(lip ? 0.25 : edge * (i === NX ? 1 : near));
+      if (!lip) col.lerp(WHITE, i === NX ? 0.2 : z === 0 ? 0.16 * near : Math.abs(z) < 0.2 ? 0.06 * near : 0);
+      c.push(col.r, col.g, col.b);
+    }
+  }
+  const n = ZN.length;
+  for (let i = 0; i <= NX; i++) for (let j = 0; j < n - 1; j++) { const a = i * n + j, b = a + n; idx.push(a, a + 1, b + 1, a, b + 1, b); }
+  let g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3)); g.setIndex(idx);
+  g.computeVertexNormals();
+  return g.toNonIndexed();
 }
 
 // a wheel: tyre, and a rim with five lighter spokes so you can see it turn at parking speed
@@ -165,6 +195,8 @@ export function carMesh(sp, ghost, tex) {
     gl.position.y = 0.5; gl.renderOrder = 2;
   } else {
     const pm = add(new THREE.Mesh(B.geo, paintMaterial(sp.body))); pm.position.y = -r; g.userData.rim = pm.material.userData.rim;
+    const hm = add(new THREE.Mesh(B.hoodGeo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: C(sp.body).multiplyScalar(0.04) })));
+    hm.position.y = -r; hm.visible = false; g.userData.hood = hm;
     g.userData.wheels = add(new THREE.InstancedMesh(wg, new THREE.MeshLambertMaterial({ vertexColors: true }), 4), g);
     // lamps sit just proud of the bevelled nose and tail, where the plan taper puts the corners
     const xf = L / 2 + S.bev * 0.6 + 0.05, xb = -L / 2 - S.bev * 0.6 - 0.05, zf = W * 0.32 * B.half(L / 2), zb = W * 0.33 * B.half(-L / 2);
@@ -190,11 +222,12 @@ export function carMesh(sp, ghost, tex) {
     const wet = add(new THREE.Mesh(new THREE.PlaneGeometry(230, 30).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: tex.glow, color: C('#ffe2b8').multiplyScalar(0.14), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })), g);
     wet.position.set(L * 0.5 + 100, 0.9, 0); wet.renderOrder = 3;
     g.userData.beams = [beam.material, wet.material].map((m) => [m, m.color.clone()]);
+    Object.assign(g.userData, { beam, wet, beamX: beam.position.x });
   }
   g.userData.wheels.frustumCulled = false;
   poseWheels(g);
-  let tris = 0; // for Chase.info(): what one car costs
-  g.traverse((o) => { if (o.isMesh) tris += (o.geometry.attributes.position.count / 3) * (o.isInstancedMesh ? o.count : 1); });
+  let tris = 0; // for Chase.info(): what one car costs as the chase camera draws it (the bonnet panel stands in for the body's flat one)
+  g.traverse((o) => { if (o.isMesh && o !== g.userData.hood) tris += (o.geometry.attributes.position.count / 3) * (o.isInstancedMesh ? o.count : 1); });
   g.userData.tris = Math.round(tris);
   return g;
 }
@@ -244,9 +277,16 @@ export function poseCar(g, c, dt, y, o) {
   poseWheels(g);
   if (u.ghost) return;
   if (u.blob && !(o && o.low)) u.blob.position.z = -st.roll * 18; // the shadow slides out under the roll
-  // from the bonnet the headlight's throw starts right under the lens, so it is drawn fainter there
+  // From the bonnet the near field would be a haze right under the lens: the shadow blob and the wet streak go, and the
+  // beam keeps only its far throw (pushed out ahead and fainter), so the road's markings and patches stay readable.
+  // The curved bonnet panel takes over from the body's flat one.
   const bonnet = !!(o && o.bonnet);
-  if (u.bonnet !== bonnet) { u.bonnet = bonnet; u.rim.value = bonnet ? 0.3 : 1; for (const [m, c0] of u.beams) m.color.copy(c0).multiplyScalar(bonnet ? 0.22 : 1); }
+  if (u.bonnet !== bonnet) {
+    u.bonnet = bonnet; u.rim.value = bonnet ? 0.3 : 1;
+    for (const [m, c0] of u.beams) m.color.copy(c0).multiplyScalar(bonnet ? 0.45 : 1);
+    u.blob.visible = u.wet.visible = !bonnet; u.hood.visible = bonnet;
+    u.beam.position.x = u.beamX + (bonnet ? 90 : 0);
+  }
   u.tail.color.set(c.braking ? '#ff3a30' : '#a31717');
   u.rev.color.set(c.rev ? '#f4f6ff' : '#2a2b2e');
   u.glow.visible = !!(c.braking || c.rev);

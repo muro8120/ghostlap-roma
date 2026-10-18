@@ -39,7 +39,8 @@ cosmetic: kerbs, the pavement step, the road's crown, body roll and pitch.
    buffer), and tyre smoke (one pooled point cloud). Both are cleared at the start of each race.
 4. **Default and fallback.** Chase stays the default; no WebGL still means Follow, and so does Bonnet without WebGL.
    Low gates the new costs (below). The 2D renderer is not removed.
-5. **Polish if there is time.** Lamp reflections on the wet road (High only, one instanced mesh of up to 12 streaks),
+5. **Polish if there is time.** Lamp reflections on the wet road as long thin streaks that start where the line from
+   the lamp to the camera reaches the asphalt and stop where it leaves it (High only, one instanced mesh of up to 12),
    a small camera shake on a wall hit.
 
 ## Budget per quality level
