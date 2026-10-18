@@ -42,7 +42,8 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   *High* is the full scene: pixel ratio up to 2, buildings up to 1100 units either side of the route, four street lamps that
   really light the road, the full fog distance. *Low* draws at 1x (in every view), builds buildings only 40% as far out, keeps
   one real lamp light plus the headlight, pulls the fog (and in town the far plane) in, halves the parked cars, trees and
-  bollards, and uses plain windows and plain asphalt (no patches or manholes), keeps 400 tyre marks instead of 1200, no
+  bollards, and uses plain windows and plain asphalt (no patches or manholes, the crown shaded in more strongly so it
+  still reads), keeps 400 tyre marks instead of 1200, no
   tyre smoke and no lamp reflections; on a phone that starts on Low there is no MSAA either. *Auto* (the default) starts on
   High and, if a race runs under about 45 fps for 3 seconds, drops to Low for the rest of the session (never back up mid-way),
   saying "Lowered graphics to keep it smooth" the first time it ever happens. Lights, pixel ratio, fog and windows change at
