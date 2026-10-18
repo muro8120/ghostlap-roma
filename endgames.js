@@ -139,12 +139,7 @@
   // the screen and its styles, created here so index.html stays untouched (.eg- prefix throughout)
   const CSS = `
   #endgames { overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; background: var(--bg);
-    padding: calc(var(--st) + 10px) calc(var(--sr) + 16px) calc(var(--sb) + 28px) calc(var(--sl) + 16px); --sq: calc(min(100vw - 72px, 300px) / 8);
-    --sqL: #9aa7b8; --sqD: #4a5568; --crL: #2b3340; --crD: #c7d0dc; }
-  [data-theme="wood"] #endgames { --sqL: #f0d9b5; --sqD: #b58863; --crL: #7a5a3a; --crD: #f0d9b5; }
-  [data-theme="modern"] #endgames { --sqL: #eeeed2; --sqD: #769656; --crL: #6b7a4a; --crD: #eeeed2; }
-  [data-theme="mono"] #endgames { --sqL: #d5d8de; --sqD: #6e7480; --crL: #4a505c; --crD: #e4e7ec; }
-  [data-theme="stone"] #endgames { --sqL: #e6e2da; --sqD: #cdc8bf; --crL: #8f897f; --crD: #f6f3ee; --mint: 72,196,140; }
+    padding: calc(var(--st) + 10px) calc(var(--sr) + 16px) calc(var(--sb) + 28px) calc(var(--sl) + 16px); --sq: calc(min(100vw - 72px, 300px) / 8); }   /* square colours, pieces and marks come from the board template on <html> (index.html) */
   #endgames [hidden] { display: none !important; }
   .eg-sets { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 12px; }
   .eg-sum { margin-bottom: 4px; }

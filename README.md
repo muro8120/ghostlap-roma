@@ -125,15 +125,26 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   what is better, twice a turn. *Read the board* describes the position plainly for both sides: material, the engine's
   view, development, kings, centre, hanging pieces, the opponent's idea, and each side's priority. Both count as nudges
   in your history, separately from hints.
-- **Board themes:** Stone (the default), Night, Wood, Modern and Mono, chosen per player. The first four use the cburnett SVG piece set;
-  Stone is a pale, low-contrast board with its own abstract stone piece set (speckled white, graphite black), one bold
-  cue per piece (cross-cut king, crowned queen, notched rook, slit bishop, bitten knight, bud pawn), a mint glow on the
-  selected square and legal moves, and the piece's name shown under the board for a second when you pick it up. Chess
-  only; the racer keeps its look.
+- **Board templates:** four, chosen per player from the swatches on the chess home, and followed by every board in the
+  app (game, review, post-mortem, lesson, drill cards, Tactics, Endgames). Chess only; the racer keeps its look. Themes
+  saved before the templates move over: Wood becomes Classic; Night, Modern and Mono become Stone.
+  - *Stone* (the default): a pale, low-contrast board with the app's own abstract stone piece set (speckled white,
+    graphite black), one bold cue per piece (cross-cut king, crowned queen, notched rook, slit bishop, bitten knight, bud
+    pawn), a mint glow on the selected square and legal moves, and the piece's name shown under the board for a second
+    when you pick it up.
+  - *Classic*: the tournament look, buff and brown squares with the cburnett pieces, an amber ring on the selection and
+    dark dots for the moves.
+  - *Dark*: the Stone pieces on deep slate squares that sit in the app's dark UI; the graphite pieces get a pale rim so
+    they never sink into a dark square. Mint glow and the piece name as in Stone.
+  - *Wire*: a drafting sheet. Paper squares ruled with hairlines, the dark ones hatched, and a line-art copy of the Stone
+    pieces: White is a hollow ink outline, Black a solid ink silhouette with a paper hairline inside its edge (the printed
+    diagram convention, so the sides read at a glance even on the small post-mortem board). Thin mint outlines instead
+    of the glow, and the piece name as in Stone.
 - **History:** your last 20 games and their reports are kept on the phone. Promotion is always to a queen.
 - Credits: [Stockfish](https://stockfishchess.org) (GPL-3.0, `vendor/STOCKFISH-LICENSE.txt`) via
   [stockfish.js](https://github.com/nmrugg/stockfish.js); [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause); [three.js](https://threejs.org) r184 for the chase camera (MIT, `vendor/three/LICENSE`); piece set by Colin M.L. Burnett (GPLv2+, from lichess,
-  `vendor/pieces/`); the Stone pieces in `vendor/pieces-stone/` are original drawings for this app; opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
+  `vendor/pieces/`, the Classic board); the Stone pieces in `vendor/pieces-stone/` are original drawings for this app, and the Wire pieces in
+  `vendor/pieces-stone-wire/` are line-art derivatives of them (`node tools/build-wire-pieces.mjs`); opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0).
 
 ## Train
 
@@ -301,13 +312,14 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `puzzles.js`, `puzzles-data.js`: the Tactics screen and its lichess puzzle set (`tools/build-puzzles.mjs`, `node tools/puzzles-test.js`)
 - `endgames.js`: the Endgames catalogue and drill screen (`node tools/endgames-test.js`)
 - `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)
-- `vendor/`: chess.js, the Stockfish lite WASM engine, the piece SVGs, and three.js (`vendor/three/`, the ES module build, loaded by `chase.js`)
+- `vendor/`: chess.js, the Stockfish lite WASM engine, the piece SVGs (`pieces/` cburnett for Classic, `pieces-stone/` for Stone and Dark,
+  `pieces-stone-wire/` for Wire, generated from the Stone set by `tools/build-wire-pieces.mjs`), and three.js (`vendor/three/`, the ES module build, loaded by `chase.js`)
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
 - `game.js`: rendering, input, menus, sound, saving, offline status
 - `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`)
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `docs/chess/`: the research report, the learning plan and the curriculum JSON behind Train
-- `tools/`: OSM fetch and build scripts, synthetic test map, headless tests (`tools/e2e.js`, `tools/chess-e2e.js`, `tools/puzzles-e2e.js`, `tools/endgames-e2e.js`, `tools/plan-e2e.js`)
+- `tools/`: OSM fetch and build scripts, synthetic test map, headless tests (`tools/e2e.js`, `tools/chess-e2e.js`, `tools/themes-e2e.js` (the four board templates on every board, with screenshots), `tools/puzzles-e2e.js`, `tools/endgames-e2e.js`, `tools/plan-e2e.js`)
 - `package.json`, `capacitor.config.json`, `ios/`, `tools/build-www.mjs`: the native iOS wrapper (see TESTFLIGHT.md)
 

@@ -174,11 +174,11 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   check('patterns card reads the analysed game', /analysed game/.test(await p.$eval('#patterns', (e) => e.innerText)), await p.$eval('#patterns', (e) => e.innerText.replace(/\s+/g, ' ').slice(0, 120)));
   check('history list shows the game', (await p.$$eval('#chessHist button', (e) => e.length)) >= 1);
   await p.screenshot({ path: SHOTS + '/c9-home-history.png' });
-  await p.click('#themeRow button[data-theme="wood"]'); await p.waitForTimeout(100);
-  check('theme persists', (await p.evaluate(() => document.documentElement.dataset.theme + '/' + JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse.theme)) === 'wood/wood');
+  await p.click('#themeRow button[data-theme="classic"]'); await p.waitForTimeout(100);
+  check('theme persists', (await p.evaluate(() => document.documentElement.dataset.theme + '/' + JSON.parse(localStorage.getItem('ghostlap-chess-v1')).players.jesse.theme)) === 'classic/classic');
   await p.evaluate(() => window.__coach.newGame({ color: 'w', elo: 1600 })); await p.waitForFunction(() => window.__coach.state === 'playing', null, { timeout: 30000 });
-  await p.waitForTimeout(300); await p.screenshot({ path: SHOTS + '/c9b-wood.png' });
-  check('wood squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(181, 136, 99)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
+  await p.waitForTimeout(300); await p.screenshot({ path: SHOTS + '/c9b-classic.png' });
+  check('classic squares', (await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(181, 136, 99)', await p.$eval('#board .sq.d', (e) => getComputedStyle(e).backgroundColor));
   // Stone: own piece folder, all twelve load, the piece is named on pick-up, persists across reload, per player
   await p.evaluate(() => document.querySelector('#themeRow button[data-theme="stone"]').click()); await p.waitForTimeout(600);
   const srcs = await p.$$eval('#board .pc.svg', (e) => [...new Set(e.map((x) => getComputedStyle(x).backgroundImage.replace(/^.*\/vendor\//, '').replace(/"?\)$/, '')))].sort());
@@ -194,10 +194,10 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   check('stone persists across reload', (await p.evaluate(() => document.documentElement.dataset.theme + '/' + window.__coach.theme)) === 'stone/stone');
   await p.evaluate(() => window.__coach.setPlayer('j'));
   check('stone is the default theme', (await p.evaluate(() => window.__coach.theme)) === 'stone');
-  await p.evaluate(() => document.querySelector('#themeRow button[data-theme="night"]').click()); await p.waitForTimeout(300);
+  await p.evaluate(() => document.querySelector('#themeRow button[data-theme="dark"]').click()); await p.waitForTimeout(300);
   const jt = await p.evaluate(() => document.documentElement.dataset.theme + '/' + window.__coach.theme);
   await p.evaluate(() => window.__coach.setPlayer('jesse'));
-  check('theme is per player', jt === 'night/night' && (await p.evaluate(() => document.documentElement.dataset.theme)) === 'stone', jt);
+  check('theme is per player', jt === 'dark/dark' && (await p.evaluate(() => document.documentElement.dataset.theme)) === 'stone', jt);
   // J's profile: kind coach by default, separate history; switched to quiet here to check the quiet voice
   await p.evaluate(() => window.__coach.setPlayer('j'));
   check('J starts with no games, on the Kind voice', (await p.$$eval('#chessHist button', (e) => e.length)) === 0 && (await p.$eval('#voiceBtn', (e) => e.textContent)) === 'Kind');
