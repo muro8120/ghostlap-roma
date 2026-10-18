@@ -343,17 +343,25 @@ if (vFn > 0.5) {
 }
 // The road surface and its markings: asphalt grain and damp patches as before; on High, older and newer patches of
 // asphalt where the road has been dug up, and in town manhole covers. The crown is in the geometry; its normals are
-// tipped four times as far as the slope, so the light falls off a little towards the gutters.
+// tipped four times as far as the slope, so the light falls off a little towards the gutters. That alone is lost on
+// Low (no patches, one lamp light), so the crown is also painted in: each vertex carries how far across the road it is
+// (lat: 0 on the centre line, 1 at the edge) and the asphalt darkens towards the edges with a faint sheen down the
+// middle. It costs nothing extra: same mesh, same draw call.
 function roadMat(city) {
   const m = lambert({ vertexColors: true });
   m.defines = Object.assign(qLevel === 'low' ? { LOWQ: 1 } : {}, city ? { CITY: 1 } : {});
   m.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vF;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvF = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vF;' + NOISE)
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float lat;\nvarying vec3 vF;\nvarying float vLat;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvF = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvLat = lat;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vF;\nvarying float vLat;' + NOISE)
       .replace('#include <map_fragment>', `#include <map_fragment>
 { float fw = length(fwidth(vF.xz)), fine = clamp(1.0 - fw / 5.0, 0.0, 1.0);
   diffuseColor.rgb *= 0.84 + 0.2 * gn(vF.xz / 90.0) + 0.1 * mix(0.5, gn(vF.xz / 3.0), fine);
+#ifdef LOWQ
+  diffuseColor.rgb *= 1.08 - 0.34 * pow(vLat, 1.6) + 0.07 * (1.0 - smoothstep(0.0, 0.18, vLat));
+#else
+  diffuseColor.rgb *= 1.04 - 0.18 * pow(vLat, 1.6) + 0.04 * (1.0 - smoothstep(0.0, 0.18, vLat));
+#endif
 #ifndef LOWQ
   vec2 pq = vF.xz / vec2(64.0, 42.0), pc = floor(pq), pl = fract(pq);
   float ph = gh(pc + 5.3), px = 0.12 + 0.3 * gh(pc + 1.7), pz = 0.15 + 0.3 * gh(pc + 8.1);
@@ -593,7 +601,14 @@ function buildWorld(W, T, def) {
     }
   }
   world.add(toMesh(F, flatMat()));
-  world.add(toMesh(RD, (rMat = roadMat(city))));
+  // lat for the crown's shading: how far across the road each vertex is (built once; a turning circle counts as mid-road)
+  const roadM = toMesh(RD, (rMat = roadMat(city))), lat = new Float32Array(RD.p.length / 3);
+  for (let v = 0; v < lat.length; v++) {
+    const x = RD.p[v * 3], y = RD.p[v * 3 + 2];
+    lat[v] = inZone(x, y) ? 0.4 : Math.min(1, near(x, y, hw + 10).d / hw);
+  }
+  roadM.geometry.setAttribute('lat', new THREE.Float32BufferAttribute(lat, 1));
+  world.add(roadM);
 
   // soft walls: barriers on the circuits; in town the building line is the wall, so only bridges get one (a parapet),
   // and the turning circles their round kerb. None across the other carriageway where a route comes back on itself
