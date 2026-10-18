@@ -33,8 +33,9 @@ cosmetic: kerbs, the pavement step, the road's crown, body roll and pitch.
    rolls and pitches with it). The Camera pill cycles Chase, Bonnet, Follow, North-up. Labels and signs work in both
    3D cameras; in Bonnet the bonnet is the car's reserved box and the signs point out from the bottom middle.
 3. **Road surface.** The asphalt gets a crown (the middle a few centimetres higher), and the markings follow it: a
-   dashed centre line, solid edge lines, and lane lines on the wide streets. The asphalt shader adds patches and
-   manhole covers in town. Tyre marks on hard braking, slides and wall scrapes (one dynamic mesh used as a ring
+   dashed centre line (white paint in town), solid edge lines. No lane lines: every Rome route is an 11 m street, one
+   lane each way. The road is its own mesh with its own material, which adds patches of older and newer asphalt and,
+   in town, manhole covers. Tyre marks on hard braking, slides and wall scrapes (one dynamic mesh used as a ring
    buffer), and tyre smoke (one pooled point cloud). Both are cleared at the start of each race.
 4. **Default and fallback.** Chase stays the default; no WebGL still means Follow, and so does Bonnet without WebGL.
    Low gates the new costs (below). The 2D renderer is not removed.

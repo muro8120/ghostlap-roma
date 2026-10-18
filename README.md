@@ -20,10 +20,12 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
 - **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake; keep holding to reverse.
 - **Camera:** four views, picked with the *Camera* pill on the drive menu or pause sheet (tap to cycle Chase, Bonnet,
   Follow, North-up; the choice is saved).
-  *Chase* (the default) is a 2.5D view from behind and above the car: the same 2D race drawn with real perspective by
+  *Chase* (the default) is a 3D view from behind and above the car: the same race drawn with real perspective by
   three.js, with the OpenStreetMap footprints round the route extruded into buildings (3 to 6 storeys, churches and monuments
   taller and floodlit, lit windows), street lamps, the car's headlight and the night vignette. Streets get kerbs and paved
-  pavements, with parked cars, plane trees or bollards where the building line opens up, and parapets on the bridges; the
+  pavements, with parked cars, plane trees or bollards where the building line opens up, and parapets on the bridges. The
+  road has a slight crown with the markings painted on it (a white dashed centre line in town), patches of older and
+  newer asphalt and manhole covers; hard braking and slides leave tyre marks and smoke, and a wall scrape smokes. The
   circuits are lit all the way round, lined with trees, with the city on the horizon. The ghost is pale blue glass. The lens
   widens a little with speed and the camera falls back a touch, and it leans a degree or two into a corner. *Bonnet* is
   the same 3D world from just above the bonnet, looking down the road: rigid on the car, so it rolls and dips with the
@@ -37,7 +39,8 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   *High* is the full scene: pixel ratio up to 2, buildings up to 1100 units either side of the route, four street lamps that
   really light the road, the full fog distance. *Low* draws at 1x (in every view), builds buildings only 40% as far out, keeps
   one real lamp light plus the headlight, pulls the fog (and in town the far plane) in, halves the parked cars, trees and
-  bollards, and uses plain windows; on a phone that starts on Low there is no MSAA either. *Auto* (the default) starts on
+  bollards, and uses plain windows and plain asphalt (no patches or manholes), keeps 400 tyre marks instead of 1200 and no
+  tyre smoke; on a phone that starts on Low there is no MSAA either. *Auto* (the default) starts on
   High and, if a race runs under about 45 fps for 3 seconds, drops to Low for the rest of the session (never back up mid-way),
   saying "Lowered graphics to keep it smooth" the first time it ever happens. Lights, pixel ratio, fog and windows change at
   once; the buildings and furniture are rebuilt at the next race (or straight away from the pause sheet when that takes

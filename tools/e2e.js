@@ -231,6 +231,18 @@ if (process.env.ROME_JS) {
   await up(21); await up(22); await p2.waitForTimeout(300);
   check('chase car: under 800 triangles, steers, leans, rolls, brake and reverse lights', k0.tris > 200 && k0.tris < 800 && k1.steer > 0.2 && Math.abs(k1.roll) > 0.003 && k1.spin !== k0.spin &&
     k0.tail === 'a31717' && k2.tail === 'ff3a30' && (!k3.isRev || k3.rev === 'f4f6ff'), JSON.stringify({ k0, k1, k2, k3 }));
+  // a hard stop from speed down the first straight leaves tyre marks and smoke (High); a new race starts with a clean road
+  await p2.evaluate(() => window.__ghostlap.startRace(0));
+  await p2.waitForFunction(() => window.__ghostlap.state === 'race' && window.__ghostlap.race.car.speed > 250, null, { timeout: 20000 });
+  await down(23, 60); await down(24, 330);
+  await p2.waitForFunction(() => window.__ghostlap.chase.marks > 0 && window.__ghostlap.chase.smoke > 0, null, { timeout: 3000 }).catch(() => {});
+  const k5 = await p2.evaluate(() => ({ marks: window.__ghostlap.chase.marks, smoke: window.__ghostlap.chase.smoke }));
+  await up(23); await up(24);
+  await p2.evaluate(() => window.__ghostlap.startRace(0));
+  await p2.waitForFunction(() => window.__ghostlap.state === 'count', null, { timeout: 20000 });
+  await p2.waitForTimeout(300);
+  const k4 = await p2.evaluate(() => ({ marks: window.__ghostlap.chase.marks, smoke: window.__ghostlap.chase.smoke }));
+  check('tyre marks and smoke on a hard stop, cleared for the next race', k5.marks > 0 && k5.smoke > 0 && k4.marks === 0 && k4.smoke === 0, JSON.stringify({ braking: k5, next: k4 }));
   await p2.evaluate(() => { window.__ghostlap.setCam('follow'); window.__ghostlap.startRace(0); });
   await p2.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
   const v0 = await p2.evaluate(() => window.__ghostlap.view);
