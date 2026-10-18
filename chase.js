@@ -3,7 +3,7 @@
 // the car's headlight. World (x, y) maps to three (x, height, y), so headings and turns carry over unchanged.
 // Loaded as a module (three is ESM only); sets window.Chase. game.js calls init / build / render / toScreen.
 import * as THREE from './vendor/three/three.module.min.js';
-import { carMesh, poseCar, resetCar, carInfo } from './chase-cars.js';
+import { carMesh, poseCar, resetCar, carInfo, bonnetEye } from './chase-cars.js';
 
 const CL = 30;                       // the car length the camera is framed on (world units)
 const BACK = CL * 5.0, UP = CL * 1.6, LOOK = CL * 20; // chase distance, eye height, and how far ahead it looks
@@ -26,7 +26,11 @@ let carM = null, ghostM = null, carKey = '', ghostKey = '', bMat = null, stats =
 const QUAL = { high: { pr: 2, lamps: 4, reach: 1100, fog: 1, furn: 1 }, low: { pr: 1, lamps: 1, reach: 660, fog: 0.74, furn: 2 } };
 let qLevel = 'high', Q = QUAL.high, builtQ = '', lastArgs = null, lastDpr = 1, fogBase = null;
 const buildMsAt = {};
-const cs = { x: 0, y: 0, yaw: 0, ao: 0, ok: false };
+// the camera's state. view: 'chase' (behind and above) or 'bonnet' (on the bonnet); sp: the eased speed (0..1) that
+// widens the lens and lets the camera fall back a little; lean: its roll into a corner; pa: the car's last heading
+let view = 'chase';
+const cs = { x: 0, y: 0, yaw: 0, ao: 0, sp: 0, lean: 0, pa: 0, ok: false };
+const eyeV = new THREE.Vector3(), aheadV = new THREE.Vector3(), upV = new THREE.Vector3(), UPY = new THREE.Vector3(0, 1, 0);
 const U = { uCam: { value: new THREE.Vector3() }, uCar: { value: new THREE.Vector3() } };
 const tmp = new THREE.Vector3();
 
@@ -987,30 +991,18 @@ function merged(parts) { // [[geometry, x, y, z, colour?], ...]; with colours, a
 const carTex = () => { const t = textures(); return { glow: t.glow, blob: t.blob, beam: t.beam }; };
 
 // ---------- public: render ----------------------------------------------------------------
-function snap(car) { cs.yaw = car.a; cs.ao = 0; cs.x = car.x - Math.cos(car.a) * BACK; cs.y = car.y - Math.sin(car.a) * BACK; cs.ok = true; carLift = 1.3; resetCar(carM); resetCar(ghostM); }
+function snap(car) {
+  const sp = Math.min(1, (car.speed || 0) / 420), back = BACK * (1 + 0.1 * sp);
+  Object.assign(cs, { yaw: car.a, ao: 0, sp, lean: 0, pa: car.a, x: car.x - Math.cos(car.a) * back, y: car.y - Math.sin(car.a) * back, ok: true });
+  carLift = 1.3; resetCar(carM); resetCar(ghostM);
+}
+// 'chase' or 'bonnet'; a change snaps the camera at the next frame
+function setView(v) { v = v === 'bonnet' ? 'bonnet' : 'chase'; if (v !== view) { view = v; cs.ok = false; } }
 function render(car, ghost, dt) {
   if (!R || !world) return;
   if (!cs.ok) snap(car);
   dt = Math.min(0.1, dt || 0);
-  // yaw springs after the heading (shortest way round) and never trails it by more than LAG, so in a hairpin the car
-  // stays pointing up the screen instead of swinging out sideways; the position follows the eased yaw
-  cs.yaw = wrap(cs.yaw + wrap(car.a - cs.yaw) * (1 - Math.exp(-7.5 * dt)));
-  const lag = wrap(car.a - cs.yaw);
-  if (Math.abs(lag) > LAG) cs.yaw = wrap(car.a - Math.sign(lag) * LAG);
-  const fx = Math.cos(cs.yaw), fy = Math.sin(cs.yaw), kp = 1 - Math.exp(-12 * dt);
-  cs.x += (car.x - fx * BACK - cs.x) * kp; cs.y += (car.y - fy * BACK - cs.y) * kp;
-  // the look-at point leans part way round towards the heading (eased), so a corner reads before the car is in it
-  cs.ao += (wrap(car.a - cs.yaw) * 0.25 - cs.ao) * (1 - Math.exp(-5 * dt));
-  cam.position.set(cs.x, UP, cs.y);
-  cam.lookAt(car.x + Math.cos(cs.yaw + cs.ao) * LOOK, -22, car.y + Math.sin(cs.yaw + cs.ao) * LOOK); // a touch below the road: less sky
-  const fov0 = cam.aspect < 0.8 ? 68 : cam.aspect < 1.3 ? 60 : 50;
-  cam.fov = fov0 + 7 * Math.min(1, (car.speed || 0) / 420);
-  cam.updateProjectionMatrix();
-  cam.updateMatrixWorld();
-  sky.position.copy(cam.position);
-  U.uCam.value.copy(cam.position); U.uCar.value.set(car.x, 8, car.y);
-
-  // the player's car, its headlight and tail lights
+  // the player's car first: the bonnet camera rides on it
   const key = car.spec.id;
   if (key !== carKey) { if (carM) { scene.remove(carM); disposeObj(carM); } carM = carMesh(car.spec, false, carTex()); scene.add(carM); carKey = key; }
   // the road surface under the car: asphalt, the run-off a little lower, the pavement up the kerb when it runs wide in town
@@ -1020,17 +1012,61 @@ function render(car, ghost, dt) {
   else if (off > curT.hw + 4) lift = paveSide ? 1.2 : 1.0;
   if (paveSide && car.idx != null && off > curT.hw + 8 && !car.zone && paveSide[car.off > 0 ? 1 : 0][car.idx]) lift = PAVE;
   carLift += (lift - carLift) * (1 - Math.exp(-25 * dt));
-  poseCar(carM, car, dt, carLift, { low: qLevel === 'low' });
+  poseCar(carM, car, dt, carLift, { low: qLevel === 'low', bonnet: view === 'bonnet' });
   const cx = Math.cos(car.a), cy = Math.sin(car.a);
   head.position.set(car.x + cx * car.spec.len * 0.5, 9, car.y + cy * car.spec.len * 0.5);
   headT.position.set(car.x + cx * 260, 0, car.y + cy * 260);
+  head.intensity = view === 'bonnet' ? 950 : 1500; // seen from just behind it, the pool of light right ahead would glare
+
+  // speed widens the lens a little and (chase) lets the camera fall back and down; eased, so a launch or a hard stop
+  // shows as the car pulling away or closing in. The camera leans a degree or two into a corner (from the turn rate).
+  cs.sp += (Math.min(1, (car.speed || 0) / 420) - cs.sp) * (1 - Math.exp(-2.5 * dt));
+  if (dt > 1e-4) {
+    const yr = wrap(car.a - cs.pa) / dt, lean = Math.max(-0.03, Math.min(0.03, -yr * (car.speed || 0) * 6e-5));
+    cs.lean += (lean - cs.lean) * (1 - Math.exp(-4 * dt));
+  }
+  cs.pa = car.a;
+  const portrait = cam.aspect < 0.8, fov0 = portrait ? 68 : cam.aspect < 1.3 ? 60 : 50;
+  if (view === 'bonnet') {
+    // the eye just above the bonnet, rigid on the body (it rolls and pitches with it), looking down the road; the lens
+    // is wider than the chase one, since a portrait screen sees a narrow slice of road from down here
+    bonnetEye(carM, eyeV, aheadV, upV);
+    cam.position.copy(eyeV); cam.up.copy(upV); cam.lookAt(aheadV);
+    cs.yaw = car.a; cs.ao = 0; cs.x = eyeV.x; cs.y = eyeV.z;
+    cam.fov = fov0 + (portrait ? 8 : 4) + 6 * cs.sp;
+    if (cam.near !== 2.5) cam.near = 2.5;
+  } else {
+    // yaw springs after the heading (shortest way round) and never trails it by more than LAG, so in a hairpin the car
+    // stays pointing up the screen instead of swinging out sideways; the position follows the eased yaw
+    cs.yaw = wrap(cs.yaw + wrap(car.a - cs.yaw) * (1 - Math.exp(-7.5 * dt)));
+    const lag = wrap(car.a - cs.yaw);
+    if (Math.abs(lag) > LAG) cs.yaw = wrap(car.a - Math.sign(lag) * LAG);
+    const fx = Math.cos(cs.yaw), fy = Math.sin(cs.yaw), kp = 1 - Math.exp(-12 * dt), back = BACK * (1 + 0.1 * cs.sp);
+    cs.x += (car.x - fx * back - cs.x) * kp; cs.y += (car.y - fy * back - cs.y) * kp;
+    // the look-at point leans part way round towards the heading (eased), so a corner reads before the car is in it
+    cs.ao += (wrap(car.a - cs.yaw) * 0.25 - cs.ao) * (1 - Math.exp(-5 * dt));
+    cam.position.set(cs.x, UP * (1 - 0.05 * cs.sp), cs.y); cam.up.copy(UPY);
+    cam.lookAt(car.x + Math.cos(cs.yaw + cs.ao) * LOOK, -22, car.y + Math.sin(cs.yaw + cs.ao) * LOOK); // a touch below the road: less sky
+    cam.rotateZ(cs.lean);
+    cam.fov = fov0 + 7 * cs.sp;
+    if (cam.near !== 5) cam.near = 5;
+  }
+  cam.updateProjectionMatrix();
+  cam.updateMatrixWorld();
+  sky.position.copy(cam.position);
+  U.uCam.value.copy(cam.position); U.uCar.value.set(car.x, 8, car.y);
+
   // ghost
   const gk = ghost && ghost.spec ? ghost.spec.id : '';
   if (gk !== ghostKey) { if (ghostM) { scene.remove(ghostM); disposeObj(ghostM); ghostM = null; } if (gk) { ghostM = carMesh(ghost.spec, true, carTex()); scene.add(ghostM); } ghostKey = gk; }
-  if (ghostM) { ghostM.visible = !!ghost; if (ghost) poseCar(ghostM, ghost, dt, 1.3); }
+  if (ghostM) {
+    // on the bonnet a ghost right on top of you would be drawn round the camera: it steps aside until it is a car ahead
+    ghostM.visible = !!ghost && !(view === 'bonnet' && Math.hypot(ghost.x - car.x, ghost.y - car.y) < car.spec.len * 1.6);
+    if (ghost) poseCar(ghostM, ghost, dt, 1.3);
+  }
 
   // the four street lamps nearest the road ahead (one on Low) get a real light; their strength fades with distance so swaps don't pop
-  const ax = car.x + fx * 140, ay = car.y + fy * 140, best = [], nl = Q.lamps;
+  const ax = car.x + Math.cos(cs.yaw) * 140, ay = car.y + Math.sin(cs.yaw) * 140, best = [], nl = Q.lamps;
   for (const l of lampHeads) {
     const d = (l.x - ax) ** 2 + (l.y - ay) ** 2;
     if (best.length < nl || d < best[nl - 1][0]) { best.push([d, l]); best.sort((a, b) => a[0] - b[0]); if (best.length > nl) best.pop(); }
@@ -1056,13 +1092,32 @@ function toScreen(x, y, z) {
   tmp.applyMatrix4(cam.projectionMatrix);
   return [(tmp.x + 1) / 2 * cw, (1 - tmp.y) / 2 * ch, d];
 }
+// the player's car on the screen (CSS pixels, [left, top, right, bottom]): in Chase the corners of its body's box, in
+// Bonnet the visible bonnet down to the bottom of the screen, full width. A corner behind the camera counts as the
+// bottom of the screen, full width.
+const cnr = new THREE.Vector3();
+function carRect() {
+  if (!carM || !cam) return null;
+  const m = carM.userData.body.children[0], bb = m.geometry.boundingBox || (m.geometry.computeBoundingBox(), m.geometry.boundingBox);
+  const pts = view === 'bonnet' ? carM.userData.hoodPts : [0, 1, 2, 3, 4, 5, 6, 7].map((k) => [k & 1 ? bb.max.x : bb.min.x, k & 2 ? bb.max.y : bb.min.y, k & 4 ? bb.max.z : bb.min.z]);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  if (view === 'bonnet') { x0 = 0; x1 = cw; y1 = ch; }
+  for (const q of pts) {
+    cnr.set(q[0], q[1], q[2]).applyMatrix4(m.matrixWorld);
+    const p = toScreen(cnr.x, cnr.z, cnr.y);
+    if (!p) { x0 = 0; x1 = cw; y1 = ch; continue; }
+    x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]);
+  }
+  return [Math.max(0, x0), Math.max(0, Math.min(ch, y0)), Math.min(cw, x1), Math.min(ch, y1)];
+}
 
 const Chase = {
-  init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild,
+  init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild, setView, carRect,
   get ready() { return !!R; },
+  get view() { return view; },                        // 'chase' or 'bonnet'
   get yaw() { return cs.yaw; },                       // the camera's heading in world terms (same convention as car.a)
   // lights: the real ones in the scene (lamps that light the road, and the headlight); built: the quality the scene was built at
-  info() { return Object.assign({ revision: THREE.REVISION, dpr: dprNow, quality: qLevel, built: builtQ, lights: pool.filter((l) => l.visible).length + 1, reach: Q.reach,
+  info() { return Object.assign({ revision: THREE.REVISION, view, dpr: dprNow, quality: qLevel, built: builtQ, lights: pool.filter((l) => l.visible).length + 1, reach: Q.reach,
     msaa: R ? !!R.getContextAttributes().antialias : false, geometries: R ? R.info.memory.geometries : 0, textures: R ? R.info.memory.textures : 0 }, stats); },
 };
 window.Chase = Chase;

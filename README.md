@@ -18,15 +18,20 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   Maranello, the longer-roofed Modena, the cab-forward San Cesario and the Sant'Agata wedge, both with a wing): wheels
   that roll and steer, a body that leans in the corners and dips under braking, brake lights and a reverse light.
 - **Controls:** hold the left or right half of the screen to steer. Gas is automatic. Both thumbs brake; keep holding to reverse.
-- **Camera:** three views, picked with the *Camera* pill on the drive menu or pause sheet (tap to cycle; the choice is saved).
+- **Camera:** four views, picked with the *Camera* pill on the drive menu or pause sheet (tap to cycle Chase, Bonnet,
+  Follow, North-up; the choice is saved).
   *Chase* (the default) is a 2.5D view from behind and above the car: the same 2D race drawn with real perspective by
   three.js, with the OpenStreetMap footprints round the route extruded into buildings (3 to 6 storeys, churches and monuments
   taller and floodlit, lit windows), street lamps, the car's headlight and the night vignette. Streets get kerbs and paved
   pavements, with parked cars, plane trees or bollards where the building line opens up, and parapets on the bridges; the
-  circuits are lit all the way round, lined with trees, with the city on the horizon. The ghost is pale blue glass. *Follow* is the flat top-down
+  circuits are lit all the way round, lined with trees, with the city on the horizon. The ghost is pale blue glass. The lens
+  widens a little with speed and the camera falls back a touch, and it leans a degree or two into a corner. *Bonnet* is
+  the same 3D world from just above the bonnet, looking down the road: rigid on the car, so it rolls and dips with the
+  body; the bonnet is a strip at the bottom of the screen and the signs point out from there. *Follow* is the flat top-down
   view with the car's heading up the screen, and *North-up* the fixed map view. In every view the left thumb turns the car left
-  on screen, and the minimap stays north-up, with the car as an arrow. A phone without WebGL gets Follow instead of Chase.
-  In Chase the map labels thin out to what you can read: at most six, nearest first, faded with distance, never overlapping,
+  on screen, and the minimap stays north-up, with the car as an arrow. A phone without WebGL gets Follow instead of Chase
+  or Bonnet. How the race was turned 3D, and what stays 2D, is in [docs/drive/3d-conversion.md](docs/drive/3d-conversion.md).
+  In Chase and Bonnet the map labels thin out to what you can read: at most six, nearest first, faded with distance, never overlapping,
   kept off the car and the road, and never repeating the street at the top; the gold stars always show.
 - **Quality:** the *Quality* pill next to Camera (drive menu and pause sheet, saved) sets how much the Chase view draws.
   *High* is the full scene: pixel ratio up to 2, buildings up to 1100 units either side of the route, four street lamps that
@@ -307,7 +312,7 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `vendor/`: chess.js, the Stockfish lite WASM engine, the piece SVGs, and three.js (`vendor/three/`, the ES module build, loaded by `chase.js`)
 - `core.js`: tracks, car physics, lap timing, ghost recording (no DOM, so it runs under node)
 - `game.js`: rendering, input, menus, sound, saving, offline status
-- `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`)
+- `chase.js`: the Chase camera, a three.js renderer for the same world (a module; `window.Chase`: `init`, `build`, `render`, `snap`, `toScreen`, `resize`, `setQuality`, `rebuild`, `dispose`, `info`, and for the two 3D cameras `setView`, `view`, `yaw`, `carRect`)
 - `chase-cars.js`: the cars in 3D (bodies from a side profile per style, rolling and steering wheels, body roll and pitch, lights), imported by `chase.js`
 - `rome.js`: generated map and routes (`tools/build-rome.mjs`)
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).

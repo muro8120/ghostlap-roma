@@ -114,7 +114,12 @@ function bodyGeometry(sp) {
     for (const s of [-1, 1]) wing.push(boxAt(1.0, wy - bR + 0.6, 0.7, wx + 0.6, (wy + bR) / 2 - 0.2, s * W * 0.3), boxAt(L * 0.12, 2.2, 0.35, wx, wy - 0.6, s * W * 0.49));
     parts.push(...wing.map((g) => paint(g, () => sp.roof)));
   }
-  return { geo: mergeAll(parts), S, L, W, r, nose, sill, tail, cowl, bF, half, eyeX: cowl + (X(0.5) - cowl) * 0.3, eyeY: hood(cowl + (X(0.5) - cowl) * 0.3) + 2.6 };
+  // the bonnet camera: a hand's width above the bonnet, far enough forward that the bonnet is a strip at the bottom
+  const eyeX = Math.max(cowl + 1, X(0.5) - 6.5);
+  // what of the car the bonnet camera sees: the bonnet from just ahead of the eye to the nose, both edges
+  const hoodPts = [];
+  for (const [x, y] of [[eyeX + 0.5, hood(eyeX + 0.5)], [X(0.5), nose]]) for (const s of [-1, 1]) hoodPts.push([x, y, s * (W / 2) * half(x)]);
+  return { geo: mergeAll(parts), S, L, W, r, nose, sill, tail, cowl, bF, half, eyeX, eyeY: hood(eyeX) + 3.2, hoodPts };
 }
 
 // a wheel: tyre, and a rim with five lighter spokes so you can see it turn at parking speed
@@ -125,11 +130,15 @@ function wheelGeometry(r, w) {
 
 // a little sheen on the paint: a rim of the night sky's colour where the body turns away from you, so the shape reads
 // against dark asphalt (the cars are Lambert, which has no highlight of its own)
+// (uRim: less of it on the bonnet camera, where the whole bonnet is at a grazing angle)
 function paintMaterial(c) {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: C(c).multiplyScalar(0.05) });
+  m.userData.rim = { value: 1 };
   m.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-{ vec3 nv = normalize(vNormal); float rim = pow(1.0 - clamp(abs(nv.z), 0.0, 1.0), 3.0);
+    sh.uniforms.uRim = m.userData.rim;
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uRim;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+{ vec3 nv = normalize(vNormal); float rim = pow(1.0 - clamp(abs(nv.z), 0.0, 1.0), 3.0) * uRim;
   totalEmissiveRadiance += diffuseColor.rgb * rim * 0.55 + vec3(0.16, 0.18, 0.24) * rim * max(nv.y, 0.0); }`);
   };
   return m;
@@ -144,7 +153,7 @@ export function carMesh(sp, ghost, tex) {
   body.position.y = r; g.add(body);
   const wg = wheelGeometry(r, 2.6), track = W / 2 - 1.5;
   const st = { init: false, a: 0, x: 0, y: 0, vF: 0, vFs: 0, acc: 0, yr: 0, roll: 0, rv: 0, pitch: 0, pv: 0, spin: 0, steer: 0 };
-  g.userData = { st, body, r, L, W, axF: S.axF * L, axR: S.axR * L, track, ghost: !!ghost, eye: [B.eyeX, B.eyeY], nose: L / 2, hood: B.bF };
+  g.userData = { st, body, r, L, W, axF: S.axF * L, axR: S.axR * L, track, ghost: !!ghost, eye: [B.eyeX, B.eyeY], nose: L / 2, hoodPts: B.hoodPts };
   const add = (m, parent) => { (parent || body).add(m); return m; };
   if (ghost) {
     const glass = new THREE.MeshBasicMaterial({ color: '#a9d3ff', transparent: true, opacity: 0.4, depthWrite: false });
@@ -155,7 +164,7 @@ export function carMesh(sp, ghost, tex) {
     const gl = add(new THREE.Mesh(new THREE.PlaneGeometry(L * 2, W * 2.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: tex.glow, color: C('#5f9dff').multiplyScalar(0.4), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })), g);
     gl.position.y = 0.5; gl.renderOrder = 2;
   } else {
-    add(new THREE.Mesh(B.geo, paintMaterial(sp.body))).position.y = -r;
+    const pm = add(new THREE.Mesh(B.geo, paintMaterial(sp.body))); pm.position.y = -r; g.userData.rim = pm.material.userData.rim;
     g.userData.wheels = add(new THREE.InstancedMesh(wg, new THREE.MeshLambertMaterial({ vertexColors: true }), 4), g);
     // lamps sit just proud of the bevelled nose and tail, where the plan taper puts the corners
     const xf = L / 2 + S.bev * 0.6 + 0.05, xb = -L / 2 - S.bev * 0.6 - 0.05, zf = W * 0.32 * B.half(L / 2), zb = W * 0.33 * B.half(-L / 2);
@@ -180,6 +189,7 @@ export function carMesh(sp, ghost, tex) {
     // the beam's sheen on wet asphalt: a long soft streak down the middle of the throw
     const wet = add(new THREE.Mesh(new THREE.PlaneGeometry(230, 30).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: tex.glow, color: C('#ffe2b8').multiplyScalar(0.14), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })), g);
     wet.position.set(L * 0.5 + 100, 0.9, 0); wet.renderOrder = 3;
+    g.userData.beams = [beam.material, wet.material].map((m) => [m, m.color.clone()]);
   }
   g.userData.wheels.frustumCulled = false;
   poseWheels(g);
@@ -234,6 +244,9 @@ export function poseCar(g, c, dt, y, o) {
   poseWheels(g);
   if (u.ghost) return;
   if (u.blob && !(o && o.low)) u.blob.position.z = -st.roll * 18; // the shadow slides out under the roll
+  // from the bonnet the headlight's throw starts right under the lens, so it is drawn fainter there
+  const bonnet = !!(o && o.bonnet);
+  if (u.bonnet !== bonnet) { u.bonnet = bonnet; u.rim.value = bonnet ? 0.3 : 1; for (const [m, c0] of u.beams) m.color.copy(c0).multiplyScalar(bonnet ? 0.22 : 1); }
   u.tail.color.set(c.braking ? '#ff3a30' : '#a31717');
   u.rev.color.set(c.rev ? '#f4f6ff' : '#2a2b2e');
   u.glow.visible = !!(c.braking || c.rev);
@@ -251,6 +264,6 @@ export function bonnetEye(g, eye, ahead, up) {
   const u = g.userData;
   g.updateMatrixWorld(true);
   eye.set(u.eye[0], u.eye[1] - u.r, 0); u.body.localToWorld(eye);
-  ahead.set(u.eye[0] + 100, u.eye[1] - u.r - 16, 0); u.body.localToWorld(ahead);
+  ahead.set(u.eye[0] + 100, u.eye[1] - u.r - 10, 0); u.body.localToWorld(ahead);
   up.set(0, 1, 0).applyQuaternion(u.body.getWorldQuaternion(q1));
 }
