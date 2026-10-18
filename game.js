@@ -973,11 +973,12 @@
   // Falls back to Follow while chase.js is still loading or if WebGL is unavailable.
   const view3d = $('view3d');
   let chaseBad = false;
-  function chaseNow() {
-    if (!is3d(save.cam) || chaseBad || !window.Chase) return false;
+  function gl3d() { // the three.js renderer, started on first use; false while chase.js is loading or without WebGL
+    if (chaseBad || !window.Chase) return false;
     if (!Chase.ready) { Chase.setQuality(lowQ() ? 'low' : 'high'); if (!Chase.init(view3d, dpr)) { chaseBad = true; return false; } }
     return true;
   }
+  function chaseNow() { return is3d(save.cam) && gl3d(); }
   const is3d = (m) => m === 'chase' || m === 'bonnet';
   function show3d(on) { if (view3d.classList.contains('on') !== on) view3d.classList.toggle('on', on); }
   let chaseFresh = false; // set by startRace: a scene built at the other quality is rebuilt then, never mid-race
@@ -1455,10 +1456,41 @@
 
   // ---------- menu -----------------------------------------------------------------
   const carView = $('carView'), cg = carView.getContext('2d');
+  // The garage picture: the car turning on a plinth in 3D (Chase.garage) while the garage is on screen, at most every
+  // other frame; nothing at all while it is off screen or a race is on. Without WebGL (or until chase.js has loaded)
+  // it is the 2D top view, drawn once per car.
+  let garageOn = false, garageRaf = 0, garageN = 0, garage2d = '', garageMode = '';
+  function garageLoop() { if (!garageRaf && garageOn && state === 'menu' && !document.hidden) garageRaf = requestAnimationFrame(garageFrame); }
+  function garageFrame(ts) {
+    garageRaf = 0;
+    if (!garageOn || state !== 'menu' || document.hidden) return;
+    if (garageN++ % 2 === 0) {
+      if (fitGarage()) garage2d = ''; // (the menu may have been laid out since: the drive menu opens after the launcher)
+      if (gl3d() && Chase.garage(carView, spec(), ts / 1000)) { garageMode = '3d'; garage2d = ''; }
+      else if (garage2d !== spec().id) { drawGarage2d(); garage2d = spec().id; garageMode = '2d'; }
+    }
+    garageLoop();
+  }
+  if ('IntersectionObserver' in window) new IntersectionObserver((es) => { garageOn = es[es.length - 1].isIntersecting; garageLoop(); }).observe(carView);
+  else garageOn = true;
+  document.addEventListener('visibilitychange', () => garageLoop());
+  function fitGarage() { // the canvas at its size on screen; true when that changed
+    const r = carView.getBoundingClientRect(), d = Math.min(3, window.devicePixelRatio || 1), w = Math.max(1, Math.round(r.width * d)), h = Math.max(1, Math.round(r.height * d));
+    if (carView.width === w && carView.height === h) return false;
+    carView.width = w; carView.height = h; return true;
+  }
   function drawGarage() {
     const s = spec();
-    const r = carView.getBoundingClientRect(), d = Math.min(3, window.devicePixelRatio || 1);
-    carView.width = Math.max(1, Math.round(r.width * d)); carView.height = Math.max(1, Math.round(r.height * d));
+    fitGarage(); garage2d = ''; drawGarage2d(); garageLoop(); // (the 2D picture until the next 3D frame replaces it)
+    $('carName').textContent = s.name;
+    $('carTag').textContent = s.tag;
+    $('carDots').innerHTML = GL.CARS.map((_, i) => '<i class="' + (i === carIdx ? 'on' : '') + '"></i>').join('');
+    const span = (key) => { const v = GL.CARS.map((c) => c[key]); return [Math.min(...v), Math.max(...v)]; };
+    const bar = (label, key) => { const [lo, hi] = span(key); const f = 0.2 + 0.8 * ((s[key] - lo) / (hi - lo || 1)); return '<span>' + label + '</span><div class="bar"><b style="width:' + (f * 100).toFixed(0) + '%"></b></div>'; };
+    $('carStats').innerHTML = bar('Top speed', 'vmax') + bar('Acceleration', 'accel') + bar('Grip', 'grip') + bar('Steering', 'turn');
+  }
+  function drawGarage2d() { // the top view, as before
+    const s = spec(), r = carView.getBoundingClientRect(), d = carView.width / Math.max(1, r.width);
     cg.setTransform(d, 0, 0, d, 0, 0);
     cg.clearRect(0, 0, r.width, r.height);
     const gr = cg.createRadialGradient(r.width / 2, r.height / 2, 4, r.width / 2, r.height / 2, r.width / 2);
@@ -1467,12 +1499,6 @@
     cg.save(); cg.translate(r.width / 2, r.height / 2);
     const k = Math.min((r.width * 0.62) / s.len, (r.height * 0.7) / s.wid, 5.2);
     cg.scale(k, k); cg.rotate(-0.12); drawCarLocal(cg, s, false, false); cg.restore();
-    $('carName').textContent = s.name;
-    $('carTag').textContent = s.tag;
-    $('carDots').innerHTML = GL.CARS.map((_, i) => '<i class="' + (i === carIdx ? 'on' : '') + '"></i>').join('');
-    const span = (key) => { const v = GL.CARS.map((c) => c[key]); return [Math.min(...v), Math.max(...v)]; };
-    const bar = (label, key) => { const [lo, hi] = span(key); const f = 0.2 + 0.8 * ((s[key] - lo) / (hi - lo || 1)); return '<span>' + label + '</span><div class="bar"><b style="width:' + (f * 100).toFixed(0) + '%"></b></div>'; };
-    $('carStats').innerHTML = bar('Top speed', 'vmax') + bar('Acceleration', 'accel') + bar('Grip', 'grip') + bar('Steering', 'turn');
   }
   function pickCar(d) {
     carIdx = (carIdx + d + GL.CARS.length) % GL.CARS.length;
@@ -1575,6 +1601,7 @@
       return { mode: save.cam, chase: chaseView, r, x: x / vw, y: y / vh, a: c ? wrap(c.a + r) : 0 };
     },
     get chase() { return window.Chase && Chase.ready ? Chase.info() : null; }, setCam, setQuality, startRace, toMenu,
+    get garage() { return { mode: garageMode, on: garageOn, frames: garageN, gl: window.Chase && Chase.ready ? (Chase.info().garage || {}).frames || 0 : 0 }; },
     get signBoxes() { return signBoxes; },
     get fps() { return { fps: +fps.toFixed(1), lowFor: +lowFor.toFixed(2), autoLow, low: lowQ(), dprCap, text: $('fps').textContent, shown: getComputedStyle($('fps')).display !== 'none' }; },
     set fakeMs(v) { fakeMs = v == null ? null : +v; } }; // test only: frame times (ms) for the fps meter and Auto, instead of the real ones

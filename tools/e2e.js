@@ -295,6 +295,20 @@ if (process.env.ROME_JS) {
   p4.on('pageerror', (e) => errs.push('p4 pageerror: ' + e.message));
   await p4.goto(base + '?game=drive');
   await p4.waitForTimeout(500);
+  // the garage: the selected car turning in 3D on its plinth; the picture changes with the car and keeps moving
+  const gsig = () => p4.evaluate(() => { // the picture's average colour and how much of it is not the panel's colour
+    const c = document.getElementById('carView'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let r = 0, g = 0, b = 0, n = 0, ink = 0;
+    for (let i = 0; i < d.length; i += 16) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; if (Math.abs(d[i] - 21) + Math.abs(d[i + 1] - 25) + Math.abs(d[i + 2] - 34) > 30) ink++; }
+    return { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n), ink: +(ink / n).toFixed(3), w: c.width, ...window.__ghostlap.garage };
+  });
+  await p4.waitForFunction(() => window.__ghostlap.garage.mode === '3d' && window.__ghostlap.garage.gl > 3, null, { timeout: 15000 }).catch(() => {});
+  const ga = await gsig(); await p4.waitForTimeout(700); const gb = await gsig();
+  await p4.click('#carNext'); await p4.waitForTimeout(700); const gc = await gsig();
+  await p4.click('#carPrev'); await p4.waitForTimeout(300);
+  await p4.screenshot({ path: SHOTS + '/60-garage.png', clip: await p4.$eval('.garage', (e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }) });
+  check('garage: the car turns in 3D on its plinth, and the picture changes with the car', ga.mode === '3d' && ga.ink > 0.08 && ga.ink < 0.7 && gb.gl > ga.gl &&
+    (ga.r !== gb.r || ga.g !== gb.g || ga.b !== gb.b) && Math.abs(gc.r - ga.r) + Math.abs(gc.g - ga.g) + Math.abs(gc.b - ga.b) > 4, JSON.stringify({ ga, gb, gc }));
   // the Camera pill cycles Chase, Bonnet, Follow, North-up and back, and each choice is saved
   const cyc = [];
   for (let k = 0; k < 5; k++) { await p4.click('#camBtn'); cyc.push(await p4.evaluate(() => [document.getElementById('camBtn').textContent.slice(8), JSON.parse(localStorage.getItem('ghostlap-roma-v2')).cam])); }
@@ -318,6 +332,8 @@ if (process.env.ROME_JS) {
   await p4.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 20000 });
   const vn = await p4.evaluate(() => ({ ...window.__ghostlap.view, a0: window.__ghostlap.race.car.a }));
   check('North-up persists across reload', cm.save === 'north' && cm.btn === 'Camera: North-up' && vn.mode === 'north' && vn.r === 0 && Math.abs(vn.y - 0.5) < 0.1, JSON.stringify({ ...cm, ...vn }));
+  const gr0 = await p4.evaluate(() => window.__ghostlap.garage); await p4.waitForTimeout(700); const gr1 = await p4.evaluate(() => window.__ghostlap.garage);
+  check('garage turntable stops during a race', gr1.frames === gr0.frames && gr1.gl === gr0.gl, JSON.stringify({ gr0, gr1 }));
   await p4.click('#pauseBtn');
   await p4.click('#camBtn2');
   await p4.click('#resumeBtn');
@@ -434,7 +450,10 @@ if (process.env.ROME_JS) {
   const p6 = await ctx6.newPage();
   p6.on('pageerror', (e) => errs.push('p6 pageerror: ' + e.message));
   await p6.goto(base + '?game=drive');
-  await p6.waitForTimeout(500);
+  await p6.waitForTimeout(800);
+  const g6 = await p6.evaluate(() => { const c = document.getElementById('carView'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let ink = 0; for (let i = 3; i < d.length; i += 16) if (d[i] > 40) ink++; return { ...window.__ghostlap.garage, ink: ink / (d.length / 16) }; });
+  check('no WebGL: the garage keeps its 2D top view', g6.mode === '2d' && g6.ink > 0.05, JSON.stringify(g6));
   const nw = [];
   for (const cam of ['chase', 'bonnet']) {
     await p6.evaluate((c) => { window.__ghostlap.setCam(c); window.__ghostlap.startRace(0); }, cam);

@@ -246,10 +246,10 @@ function disposeObj(o) {
 }
 function dispose() {
   if (!R) return;
-  for (const o of [world, carM, ghostM, sky, FX.marks, FX.smoke, FX.refl]) if (o) disposeObj(o);
+  for (const o of [world, carM, ghostM, sky, FX.marks, FX.smoke, FX.refl, GR && GR.scene]) if (o) disposeObj(o);
   if (bMat) bMat.dispose();
   if (TEX) for (const t of Object.values(TEX)) t.dispose();
-  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = rMat = FX.marks = FX.smoke = FX.refl = null; pool = []; curT = null; carKey = ghostKey = ''; builtQ = ''; lastArgs = fogBase = null;
+  R.dispose(); R = scene = cam = world = carM = ghostM = sky = bMat = TEX = rMat = FX.marks = FX.smoke = FX.refl = GR = null; pool = []; curT = null; carKey = ghostKey = ''; builtQ = ''; lastArgs = fogBase = null;
 }
 
 function makeSky() {
@@ -1340,6 +1340,42 @@ function render(car, ghost, dt) {
   stats.calls = i.calls; stats.triangles = i.triangles; stats.car = carInfo(carM); stats.marks = Math.min(FX.n, Q.marks); stats.smoke = FX.live; stats.refl = FX.refl ? FX.refl.count : 0; stats.shake = +cs.shake.toFixed(2);
 }
 
+// ---------- the garage turntable -------------------------------------------------------------
+// The selected car on a dark plinth, turning slowly, lit like the race (headlights on, brake lights off). It is its own
+// tiny scene drawn by the race's renderer into a corner of its canvas (hidden on the menu), then copied into the
+// garage's 2D canvas, so there is still only one WebGL context. game.js only calls it while the garage is on screen.
+let GR = null;
+const grClear = new THREE.Color();
+function garage(out, sp, t) {
+  if (!R || !out || !out.width || !out.height) return false;
+  if (!GR) {
+    GR = { scene: new THREE.Scene(), cam: new THREE.PerspectiveCamera(24, 1, 5, 600), key: '', car: null, frames: 0 };
+    GR.scene.add(new THREE.HemisphereLight('#c4cfff', '#8a6a52', 2.6));
+    const key = new THREE.SpotLight('#ffe2bf', 2400, 400, 0.55, 0.7, 1.2); key.position.set(-50, 110, 60);
+    const rim = new THREE.PointLight('#9fbfff', 1600, 260, 1.2); rim.position.set(60, 40, -70);
+    const base = new THREE.Mesh(merged([[new THREE.CylinderGeometry(27, 29, 3, 48), 0, 1.5, 0, '#1b1d23'], [new THREE.CylinderGeometry(29.4, 29.4, 0.6, 48, 1, true), 0, 2.7, 0, '#4a4136']]), lambert({ vertexColors: true }));
+    GR.scene.add(key, key.target, rim, base);
+  }
+  if (sp.id !== GR.key) {
+    if (GR.car) { GR.scene.remove(GR.car); disposeObj(GR.car); }
+    GR.car = carMesh(sp, false, carTex()); GR.key = sp.id;
+    GR.scene.add(GR.car);
+  }
+  poseCar(GR.car, { x: 0, y: 0, a: t * 0.5, vx: 0, vy: 0, steer: 0, braking: false, rev: false }, 0, 3);
+  { const u = GR.car.userData; u.beam.visible = u.wet.visible = false; } // on a plinth the throw would light nothing
+  const pr = R.getPixelRatio(), cv = R.domElement, w = Math.min(out.width, cv.width), h = Math.min(out.height, cv.height);
+  GR.cam.aspect = w / h; GR.cam.position.set(98, 40, 0).applyAxisAngle(UPY, 0.5); GR.cam.lookAt(0, 5, 0); GR.cam.updateProjectionMatrix();
+  R.getClearColor(grClear);
+  R.setScissorTest(true); R.setViewport(0, 0, w / pr, h / pr); R.setScissor(0, 0, w / pr, h / pr); R.setClearColor('#151922'); // the garage panel's colour
+  R.render(GR.scene, GR.cam);
+  const g = out.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, out.width, out.height);
+  g.drawImage(cv, 0, cv.height - h, w, h, (out.width - w) / 2, (out.height - h) / 2, w, h);
+  R.setScissorTest(false); R.setViewport(0, 0, cw, ch); R.setClearColor(grClear);
+  GR.frames++;
+  return true;
+}
+
 // world point -> CSS pixels on the screen, plus its depth; null when behind the camera
 function toScreen(x, y, z) {
   if (!cam) return null;
@@ -1369,12 +1405,13 @@ function carRect() {
 }
 
 const Chase = {
-  init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild, setView, carRect,
+  init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild, setView, carRect, garage,
   get ready() { return !!R; },
   get view() { return view; },                        // 'chase' or 'bonnet'
   get yaw() { return cs.yaw; },                       // the camera's heading in world terms (same convention as car.a)
   // lights: the real ones in the scene (lamps that light the road, and the headlight); built: the quality the scene was built at
   info() { return Object.assign({ revision: THREE.REVISION, view, dpr: dprNow, quality: qLevel, built: builtQ, lights: pool.filter((l) => l.visible).length + 1, reach: Q.reach,
-    msaa: R ? !!R.getContextAttributes().antialias : false, geometries: R ? R.info.memory.geometries : 0, textures: R ? R.info.memory.textures : 0 }, stats); },
+    msaa: R ? !!R.getContextAttributes().antialias : false, geometries: R ? R.info.memory.geometries : 0, textures: R ? R.info.memory.textures : 0,
+    garage: GR ? { car: GR.key, frames: GR.frames } : null }, stats); },
 };
 window.Chase = Chase;
