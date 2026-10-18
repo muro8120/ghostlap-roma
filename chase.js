@@ -1111,12 +1111,16 @@ function makeFx() {
   sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SCAP * 3), 3).setUsage(THREE.DynamicDrawUsage));
   sg.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(SCAP), 1).setUsage(THREE.DynamicDrawUsage));
   sg.setAttribute('aAlpha', new THREE.BufferAttribute(new Float32Array(SCAP), 1).setUsage(THREE.DynamicDrawUsage));
+  sg.setAttribute('aLit', new THREE.BufferAttribute(new Float32Array(SCAP), 1).setUsage(THREE.DynamicDrawUsage));
   FX.smoke = new THREE.Points(sg, new THREE.ShaderMaterial({
-    uniforms: { uScale: { value: 800 }, uCol: { value: C('#8b8f99') } }, transparent: true, depthWrite: false,
-    vertexShader: `attribute float aSize; attribute float aAlpha; uniform float uScale; varying float vA;
-void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = min(aSize * uScale / max(-mv.z, 1.0), 320.0); vA = aAlpha; }`,
-    fragmentShader: `uniform vec3 uCol; varying float vA;
-void main() { vec2 p = gl_PointCoord - 0.5; float d = dot(p, p) * 4.0; if (d > 1.0) discard; float a = (1.0 - d); gl_FragColor = vec4(uCol, vA * a * a); }`,
+    // aLit: how close the puff still is to the car, whose headlight and tail lights light it from inside (warm and
+    // brighter there; the plain grey of the night further back)
+    uniforms: { uScale: { value: 800 }, uCol: { value: C('#8b8f99') }, uLit: { value: C('#ffe0c0') } }, transparent: true, depthWrite: false,
+    vertexShader: `attribute float aSize; attribute float aAlpha; attribute float aLit; uniform float uScale; varying float vA; varying float vL;
+void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = min(aSize * uScale / max(-mv.z, 1.0), 320.0); vA = aAlpha; vL = aLit; }`,
+    fragmentShader: `uniform vec3 uCol; uniform vec3 uLit; varying float vA; varying float vL;
+void main() { vec2 p = gl_PointCoord - 0.5; float d = dot(p, p) * 4.0; if (d > 1.0) discard; float a = (1.0 - d);
+  gl_FragColor = vec4(mix(uCol, uLit, vL * 0.5) * (1.0 + 0.45 * vL * a), vA * a * a); }`,
   }));
   FX.smoke.frustumCulled = false; FX.smoke.renderOrder = 5; FX.smoke.visible = false; scene.add(FX.smoke);
   // the street lamps mirrored in the wet road: a soft streak each, laid on the road between the lamp and the camera
@@ -1146,7 +1150,7 @@ function puff(x, y, z, vx, vz, s0) {
   if (!Q.smoke) return;
   const p = FX.ps.find((q) => q.age >= q.life);
   if (!p) return;
-  Object.assign(p, { x, y, z, vx: vx + (Math.random() - 0.5) * 20, vy: 7 + Math.random() * 6, vz: vz + (Math.random() - 0.5) * 20, age: 0, life: 0.9 + Math.random() * 0.6, s0 });
+  Object.assign(p, { x, y, z, vx: vx + (Math.random() - 0.5) * 20, vy: 7 + Math.random() * 6, vz: vz + (Math.random() - 0.5) * 20, age: 0, life: 1.2 + Math.random() * 0.7, s0 });
 }
 // per frame, from the player's car: lay marks and puff smoke while it slides, brakes hard or scrapes a wall
 function tyres(car, dt) {
@@ -1167,21 +1171,23 @@ function tyres(car, dt) {
   FX.emit += dt * (hard ? 26 : 0) + dt * (scrape ? 20 : 0);
   while (FX.emit >= 1) {
     FX.emit -= 1;
-    if (scrape) { const s = Math.sign(car.off), fx = car.x + ca * u.nose * sc - sa * u.W * 0.5 * sc * s, fy = car.y + sa * u.nose * sc + ca * u.W * 0.5 * sc * s; puff(fx, carLift + 4, fy, car.vx * 0.3, car.vy * 0.3, 14); }
-    if (hard) { const s = Math.random() < 0.5 ? -1 : 1; puff(car.x + ca * u.axR * sc - sa * u.track * sc * s, carLift + 3, car.y + sa * u.axR * sc + ca * u.track * sc * s, car.vx * 0.25, car.vy * 0.25, 10); }
+    if (scrape) { const s = Math.sign(car.off), fx = car.x + ca * u.nose * sc - sa * u.W * 0.5 * sc * s, fy = car.y + sa * u.nose * sc + ca * u.W * 0.5 * sc * s; puff(fx, carLift + 4, fy, car.vx * 0.3, car.vy * 0.3, 20); }
+    if (hard) { const s = Math.random() < 0.5 ? -1 : 1; puff(car.x + ca * u.axR * sc - sa * u.track * sc * s, carLift + 3, car.y + sa * u.axR * sc + ca * u.track * sc * s, car.vx * 0.1, car.vy * 0.1, 15); }
   }
   // move and fade the live puffs
-  const P = FX.smoke.geometry.attributes.position, Sz = FX.smoke.geometry.attributes.aSize, Al = FX.smoke.geometry.attributes.aAlpha;
+  const P = FX.smoke.geometry.attributes.position, Sz = FX.smoke.geometry.attributes.aSize, Al = FX.smoke.geometry.attributes.aAlpha, Lt = FX.smoke.geometry.attributes.aLit;
   let live = 0;
   FX.ps.forEach((p, k) => {
     if (p.age < p.life) {
       p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.vx *= Math.exp(-2 * dt); p.vz *= Math.exp(-2 * dt);
       const t = Math.min(1, p.age / p.life);
-      P.setXYZ(k, p.x, p.y, p.z); Sz.setX(k, p.s0 * (1 + 3 * t)); Al.setX(k, 0.42 * (1 - t) * Math.min(1, p.age * 8));
+      // bigger to start, a little longer to live, and fading out over the last two thirds so they never pile up
+      P.setXYZ(k, p.x, p.y, p.z); Sz.setX(k, p.s0 * (1 + 2.6 * t)); Al.setX(k, 0.55 * Math.min(1, (1 - t) * 1.5) * Math.min(1, p.age * 8));
+      Lt.setX(k, Math.exp(-Math.hypot(p.x - car.x, p.z - car.y) / 45));
       if (p.age < p.life) live++;
     } else Al.setX(k, 0);
   });
-  P.needsUpdate = Sz.needsUpdate = Al.needsUpdate = true;
+  P.needsUpdate = Sz.needsUpdate = Al.needsUpdate = Lt.needsUpdate = true;
   FX.live = live; FX.smoke.visible = live > 0;
 }
 
