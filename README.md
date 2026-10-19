@@ -1,6 +1,7 @@
 # Ghostlap Roma
 
-Two games in one offline iPhone app, and a chess training programme. Pick one on the launcher:
+Two games in one offline iPhone app, and a chess training programme. Pick one of the four cards on the launcher (~~Two~~ Four
+ways to lose an evening; you are probably here because something else needs doing):
 
 - **Drive:** a small top-down night racer set in Rome. Race three laps, and your best run comes back as a ghost to beat.
 - **Chess:** play Stockfish with a coach who rates every move you make and then takes the whole game apart.
@@ -116,9 +117,18 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
   on first load. The Train screen's exit criteria are measured from it.
 - **Drills:** the Endgames screen starts set positions against the engine at full strength (2850), your side chosen,
   either side to move. A clock in the opponent's slot runs from the moment the engine is ready; there are no hints,
-  nudges, ratings or opening names, just Resign. The drill ends at mate, stalemate, draw by rule or resignation, says how
-  long it took against the target, and offers *Again* (same position) or *Back*. Drills are never recorded: no history,
-  patterns, accuracy, budget or ledger.
+  nudges, ratings or opening names, just Resign. The coach card says the goal and target, the position's technique in a
+  line or two and its one trap (*Trap: stalemate. Leave the king a square until your king arrives.*), three lines at most,
+  and nothing else is said during the attempt. The drill ends at mate, stalemate, draw by rule or resignation, says how
+  long it took against the target, and offers *Again* (same position) or *Back*. Under the result comes one honest line,
+  found by the engine in the background (the sheet never waits; about four seconds at most on the lite engine): the first
+  of your moves that cost two moves or more against the fastest mate or let the win go, the move that took the last
+  square in a stalemate, or the move that lost the draw, with the engine's move named (*Move 1, Qc7: that took their
+  king's last square, stalemate. Qa7# kept the win (mate in 1).*). Tap it and the board and the move list go to that
+  move, yours drawn in red and the engine's in amber; *Back to the result* returns. With nothing wrong it says so and names
+  your best time. The top-left back button during a drill returns to Endgames (and during a Learn practice game to the
+  lesson), as *Back* does. Drills are never recorded: no history, patterns, accuracy, budget or ledger, and a drill you
+  walk away from is not a try.
 - **Long think, live:** in a training game, three minutes into one move the strip says so, once per move: *Three minutes
   on this move. A long think means you do not recognise the position: take the safest move you can see and bank the
   clock.* Nothing is enforced and it never appears in Play or Tutor; the next move brings the training line back.
@@ -234,7 +244,9 @@ at iPhone width, including one real training game against the engine. The pieces
   database (CC0) ship with the app in `puzzles-data.js`. They are rated 500 to 1400, well rated and much played, two to six
   moves each, in four bands, with no single theme above a fifth of a band. `node tools/build-puzzles.mjs
   <lichess_db_puzzle.csv.zst>` rebuilds the file from the download and gives the same set every time. The board turns so
-  your side is at the bottom. Their move plays first, highlighted: *They played Nf3. Your move. Play the whole line.* Tap a
+  your side is at the bottom. Their move plays first, highlighted: *They played Nf3. Your move. Play the whole line.* A pill
+  under the board (*‹ Before Nf3*) flips to the position before their move and back, as often as you like, without
+  counting as a hint or touching the score; a tap on the board while looking at it flips back first. Tap a
   piece, then its square. A right move is confirmed quietly and their reply follows. A wrong move, or *I don't see it*,
   loses the puzzle and draws the right move as an arrow, but you still play out the rest of the line so you see the whole
   pattern. There are no hints, and the themes and rating only show once the line is over. Before the set puzzles come your
