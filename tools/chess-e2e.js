@@ -46,6 +46,8 @@ const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, e
   await p.goto(base);
   await p.waitForTimeout(500);
   await p.screenshot({ path: SHOTS + '/c0-hub.png' });
+  check('launcher tagline: Two struck out, Four ways, and the aside', await p.evaluate(() => { const t = document.querySelector('#hub .tagline'), a = document.querySelector('#hub .aside');
+    return !!t && t.querySelector('s').textContent === 'Two' && t.textContent === 'Two Four ways to lose an evening.' && !!a && a.textContent === 'You are probably here because something else needs doing.'; }));
   check('hub shows first', await p.$eval('#hub', (e) => e.classList.contains('on')));
   await p.click('#pickDrive'); await p.waitForTimeout(200);
   check('Drive opens the race menu', await p.$eval('#menu', (e) => e.classList.contains('on')));
