@@ -11,7 +11,9 @@ Two games in one offline iPhone app, and a chess training programme. Pick one on
 - **Circuits:** Circo Massimo, Colosseo, Lungotevere, Via Appia Antica. A bronze unlocks the next one.
 - **Rome from the NYX** (`rome.js`, see `tools/ROME-ROUTES.md`): real-street round trips from the hotel on Via Cicerone to the
   Vatican, Piazza del Popolo and the Spanish Steps, the Pantheon and Trevi, plus a Prati loop. The street you're on shows at the top,
-  with a minimap, landmark labels, and the list of streets you drove at the finish. Direction signs at the screen edge point
+  with a minimap, landmark labels, and the list of streets you drove at the finish. No route turns round: where a stop is at
+  the end of a street, the route goes on round the block. No building stands over the road (a footprint the route passes
+  through, such as a covered passage, is left out). Direction signs at the screen edge point
   to the hotel, the next stop and the nearest of your Andiamo places (gold stars). Map data © OpenStreetMap contributors (ODbL).
 - **Garage:** Cinquecento, Maranello 12, Modena GT, San Cesario, Sant'Agata. These are homages named after towns, not brands.
   The garage shows the chosen car turning on a dark plinth in 3D, lit as in the race (a phone without WebGL gets the
