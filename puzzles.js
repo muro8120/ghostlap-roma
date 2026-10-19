@@ -108,6 +108,9 @@
   .pz-stats small { font-size: 10px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; font-weight: 700; }
   .pz-line { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 12px; padding: 10px 12px; font-size: 15px; line-height: 1.45; margin: 0 0 8px; }
   .pz-line.pz-ok { border-left-color: var(--green); }
+  .pz-peekrow { display: flex; justify-content: flex-end; min-height: 0; }
+  .pz-peek { margin-top: 8px; padding: 6px 12px; font-size: 13px; }
+  .pz-peek.on { color: var(--text); border-color: var(--amber); }
   `;
   const HTML = `<section id="puzzles" class="screen">
   <div class="wrap">
@@ -117,6 +120,7 @@
       <div class="bar"><b id="pzBar" style="width:0"></b></div>
       <div class="pz-head"><div class="pz-q" id="pzQ">Your move</div><div class="pz-pos" id="pzPos"></div></div>
       <div class="brow"><div class="board" id="pzBoard"></div></div>
+      <div class="pz-peekrow"><button class="pill pz-peek" id="pzPeek" hidden></button></div>
       <div class="lnote pz-note" id="pzNote"></div>
       <div class="pz-tags" id="pzTags" hidden></div>
       <div class="btns" style="margin-top:12px"><button class="btn" id="pzNext">I don't see it</button></div>
@@ -190,12 +194,20 @@
     const it = S && S.item; if (!it || (it.phase !== 'intro' && it.phase !== 'reply')) return;
     const m = it.c.move(mv(it.q.line[it.k])); if (!m) { it.phase = 'done'; draw(); return; }
     it.k++; it.last = { from: m.from, to: m.to }; it.theirs = m.san; it.phase = 'move';
-    if (first) it.t = Date.now();
+    if (first) { it.t = Date.now(); it.setup = m.san; }
     draw();
   }
   const expect = () => { const it = S && S.item; return it && it.phase === 'move' ? it.q.line[it.k] : null; };
+  // the setup move, back and forth: the pill flips between the position before their first move and after it. Nothing is
+  // scored or counted; the clock runs on. A tap on the board while looking at "before" only flips back to the puzzle.
+  const canPeek = (it) => !!(it && it.q.kind === 'set' && it.setup && it.k === 1 && it.phase === 'move');
+  function peek(on) {
+    const it = S && S.item; if (!canPeek(it)) return null;
+    it.peek = on === undefined ? !it.peek : !!on; sel = null; targets = []; draw(); return it.peek;
+  }
   function tap(sq) {
     const it = S && S.item; if (!it || it.phase !== 'move') return;
+    if (it.peek) { peek(false); return; }
     const t = sel && targets.find((x) => x.to === sq);
     if (t) { answer(sel, sq); return; }
     const p = it.c.get(sq);
@@ -207,6 +219,7 @@
   // and you still play it and the rest of the line, so the whole pattern is seen. A mate that is not the book move counts too.
   function answer(from, to) {
     const it = S && S.item; if (!it || it.phase !== 'move' || !from || !to) return null;
+    it.peek = false;   // an answer always lands on the real position
     const want = it.q.line[it.k], w = mv(want);
     const promo = from === w.from && to === w.to ? w.promotion : 'q';
     const t = new Chess(it.c.fen()), m = t.move({ from, to, promotion: promo });
@@ -230,6 +243,7 @@
   // "I don't see it": a missing move counts as wrong; the arrow shows it and you play it
   function giveUp() {
     const it = S && S.item; if (!it || it.phase !== 'move' || it.shown) return null;
+    it.peek = false;
     const want = it.q.line[it.k], w = mv(want);
     if (it.right) { it.right = false; ownBox(it, false); }
     it.shown = { from: w.from, to: w.to }; it.wrong = null; it.tried = null; it.say = 'The move is ' + sanOf(it.c, want) + '. Play it.';
@@ -288,7 +302,13 @@
     const arrows = [];   // your try in red, the right move in amber
     if (it.shown && it.tried) arrows.push(it.tried);
     if (it.shown) arrows.push({ from: it.shown.from, to: it.shown.to });
-    window.__coach.renderBoard($('pzBoard'), c, { flip: it.you === 'b', sel, targets, last: it.last, check: c.in_check(), arrows, onTap: ph === 'move' ? tap : null, busy: ph !== 'move' });
+    if (it.peek && !canPeek(it)) it.peek = false;
+    const pb = $('pzPeek'); pb.hidden = !canPeek(it); pb.classList.toggle('on', !!it.peek);
+    pb.textContent = it.peek ? 'After ' + it.setup + ' \u203A' : '\u2039 Before ' + it.setup;
+    if (it.peek) {   // the position before their move: no highlight, no arrows, a tap comes back
+      const b = new Chess(q.fen);
+      window.__coach.renderBoard($('pzBoard'), b, { flip: it.you === 'b', check: b.in_check(), onTap: tap });
+    } else window.__coach.renderBoard($('pzBoard'), c, { flip: it.you === 'b', sel, targets, last: it.last, check: c.in_check(), arrows, onTap: ph === 'move' ? tap : null, busy: ph !== 'move' });
     const Q = $('pzQ'), N = $('pzNote'), done = S.done.length;
     $('pzPos').textContent = (q.kind === 'own' ? 'Your game · box ' + q.box : 'Puzzle') + ' · ' + (S.i + 1) + ' of ' + S.queue.length;
     $('pzBar').style.width = Math.round(done / Math.max(1, S.queue.length) * 100) + '%';
@@ -299,7 +319,8 @@
       else if (q.kind === 'own') {
         k = 'own'; head = 'Find the move';
         note = 'From your game' + (q.date ? ' on ' + fmtDate(q.date) : '') + ', move ' + moveNo(q.ply).trim() + ' ' + side + '. You played ' + q.played + ' there. One move to find. Tap a piece, then its square.';
-      } else if (it.k <= 1) { head = 'Your move'; note = 'They played ' + it.theirs + '. Your move. Play the whole line.'; }
+      } else if (it.peek) { head = 'Before ' + it.setup; note = 'The position before they played ' + it.setup + '. Tap the board or the pill to go back.'; }
+      else if (it.k <= 1) { head = 'Your move'; note = 'They played ' + it.theirs + '. Your move. Play the whole line.'; }
       else { k = it.right ? 'right' : 'wrong'; head = 'Your move'; note = it.say + ' They answered ' + it.theirs + '. Keep going.'; }
     } else if (ph === 'reply') { k = it.right ? 'right' : 'wrong'; head = it.right ? 'Right' : 'Good'; note = it.say + ' Their answer…'; }
     else if (ph === 'done') {
@@ -350,10 +371,10 @@
     if (!S) return null;
     const it = S.item;
     return { phase: it ? it.phase : 'end', i: S.i, n: S.queue.length, band: S.band, done: S.done.slice(), summary: S.summary,
-      item: it && { kind: it.q.kind, id: it.q.id, fen: it.c.fen(), you: it.you, right: it.right, step: it.k, line: it.q.line.slice(), expect: expect(), shown: it.shown, rating: it.q.rating || null } };
+      item: it && { kind: it.q.kind, id: it.q.id, fen: it.c.fen(), you: it.you, right: it.right, step: it.k, line: it.q.line.slice(), expect: expect(), shown: it.shown, rating: it.q.rating || null, peek: !!it.peek } };
   }
 
-  $('pzBack').onclick = close; $('pzDone').onclick = close;
+  $('pzBack').onclick = close; $('pzPeek').onclick = () => peek(); $('pzDone').onclick = close;
   $('pzNext').onclick = () => { const it = S && S.item; if (!it) return; if (it.phase === 'done') next(); else giveUp(); };
-  window.__puzzles = { open, close, stats, answer, next, giveUp, sync: syncOwn, get state() { return state(); }, get count() { return set().length; } };
+  window.__puzzles = { open, close, stats, answer, next, giveUp, peek, sync: syncOwn, get state() { return state(); }, get count() { return set().length; } };
 })();
