@@ -50,6 +50,9 @@ function shapeTests() {
     if (p.you !== 'w' && p.you !== 'b') probs.push('you ' + p.you);
     if (p.goal !== 'win' && p.goal !== 'draw') probs.push('goal ' + p.goal);
     if (typeof p.note !== 'string' || p.note.trim().length < 30 || /\n/.test(p.note) || p.note.length > 170) probs.push('note should be one line of plain technique (30..170 chars), is ' + (p.note || '').length);
+    // the drill's coach card: a short technique and the one trap (the e2e checks the card fits three lines on an iPhone)
+    if (typeof p.cue !== 'string' || p.cue.length < 30 || p.cue.length > 100) probs.push('cue should be a short technique (30..100 chars), is ' + (p.cue || '').length);
+    if (typeof p.trap !== 'string' || p.trap.length < 15 || p.trap.length > 60 || /\.$/.test(p.trap) === false) probs.push('trap should be one short sentence ending in a full stop (15..60 chars), is ' + (p.trap || '').length);
     const kq = p.kind === 'KQ' || p.kind === 'KR';
     if (kq ? p.targetMs !== EG.KQR_MS : p.targetMs !== null) probs.push('targetMs ' + p.targetMs + (kq ? ', want ' + EG.KQR_MS : ', want null'));
     if (kq && p.goal !== 'win') probs.push('mates are wins');
