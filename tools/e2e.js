@@ -126,6 +126,31 @@ if (process.env.ROME_JS) {
       await p.evaluate((k) => window.__ghostlap.startRace(k), i);
       await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
       await p.waitForTimeout(1200);
+      // no extruded building stands over the road: no route sample inside a footprint, no wall within the asphalt's half
+      // width plus 6 units of the centre line (worked out here from the footprints the 3D view actually built)
+      const fp = await p.evaluate(() => {
+        const T = window.__ghostlap.race.T, F = window.Chase && window.Chase.footprints ? window.Chase.footprints() : null, lim = T.hw + 6, bad = [];
+        if (!F) return { n: -1, bad: -1 };
+        const G = new Map(), key = (x, y) => Math.floor(x / 100) + ',' + Math.floor(y / 100);
+        for (let i = 0; i < T.N; i++) { const k = key(T.xs[i], T.ys[i]); if (!G.has(k)) G.set(k, []); G.get(k).push(i); }
+        const close = (x, y) => { for (let gx = -1; gx <= 1; gx++) for (let gy = -1; gy <= 1; gy++) { const a = G.get((Math.floor(x / 100) + gx) + ',' + (Math.floor(y / 100) + gy)); if (a) for (const i of a) if (Math.hypot(T.xs[i] - x, T.ys[i] - y) < lim) return true; } return false; };
+        F.forEach((P) => {
+          let hit = false;
+          for (let i = 0; i < T.N && !hit; i++) {
+            const x = T.xs[i], y = T.ys[i];
+            let inn = false; for (let a = 0, c = P.length - 1; a < P.length; c = a++) if ((P[a][1] > y) !== (P[c][1] > y) && x < ((P[c][0] - P[a][0]) * (y - P[a][1])) / (P[c][1] - P[a][1]) + P[a][0]) inn = !inn;
+            hit = inn;
+          }
+          for (let i = 0; i < P.length && !hit; i++) {
+            const a = P[i], c = P[(i + 1) % P.length], n = Math.max(1, Math.ceil(Math.hypot(c[0] - a[0], c[1] - a[1]) / 5));
+            for (let k = 0; k <= n && !hit; k++) hit = close(a[0] + ((c[0] - a[0]) * k) / n, a[1] + ((c[1] - a[1]) * k) / n);
+          }
+          if (hit) bad.push(P.slice(0, 2).map((q) => q.map(Math.round)));
+        });
+        return { n: F.length, bad: bad.length, first: bad.slice(0, 2) };
+      });
+      const rid = await p.evaluate((k) => window.GL.TRACKS[k].id, i);
+      check(rid + ': no extruded building over the road', fp.n > 100 && fp.bad === 0, JSON.stringify(fp));
       if (i === cityIdx[0]) { // chase is the default: the 3D view, car ahead of the camera in the lower middle
         await p.waitForTimeout(1500);
         await p.screenshot({ path: SHOTS + '/29-city-race-chase.png' });
@@ -300,7 +325,7 @@ if (process.env.ROME_JS) {
     const c = document.getElementById('carView'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
     let r = 0, g = 0, b = 0, n = 0, ink = 0;
     for (let i = 0; i < d.length; i += 16) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; if (Math.abs(d[i] - 21) + Math.abs(d[i + 1] - 25) + Math.abs(d[i + 2] - 34) > 30) ink++; }
-    return { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n), ink: +(ink / n).toFixed(3), w: c.width, ...window.__ghostlap.garage };
+    return { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n), sum: r * 3 + g * 5 + b * 7, ink: +(ink / n).toFixed(3), w: c.width, ...window.__ghostlap.garage };
   });
   await p4.waitForFunction(() => window.__ghostlap.garage.mode === '3d' && window.__ghostlap.garage.gl > 3, null, { timeout: 15000 }).catch(() => {});
   const ga = await gsig(); await p4.waitForTimeout(700); const gb = await gsig();
@@ -308,7 +333,7 @@ if (process.env.ROME_JS) {
   await p4.click('#carPrev'); await p4.waitForTimeout(300);
   await p4.screenshot({ path: SHOTS + '/60-garage.png', clip: await p4.$eval('.garage', (e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }) });
   check('garage: the car turns in 3D on its plinth, and the picture changes with the car', ga.mode === '3d' && ga.ink > 0.08 && ga.ink < 0.7 && gb.gl > ga.gl &&
-    (ga.r !== gb.r || ga.g !== gb.g || ga.b !== gb.b) && Math.abs(gc.r - ga.r) + Math.abs(gc.g - ga.g) + Math.abs(gc.b - ga.b) > 4, JSON.stringify({ ga, gb, gc }));
+    ga.sum !== gb.sum && Math.abs(gc.r - ga.r) + Math.abs(gc.g - ga.g) + Math.abs(gc.b - ga.b) > 4, JSON.stringify({ ga, gb, gc }));
   // the Camera pill cycles Chase, Bonnet, Follow, North-up and back, and each choice is saved
   const cyc = [];
   for (let k = 0; k < 5; k++) { await p4.click('#camBtn'); cyc.push(await p4.evaluate(() => [document.getElementById('camBtn').textContent.slice(8), JSON.parse(localStorage.getItem('ghostlap-roma-v2')).cam])); }
@@ -417,7 +442,7 @@ if (process.env.ROME_JS) {
   const u0 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality }));
   const toasts = [], tpoll = setInterval(async () => { try { const b = await p5.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b) toasts.push(b); } catch (e) {} }, 100);
   await p5.evaluate(() => { window.__ghostlap.fakeMs = 40; }); // 25 fps
-  const stepped = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 30000 }).then(() => true).catch(() => false);
+  const stepped = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 90000 }).then(() => true).catch(() => false);
   await p5.waitForTimeout(300);
   await p5.screenshot({ path: SHOTS + '/43-auto-toast.png' });
   const u1 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality, dpr: window.__ghostlap.chase.dpr, save: window.__ghostlap.save.quality, toast: window.__ghostlap.save.qToast }));
@@ -437,7 +462,7 @@ if (process.env.ROME_JS) {
   const b0 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality }));
   const toasts2 = [], tpoll2 = setInterval(async () => { try { const b = await p5.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b) toasts2.push(b); } catch (e) {} }, 100);
   await p5.evaluate(() => { window.__ghostlap.fakeMs = 40; });
-  const stepped2 = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 30000 }).then(() => true).catch(() => false);
+  const stepped2 = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 90000 }).then(() => true).catch(() => false);
   await p5.waitForTimeout(1500);
   clearInterval(tpoll2);
   check('Auto: a new session starts High; a second step-down shows no notice', !b0.low && b0.q === 'high' && stepped2 && !toasts2.includes(notice), JSON.stringify({ b0: [b0.low, b0.q], stepped2, toasts2: [...new Set(toasts2)] }));

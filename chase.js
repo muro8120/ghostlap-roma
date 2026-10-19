@@ -780,10 +780,32 @@ function cityFurniture(T, near, far, wall, inZone, mouth, bridgeAt, occ, at) {
   stats.parked = cars.length; stats.trees = trees.length; stats.bollards = bols.length;
 }
 
+// does a footprint cross the route's corridor (the asphalt plus ROAD_MARGIN either side)? A route sample inside it, or
+// a point of its outline (every 6 units) that close to the centre line. Shared with the e2e test through footprints().
+const ROAD_MARGIN = 8;
+function overRoad(pts, T, near) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of pts) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
+  for (let i = 0; i < T.N; i++) {
+    const x = T.xs[i], y = T.ys[i];
+    if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+    let inn = false;
+    for (let a = 0, c = pts.length - 1; a < pts.length; c = a++) if ((pts[a][1] > y) !== (pts[c][1] > y) && x < ((pts[c][0] - pts[a][0]) * (y - pts[a][1])) / (pts[c][1] - pts[a][1]) + pts[a][0]) inn = !inn;
+    if (inn) return true;
+  }
+  const lim = T.hw + ROAD_MARGIN;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], c = pts[(i + 1) % pts.length], l = Math.hypot(c[0] - a[0], c[1] - a[1]), n = Math.max(1, Math.ceil(l / 6));
+    for (let k = 0; k <= n; k++) if (near(a[0] + ((c[0] - a[0]) * k) / n, a[1] + ((c[1] - a[1]) * k) / n, lim + 10).d < lim) return true;
+  }
+  return false;
+}
+let FOOT = []; // the footprints actually extruded in the current scene (for the test hook)
 // OSM footprints near the route, extruded and merged into a few chunks (frustum culling works per chunk)
 const FACADE = ['#a0643c', '#b07a45', '#9c5a3c', '#b58a5a', '#8d4f36', '#a8835e', '#c09a6a', '#94603f', '#b46f4a'].map(C);
 function buildCity(ROME, T, near, REACH, wall, inZone) {
   const S = ROME.S, CH = 1500, chunks = new Map(), OC = 12, occ = new Set();
+  FOOT = [];
   const Dmin = wall + 8; // building lines stand back from the soft wall, so the car never ends up inside one
   for (let bi = 0; bi < ROME.buildings.length; bi++) {
     const b = ROME.buildings[bi], kind = b[0];
@@ -823,6 +845,12 @@ function buildCity(ROME, T, near, REACH, wall, inZone) {
     let A2 = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i], c = pts[(i + 1) % pts.length]; A2 += a[0] * c[1] - c[0] * a[1]; }
     const area = Math.abs(A2 / 2) / (S * S);
     if (area < 12) continue;
+    // The route can run through a footprint: a covered passage, an archway into a courtyard block, a path across a
+    // church's grounds. Pushing the vertices near the road back (above) does not help when the road crosses the middle
+    // of the polygon, and the walls and roof would stand over the road with the car inside them. So a footprint that
+    // still has a route sample inside it, or a wall within the road's half width (plus a margin) of the route, is not
+    // built. Dropping is the honest choice: an arch over the road would be a guess at the building's shape.
+    if (overRoad(pts, T, near)) { stats.dropped = (stats.dropped || 0) + 1; continue; }
     // height: 3 to 6 storeys, small footprints lower; landmarks and churches stand taller
     const hx = Math.round(b[1]), hy2 = Math.round(b[2]), r1 = hash(hx, hy2), r2 = hash(hy2, hx + 7);
     let m;
@@ -838,7 +866,7 @@ function buildCity(ROME, T, near, REACH, wall, inZone) {
     const key = Math.floor(mx / CH) + ',' + Math.floor(my / CH);
     let G = chunks.get(key); if (!G) chunks.set(key, (G = Geo(true)));
     prism(G, pts, m, S, fc, rc, kind ? -seed : seed);
-    stats.buildings++;
+    stats.buildings++; FOOT.push(pts);
     // the footprint on a coarse grid, so the street furniture can find the gaps between buildings
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const p of pts) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
@@ -1412,6 +1440,7 @@ function carRect() {
 
 const Chase = {
   init, build, render, snap, toScreen, resize, dispose, setQuality, rebuild, setView, carRect, garage,
+  footprints: () => FOOT.map((p) => p.map((q) => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10])), // the extruded buildings' outlines (tests)
   get ready() { return !!R; },
   get view() { return view; },                        // 'chase' or 'bonnet'
   get yaw() { return cs.yaw; },                       // the camera's heading in world terms (same convention as car.a)
