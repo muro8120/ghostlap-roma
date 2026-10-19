@@ -97,6 +97,22 @@ const KEY = 'ghostlap-endgames-v1';
     const hasDrill = await p.evaluate(() => typeof (window.__coach && window.__coach.drill) === 'function');
     check('__coach.drill exists', hasDrill);
     if (hasDrill) {
+      // the coach screen's own back button mid-drill: back to Endgames, not the launcher, and the attempt is not recorded
+      await p.evaluate(() => window.__endgames.open({ set: 'S0' })); await p.waitForTimeout(100);
+      await p.click('#egList .eg-pos[data-id="kq-corner"] .eg-play');
+      await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game && window.__coach.game.drill, null, { timeout: 30000 }).catch(() => {});
+      await p.evaluate(() => window.__coach.move('h1h5')); await p.waitForTimeout(300);
+      await p.click('#chessBack'); await p.waitForTimeout(250);
+      const bk = await p.evaluate(() => ({ eg: document.getElementById('endgames').classList.contains('on'), chess: document.getElementById('chess').classList.contains('on'), hub: document.getElementById('hub').classList.contains('on'),
+        sheet: document.getElementById('chessEnd').classList.contains('on'), tries: (window.__endgames.stats().perPos['kq-corner'] || {}).tries || 0, state: window.__coach.state }));
+      check('back mid-drill lands on Endgames, not the launcher, unrecorded', bk.eg && !bk.chess && !bk.hub && !bk.sheet && bk.tries === 0 && bk.state === 'home', JSON.stringify(bk));
+      // and from a Learn practice game, back goes to the lesson
+      await p.evaluate(() => { document.getElementById('endgames').classList.remove('on'); window.__learn.show('italian'); window.__learn.practice(); });
+      await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game && window.__coach.game.practice, null, { timeout: 30000 }).catch(() => {});
+      await p.click('#chessBack'); await p.waitForTimeout(250);
+      const lb = await p.evaluate(() => ({ lesson: document.getElementById('lesson').classList.contains('on'), chess: document.getElementById('chess').classList.contains('on'), hub: document.getElementById('hub').classList.contains('on') }));
+      check('back from a Learn practice game lands on its lesson', lb.lesson && !lb.chess && !lb.hub, JSON.stringify(lb));
+      await p.evaluate(() => document.getElementById('lesson').classList.remove('on'));
       await p.evaluate(() => window.__endgames.open({ set: 'S0' })); await p.waitForTimeout(100);
       await p.click('#egList .eg-pos[data-id="kq-corner"] .eg-play');
       const started = await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game && window.__coach.game.drill, null, { timeout: 30000 }).then(() => true).catch(() => false);

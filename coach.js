@@ -903,6 +903,8 @@
   }
   function drillBack() {
     const d = game && game.drill; sheet('chessEnd', false);
+    if (game && game.drill && (state === 'playing' || state === 'thinking')) { cancelAnalysis(); endGame('loss', 'resign', false); }   // walked away mid-drill: no sheet, no onDone, nothing recorded
+    gen++; if (eng) eng.stop();
     if (!(d && typeof d.onBack === 'function')) { goHome(); return; }
     $('chess').classList.remove('on'); $('chessHome').hidden = false; $('chessGame').hidden = true; setState('home');
     d.onBack();
@@ -1521,7 +1523,9 @@
   function setReviewLevel(v) { if ((v === 'narrow' || v === 'full') && P().reviewLevel !== v) { P().reviewLevel = v; persist(); if (state === 'review' && review && review.report) renderReview(); } return P().reviewLevel; }
 
   // ---------- wiring --------------------------------------------------------
-  $('chessBack').onclick = close;
+  // the top-left back follows where the game came from: a drill goes back to Endgames and a Learn practice game to its lesson
+  // (both unrecorded), the same as the end sheet's Back; anything else leaves for the launcher
+  $('chessBack').onclick = () => !$('chessGame').hidden && game && game.drill ? drillBack() : !$('chessGame').hidden && game && game.practice ? backToLesson() : close();
   $('reviewBack').onclick = () => { cancelAnalysis(); goHome(); };
   $('newGame').onclick = () => newGame();
   $('eloMinus').onclick = () => { P().elo = clampElo(P().elo - 50); persist(); renderSettings(); };
