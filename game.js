@@ -46,6 +46,22 @@
       medals: r.medals, pts, names: r.names, city: true, marks: r.marks, via: r.via, km: r.km });
   }
   const BUILT = GL.TRACKS.map(GL.buildTrack);
+  // A route that has been re-drawn (rome.js rebuilt: the Vatican and picks routes lost their turn-rounds in Oct 2026)
+  // makes an old best time meaningless and its ghost would drive through buildings. A saved run whose ghost strays
+  // off the current route is dropped, once, at load; runs on routes that did not change are kept.
+  {
+    let dropped = 0;
+    BUILT.forEach((T) => {
+      const r = save.tracks[T.id];
+      if (!T.def.city || !r || !r.rec || r.rec.length < 6) return;
+      let hint = null;
+      for (let k = 0; k < r.rec.length; k += 30) {
+        const q = GL.nearest(T, r.rec[k], r.rec[k + 1], hint); hint = q.i;
+        if (Math.abs(q.off) > T.hw + T.wall + 30) { delete save.tracks[T.id]; dropped++; return; }
+      }
+    });
+    if (dropped) persist();
+  }
   const worlds = [];
   const world = (i) => worlds[i] || (worlds[i] = buildWorld(BUILT[i]));
 
@@ -908,7 +924,6 @@
     if (W.city) {
       g.strokeStyle = 'rgba(70,72,80,.42)'; g.lineWidth = wall * 2; g.stroke(W.path);
       g.strokeStyle = '#3a3c42'; g.lineWidth = T.hw * 2 + 14; g.stroke(W.path);
-      for (const zn of T.zones || []) { g.fillStyle = 'rgba(70,72,80,.42)'; g.beginPath(); g.arc(zn.x, zn.y, zn.r + 10, 0, 7); g.fill(); }
     }
     else {
       g.strokeStyle = W.barrier; g.lineWidth = wall * 2 + 8; g.stroke(W.path);
@@ -920,13 +935,6 @@
     g.strokeStyle = W.asphalt; g.lineWidth = T.hw * 2; g.stroke(W.path);
     g.strokeStyle = W.edge; g.lineWidth = T.hw * 2 - 8; g.stroke(W.path);
     g.strokeStyle = W.asphalt; g.lineWidth = T.hw * 2 - 13; g.stroke(W.path);
-    for (const zn of T.zones || []) { // turning circle: round piazza with a turn-round arrow
-      g.fillStyle = W.asphalt; g.beginPath(); g.arc(zn.x, zn.y, zn.r, 0, 7); g.fill();
-      g.strokeStyle = W.edge; g.lineWidth = 3; g.beginPath(); g.arc(zn.x, zn.y, zn.r - 6, 0, 7); g.stroke();
-      g.strokeStyle = 'rgba(242,178,76,.55)'; g.lineWidth = 7; g.beginPath(); g.arc(zn.x, zn.y, zn.r * 0.5, 0.6, 5.4); g.stroke();
-      const ax = zn.x + Math.cos(5.4) * zn.r * 0.5, ay = zn.y + Math.sin(5.4) * zn.r * 0.5;
-      g.fillStyle = 'rgba(242,178,76,.55)'; g.beginPath(); g.moveTo(ax + 14, ay + 6); g.lineTo(ax - 10, ay + 12); g.lineTo(ax + 2, ay - 14); g.fill();
-    }
     g.setLineDash([36, 48]); g.strokeStyle = 'rgba(255,255,255,.14)'; g.lineWidth = 3; g.stroke(W.path); g.setLineDash([]);
     // start / finish chequers
     g.save(); g.translate(T.xs[0], T.ys[0]); g.rotate(Math.atan2(T.ty[0], T.tx[0]));
@@ -1149,7 +1157,7 @@
   let pausedFrom = null;
   let cur = 0, race = null, W = null, ghostRec = null, ghostSpec = null, ghostBest = null;
   let cd = 0, acc = 0, finishWait = 0, helpT = 0, bannerT = 0, deltaT = 0;
-  let markIdx = 0, navStreet = null, lastZoneCue = null;
+  let markIdx = 0, navStreet = null;
 
   // where you are and where you're heading (real-street routes)
   function updateNav(c) {
@@ -1256,7 +1264,7 @@
     skids = []; lastRear = null; touches.clear(); acc = 0; cd = 0; finishWait = 0; deltaT = 0; bannerT = 0;
     $('delta').className = 'num'; $('banner').className = '';
     $('lapV').textContent = '1/' + T.laps; $('timeV').textContent = fmt(0);
-    markIdx = 0; navStreet = null; lastZoneCue = null; hud.classList.toggle('city', !!T.def.city); prepMini(T); $('gear').classList.remove('on'); hudCache = null;
+    markIdx = 0; navStreet = null; hud.classList.toggle('city', !!T.def.city); prepMini(T); $('gear').classList.remove('on'); hudCache = null;
     chaseFresh = true; fq = []; fsum = 0; lowFor = 0; fpsT = 0;
     if (T.def.city) updateNav(race.car);
     snapCamera(race.car);
@@ -1409,8 +1417,6 @@
       }
       if (!chaseView) addSkids(c);
       if (race.T.def.city) updateNav(c);
-      if (c.zone && c.zdone !== c.zone && c.zone !== lastZoneCue) { banner('\u21ba TURN ROUND', false, 1.8); lastZoneCue = c.zone; }
-      if (!c.zone && c.zdone == null) lastZoneCue = null;
       $('lapV').textContent = Math.min(race.lap + 1, race.T.laps) + '/' + race.T.laps;
       $('timeV').textContent = fmt(race.t);
       if (race.wrong > 1.2) banner('WRONG WAY', true, 0.3);

@@ -411,9 +411,7 @@ function buildWorld(W, T, def) {
   const city = !!(W.city && window.ROME), ROME = window.ROME, S = city ? ROME.S : 4.5;
   const tx = textures();
   const hw = T.hw, wall = T.hw + T.wall, near = trackGrid(T, 220);
-  roadAt = (x, y) => near(x, y, hw + 10).d < hw - 3 || (T.zones || []).some((z) => Math.hypot(x - z.x, y - z.y) < z.r - 4);
-  const zones = T.zones || [];
-  const inZone = (x, y, pad) => zones.some((z) => Math.hypot(x - z.x, y - z.y) < z.r + (pad || 0));
+  roadAt = (x, y) => near(x, y, hw + 10).d < hw - 3;
   // samples far along the track from i: where a route comes back on itself the other carriageway is "far"
   const K = Math.ceil((wall * 3) / T.ds), far = (i) => (j) => { const d = Math.abs(i - j); return Math.min(d, T.N - d) <= K; };
   const at = (i, o) => [T.xs[i] - T.ty[i] * o, T.ys[i] + T.tx[i] * o]; // o to the right of travel (as car.off)
@@ -511,7 +509,7 @@ function buildWorld(W, T, def) {
         let ok = bridgeAt[i] ? 2 : 1;
         for (const o of [hw + 9, (hw + wall) / 2 + 4, wall + 10]) {
           const [x, y] = at(i, o * s);
-          if (inZone(x, y, 6) || near(x, y, hw + 10, far(i)).d < hw + 9 || (!bridgeAt[i] && mouth(x, y, T.tx[i], T.ty[i]))) { ok = 0; break; }
+          if (near(x, y, hw + 10, far(i)).d < hw + 9 || (!bridgeAt[i] && mouth(x, y, T.tx[i], T.ty[i]))) { ok = 0; break; }
         }
         on[i] = ok;
       }
@@ -538,7 +536,7 @@ function buildWorld(W, T, def) {
     }
   }
   // the road: its own mesh and material. The asphalt is crowned (four strips across, normals from the slope), and the
-  // markings sit just above it: solid edge lines, a dashed centre line (white in town), the zones and the chequer
+  // markings sit just above it: solid edge lines, a dashed centre line (white in town) and the chequer
   const asphalt = C(W.asphalt), edge = C(W.edge), RD = Geo();
   // a triangle of crowned asphalt with a normal per vertex (wound to face up, as tri() does)
   const rtri = (A, B, Cc) => {
@@ -566,33 +564,8 @@ function buildWorld(W, T, def) {
     }
   };
   for (const s of [-1, 1]) mark(s * (hw - 6.5), s * (hw - 4), 0.12, edge);
-  for (const z of zones) {
-    if (city) { // a round piazza: paving round the asphalt, except where the road comes in and goes out
-      for (let k = 0; k < 64; k++) {
-        const a0 = (k / 64) * Math.PI * 2, a1 = ((k + 1) / 64) * Math.PI * 2, P = (a, r) => [z.x + Math.cos(a) * r, z.y + Math.sin(a) * r];
-        const [ax, ay] = P(a0, z.r), [bx, by] = P(a1, z.r);
-        if (near(ax, ay, hw + 12).d < hw + 10 || near(bx, by, hw + 12).d < hw + 10) continue;
-        flatQuad(F, P(a0, z.r), P(a1, z.r), P(a1, z.r + 30), P(a0, z.r + 30), PAVE, PV);
-        quad(F, [ax, 1.2, ay], [bx, 1.2, by], [bx, PAVE, by], [ax, PAVE, ay], [-Math.cos(a0), 0, -Math.sin(a0)], KFACE);
-      }
-    }
-    // the turning circle is flat, at the height of the crown, so it covers the road where they meet
-    const ZY = ROAD + CROWN + 0.05;
-    for (let k = 0; k < 48; k++) {
-      const a0 = (k / 48) * Math.PI * 2, a1 = ((k + 1) / 48) * Math.PI * 2;
-      tri(RD, [z.x, ZY, z.y], [z.x + Math.cos(a0) * z.r, ZY, z.y + Math.sin(a0) * z.r], [z.x + Math.cos(a1) * z.r, ZY, z.y + Math.sin(a1) * z.r], UPN, asphalt);
-    }
-    const ringL = (pts, w, y, col) => { for (let i = 1; i < pts.length; i++) {
-      const [ax, ay] = pts[i - 1], [bx, by] = pts[i], l = Math.hypot(bx - ax, by - ay) || 1, nx = (-(by - ay) / l) * w / 2, ny = ((bx - ax) / l) * w / 2;
-      quad(RD, [ax + nx, y, ay + ny], [bx + nx, y, by + ny], [bx - nx, y, by - ny], [ax - nx, y, ay - ny], UPN, col);
-    } };
-    const ring = []; for (let k = 0; k <= 48; k++) { const a = (k / 48) * Math.PI * 2; ring.push([z.x + Math.cos(a) * (z.r - 6), z.y + Math.sin(a) * (z.r - 6)]); }
-    ringL(ring, 3, ZY + 0.07, edge);
-    const arc = []; for (let k = 0; k <= 24; k++) { const a = 0.6 + (k / 24) * 4.8; arc.push([z.x + Math.cos(a) * z.r * 0.5, z.y + Math.sin(a) * z.r * 0.5]); }
-    ringL(arc, 7, ZY + 0.12, C('#8a6a35'));
-  }
   // the centre line: dashed, white paint in town, a dim grey on the circuits (as in the 2D view)
-  mark(-1.5, 1.5, 0.12, C(city ? '#9a978f' : '#53555b'), (i) => (i * T.ds) % 84 < 36 && !inZone(T.xs[i], T.ys[i]));
+  mark(-1.5, 1.5, 0.12, C(city ? '#9a978f' : '#53555b'), (i) => (i * T.ds) % 84 < 36);
   { // start / finish chequer, laid over the crown
     const n0 = Math.floor((hw * 2) / 12), tx0 = T.tx[0], ty0 = T.ty[0], nx = -ty0, ny = tx0, cw2 = (hw * 2) / n0;
     for (let r = 0; r < 2; r++) for (let k = 0; k < n0; k++) {
@@ -601,11 +574,11 @@ function buildWorld(W, T, def) {
     }
   }
   world.add(toMesh(F, flatMat()));
-  // lat for the crown's shading: how far across the road each vertex is (built once; a turning circle counts as mid-road)
+  // lat for the crown's shading: how far across the road each vertex is (built once)
   const roadM = toMesh(RD, (rMat = roadMat(city))), lat = new Float32Array(RD.p.length / 3);
   for (let v = 0; v < lat.length; v++) {
     const x = RD.p[v * 3], y = RD.p[v * 3 + 2];
-    lat[v] = inZone(x, y) ? 0.4 : Math.min(1, near(x, y, hw + 10).d / hw);
+    lat[v] = Math.min(1, near(x, y, hw + 10).d / hw);
   }
   roadM.geometry.setAttribute('lat', new THREE.Float32BufferAttribute(lat, 1));
   world.add(roadM);
@@ -618,7 +591,6 @@ function buildWorld(W, T, def) {
     const okAt = (i) => {
       if (city && !bridgeAt[i]) return 0;
       const j = (i + 1) % T.N, [ax, ay] = at(i, wall * side), [bx, by] = at(j, wall * side);
-      if (inZone(ax, ay, 8) || inZone(bx, by, 8)) return 0;
       return near(ax, ay, wall, far(i)).d < wall - 3 ? 0 : 1;
     };
     const on = ALL.map(okAt), ks = keySamples(T, 6, (i) => on[i]);
@@ -641,17 +613,6 @@ function buildWorld(W, T, def) {
       box(KB, (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, 0, 6, l / 2, 1.6, Math.atan2(uy, ux), pc);
     }
   }
-  for (const z of zones) { // the turning circle's round soft wall, except where the road goes in and out
-    const zh = city ? PAVE + 2.5 : 9;
-    for (let k = 0; k < 64; k++) {
-      const a0 = (k / 64) * Math.PI * 2, a1 = ((k + 1) / 64) * Math.PI * 2;
-      const ax = z.x + Math.cos(a0) * z.r, ay = z.y + Math.sin(a0) * z.r, bx = z.x + Math.cos(a1) * z.r, by = z.y + Math.sin(a1) * z.r;
-      if (near(ax, ay, wall).d < wall || near(bx, by, wall).d < wall) continue;
-      const n = [Math.cos(a0), 0, Math.sin(a0)];
-      quad(KB, [ax, -1, ay], [bx, -1, by], [bx, zh, by], [ax, zh, ay], n, kc);
-      tri(KB, [ax, zh, ay], [bx, zh, by], [z.x + Math.cos(a1) * (z.r + 3), zh, z.y + Math.sin(a1) * (z.r + 3)], UPN, kt);
-    }
-  }
   { // start / finish gantry: two posts and a beam over the line, with a chequered banner hanging under it
     const o = wall + 9, hg = 74, ang = Math.atan2(T.ty[0], T.tx[0]), gc = C('#3b3d43');
     for (const s of [-1, 1]) { const [x, y] = at(0, o * s); box(KB, x, y, -1, hg + 4, 2.4, 2.4, ang, gc); }
@@ -665,7 +626,7 @@ function buildWorld(W, T, def) {
   if (KB.p.length) world.add(toMesh(KB, lambert({ vertexColors: true })));
 
   let lamps = W.lamps;
-  if (city) { const occ = buildCity(ROME, T, near, Q.reach, wall, inZone); cityFurniture(T, near, far, wall, inZone, mouth, bridgeAt, occ, at); }
+  if (city) { const occ = buildCity(ROME, T, near, Q.reach, wall); cityFurniture(T, near, far, wall, mouth, bridgeAt, occ, at); }
   else {
     // which side of the track is outside (as outwardSign in game.js)
     let inside = false; { const x = T.xs[0] - T.ty[0] * 400, y = T.ys[0] + T.tx[0] * 400;
@@ -747,13 +708,13 @@ function circuitScenery(W, T, id, near, wall, out, avoid) {
 // Rome: where the building line has a gap (a piazza, a park, a side street), something low fills it, chosen by a
 // seeded hash so the street looks the same every run: a row of parked cars, plane trees, or bollards along the wall
 const PARKED = ['#5a6270', '#7a3a3a', '#4f6457', '#8a8d92', '#3d4250', '#8c7a5a', '#33405e', '#a0a3a8', '#6a5f52'];
-function cityFurniture(T, near, far, wall, inZone, mouth, bridgeAt, occ, at) {
+function cityFurniture(T, near, far, wall, mouth, bridgeAt, occ, at) {
   const cars = [], trees = [], bols = [];
   for (const s of [-1, 1]) {
     let kind = -1;
     for (let i = 0; i < T.N; i += 4) {
       const [x1, y1] = at(i, (wall + 19) * s), [x2, y2] = at(i, (wall + 40) * s), [xw, yw] = at(i, wall * s);
-      const ok = !bridgeAt[i] && !inZone(x1, y1, 14) && near(x1, y1, wall + 20, far(i)).d >= wall + 14;
+      const ok = !bridgeAt[i] && near(x1, y1, wall + 20, far(i)).d >= wall + 14;
       if (!ok || occ(x1, y1, 6)) { kind = -1; continue; }
       const yaw = -Math.atan2(T.ty[i], T.tx[i]);
       if (mouth(xw, yw, T.tx[i], T.ty[i]) || mouth(x1, y1, T.tx[i], T.ty[i])) { // a side street: bollards across its mouth
@@ -803,7 +764,7 @@ function overRoad(pts, T, near) {
 let FOOT = []; // the footprints actually extruded in the current scene (for the test hook)
 // OSM footprints near the route, extruded and merged into a few chunks (frustum culling works per chunk)
 const FACADE = ['#a0643c', '#b07a45', '#9c5a3c', '#b58a5a', '#8d4f36', '#a8835e', '#c09a6a', '#94603f', '#b46f4a'].map(C);
-function buildCity(ROME, T, near, REACH, wall, inZone) {
+function buildCity(ROME, T, near, REACH, wall) {
   const S = ROME.S, CH = 1500, chunks = new Map(), OC = 12, occ = new Set();
   FOOT = [];
   const Dmin = wall + 8; // building lines stand back from the soft wall, so the car never ends up inside one
@@ -822,16 +783,12 @@ function buildCity(ROME, T, near, REACH, wall, inZone) {
     for (let i = 0; i < pts.length; i++) {
       const a = pts[i], c = pts[(i + 1) % pts.length], l = Math.hypot(c[0] - a[0], c[1] - a[1]);
       let close = false;
-      for (let s = 0; s <= l; s += 40) { const x = a[0] + ((c[0] - a[0]) * s) / l, y = a[1] + ((c[1] - a[1]) * s) / l; if (near(x, y, Dmin + 40).d < Dmin + 25 || inZone(x, y, 30)) { close = true; break; } }
+      for (let s = 0; s <= l; s += 40) { const x = a[0] + ((c[0] - a[0]) * s) / l, y = a[1] + ((c[1] - a[1]) * s) / l; if (near(x, y, Dmin + 40).d < Dmin + 25) { close = true; break; } }
       const n = close ? Math.max(1, Math.ceil(l / 24)) : 1;
       for (let s = 0; s < n; s++) dense.push([a[0] + ((c[0] - a[0]) * s) / n, a[1] + ((c[1] - a[1]) * s) / n]);
     }
     let moved = 0;
     for (const p of dense) for (let it = 0; it < 2; it++) {
-      for (const z of T.zones || []) {
-        const d = Math.hypot(p[0] - z.x, p[1] - z.y), r = z.r + 18;
-        if (d < r) { const k = r / (d || 1); p[0] = z.x + (p[0] - z.x) * k; p[1] = z.y + (p[1] - z.y) * k; moved++; }
-      }
       const q = near(p[0], p[1], Dmin + 30);
       if (q.d < Dmin) {
         const sx = T.xs[q.i], sy = T.ys[q.i];
@@ -1185,7 +1142,7 @@ function tyres(car, dt) {
   if (!FX.marks || !carM || dt <= 0) return;
   const u = carM.userData, sc = carM.scale.x, a = car.a, ca = Math.cos(a), sa = Math.sin(a), sp = car.speed || 0;
   const slide = car.slip > 0.3 && sp > 110, lock = car.braking && sp > 150, onRoad = car.onRoad !== false && carLift < PAVE - 0.3;
-  const scrape = curT && !car.zone && Math.abs(car.off || 0) > curT.hw + curT.wall - 1.5 && sp > 40;
+  const scrape = curT && Math.abs(car.off || 0) > curT.hw + curT.wall - 1.5 && sp > 40;
   const hard = (slide || lock) && onRoad, y = carLift + 0.25;
   [-1, 1].forEach((s, k) => {
     const wx = car.x + ca * u.axR * sc - sa * u.track * sc * s, wy = car.y + sa * u.axR * sc + ca * u.track * sc * s;
@@ -1288,9 +1245,8 @@ function render(car, ghost, dt) {
   // the road surface under the car: asphalt, the run-off a little lower, the pavement up the kerb when it runs wide in town
   const off = Math.abs(car.off || 0);
   let lift = roadY(off, curT.hw);
-  if (car.zone) lift = ROAD + CROWN + 0.05;
-  else if (off > curT.hw + 4) lift = paveSide ? 1.2 : 1.0;
-  if (paveSide && car.idx != null && off > curT.hw + 8 && !car.zone && paveSide[car.off > 0 ? 1 : 0][car.idx]) lift = PAVE;
+  if (off > curT.hw + 4) lift = paveSide ? 1.2 : 1.0;
+  if (paveSide && car.idx != null && off > curT.hw + 8 && paveSide[car.off > 0 ? 1 : 0][car.idx]) lift = PAVE;
   carLift += (lift - carLift) * (1 - Math.exp(-25 * dt));
   poseCar(carM, car, dt, carLift, { low: qLevel === 'low', bonnet: view === 'bonnet' });
   tyres(car, dt);
