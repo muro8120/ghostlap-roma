@@ -57,7 +57,7 @@ let b = null;
   const s0 = await p.evaluate(() => window.__puzzles.stats());
   check('stats before: no sessions, one own card from the analysed game', s0.sessions === 0 && s0.last === null && s0.acc30 === null && s0.ownCards.total === 1 && s0.ownCards.due === 1, JSON.stringify(s0));
 
-  // ---- session 1: own card, one set puzzle right (first move by real taps), one wrong then walked through ----
+  // ---- session 1: own card, one set puzzle right (first move by real taps), one missed three times and parked ----
   let summary = null;
   await p.exposeFunction('pzDone', (s) => { summary = s; });
   const st0 = await p.evaluate(() => window.__puzzles.open({ band: [800, 999], count: 3, minutes: 15, onDone: (s) => window.pzDone(s) }));
@@ -123,38 +123,59 @@ let b = null;
   const aw = await p.evaluate((u) => window.__puzzles.answer(u.slice(0, 2), u.slice(2, 4)), wrong);
   st = await p.evaluate(() => window.__puzzles.state);
   check('a wrong move marks the puzzle wrong and stays on the position', aw && aw.legal && !aw.ok && !st.item.right && st.phase === 'move' && st.item.step === 1, JSON.stringify(aw));
-  check('wrong: your try in red, the right move as an arrow', (await p.$$eval('#pzBoard .arrow line', (e) => e.length)) === 2 && (await p.$$eval('#pzBoard .arrow line.red', (e) => e.length)) === 1);
-  check('wrong: no way to skip, you play it out', await p.$eval('#pzNext', (e) => e.hidden));
-  await p.screenshot({ path: SHOTS + '/pz4-wrong.png' });
-  st = await solve();
-  check('the rest of the line is still walked through', st.phase === 'done' && !st.item.right && st.item.step === st.item.line.length, st.item.line.join(' '));
-  check('done after a slip says so', /counts as wrong/.test(await p.$eval('#pzNote', (e) => e.textContent)));
-  check('button reads Finish on the last puzzle', (await p.$eval('#pzNext', (e) => e.textContent)) === 'Finish');
-  await p.click('#pzNext'); await p.waitForTimeout(200);
+  // a miss gives nothing away: no arrow, no move named but the one you tried, the piece back, no button to skip
+  const answerSan = await p.evaluate(() => { const s = window.__puzzles.state, c = new Chess(s.item.fen), m = c.move({ from: s.item.expect.slice(0, 2), to: s.item.expect.slice(2, 4), promotion: s.item.expect[4] || 'q' }); return m.san; });
+  const miss = async () => ({ arrows: await p.$$eval('#pzBoard .arrow line, #pzBoard .arrow polygon', (e) => e.length), note: await p.$eval('#pzNote', (e) => e.textContent), q: await p.$eval('#pzQ', (e) => e.textContent),
+    fen: (await p.evaluate(() => window.__puzzles.state)).item.fen, next: await p.$eval('#pzNext', (e) => e.hidden), btns: await p.$$eval('#pzPlay button', (e) => e.filter((x) => !x.hidden).map((x) => x.textContent)) });
+  const m1 = await miss();
+  check('a miss shows no arrow and names no move, the position stays', m1.arrows === 0 && m1.q === 'Not that one' && /^You tried \S+\. Not that\. Keep looking\.$/.test(m1.note) && !m1.note.includes(answerSan) && m1.fen === st.item.fen, JSON.stringify(m1));
+  check('no I don\'t see it: the only buttons are the board, the setup pill and Back', m1.next && !m1.btns.some((t) => /see it/i.test(t)) && (await p.evaluate(() => typeof window.__puzzles.giveUp)) === 'undefined', JSON.stringify(m1.btns));
+  await p.screenshot({ path: SHOTS + '/pz4-miss.png' });
+  const aw2 = await p.evaluate((u) => window.__puzzles.answer(u.slice(0, 2), u.slice(2, 4)), wrong);
+  const m2 = await miss();
+  check('the second miss says one more parks it', aw2 && !aw2.ok && aw2.misses === 2 && /one more miss parks it\.$/.test(m2.note) && m2.arrows === 0 && !m2.note.includes(answerSan), m2.note);
+  const parkedId = st.item.id;
+  const aw3 = await p.evaluate((u) => window.__puzzles.answer(u.slice(0, 2), u.slice(2, 4)), wrong);
+  const m3 = await miss(), ps = await p.evaluate(() => window.__puzzles.state);
+  check('three misses park it: says so, shows nothing, no answer', aw3 && aw3.parked && ps.phase === 'parked' && m3.q === 'Parked' && /Parked: it comes back next session\.$/.test(m3.note) && m3.arrows === 0 && !m3.note.includes(answerSan), JSON.stringify(m3));
+  await p.screenshot({ path: SHOTS + '/pz4b-parked.png' });
+  // ... and the session moves on by itself (here the last puzzle, so to the summary)
+  const moved = await p.waitForFunction(() => window.__puzzles.state.phase === 'end', null, { timeout: 5000 }).then(() => true).catch(() => false);
   st = await p.evaluate(() => window.__puzzles.state);
   check('session ends with the summary', st.phase === 'end' && await p.$eval('#pzSum', (e) => !e.hidden) && await p.$eval('#pzPlay', (e) => e.hidden));
   const lines = await p.$$eval('#pzLines p', (e) => e.map((x) => x.textContent));
   check('end lines: under 85% and under 15 s', lines.includes('Slow down. Accuracy before speed.') && lines.includes('That was fast. The research says slow, written, whole line. Speed is not the goal here.'), lines.join(' | '));
   check('summary: 2 right of 3', (await p.$eval('#pzRight', (e) => e.textContent)) === '2/3' && /2 right of 3/.test(await p.$eval('#pzSumT', (e) => e.textContent)));
   check('onDone called with the summary', !!summary && summary.n === 3 && summary.right === 2 && summary.own === 1 && summary.ids.length === 3 && summary.ids[0] === 'own:syn1:5', JSON.stringify(summary));
+  // the summary teaches the parked one: its position, the move, the whole line, the tags; nothing for the solved ones
+  const card = await p.evaluate(() => [...document.querySelectorAll('#pzParked .pz-park')].map((d) => ({ move: d.querySelector('p b').textContent, line: d.querySelector('.pz-pl').textContent,
+    pcs: d.querySelectorAll('.board .pc.svg').length, tags: [...d.querySelectorAll('.pz-tag')].map((t) => t.textContent) })));
+  check('after parking, the session moves on by itself', moved);
+  check('the summary card shows the parked answer, the line and the tags', card.length === 1 && card[0].move === answerSan && /^The line: \d+\.{1,3} ?\S+/.test(card[0].line) && card[0].line.includes(answerSan) && card[0].pcs > 2 && /^Rated \d+$/.test(card[0].tags[0]) && card[0].tags.length >= 2, JSON.stringify(card));
+  await p.$eval('#pzParked', (e) => e.scrollIntoView({ block: 'start' }));
   await p.screenshot({ path: SHOTS + '/pz5-summary.png' });
+  await p.evaluate(() => document.getElementById('puzzles').scrollTo(0, 0));
   let s1 = await p.evaluate(() => window.__puzzles.stats());
   check('stats after: 1 session, last 2/3, acc30 still null under 10', s1.sessions === 1 && s1.last.n === 3 && s1.last.right === 2 && s1.last.meanMs > 0 && s1.acc30 === null && s1.ownCards.total === 1 && s1.ownCards.box3 === 0, JSON.stringify(s1));
   const raw = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-puzzles-v1')).jesse);
-  check('store: sessions, seen, own, log as specified', raw.sessions.length === 1 && raw.sessions[0].band.join('-') === '800-999' && Object.keys(raw.seen).length === 2 && raw.log.length === 3
+  check('store: the parked one is parked and not seen', Object.keys(raw.parked).join() === parkedId && !raw.seen[parkedId] && raw.log.some((r) => r.id === parkedId && r.parked === 1 && r.right === false), JSON.stringify(raw.parked));
+  check('store: sessions, seen, own, log as specified', raw.sessions.length === 1 && raw.sessions[0].band.join('-') === '800-999' && Object.keys(raw.seen).length === 1 && raw.log.length === 3
     && raw.log.every((r) => typeof r.right === 'boolean' && r.ms > 0 && r.date && r.id) && raw.own['syn1:5'].fen && raw.own['syn1:5'].best === 'f1c4' && raw.own['syn1:5'].gameId === 'syn1' && raw.own['syn1:5'].ply === 5);
   await p.click('#pzDone'); await p.waitForTimeout(150);
   check('Done goes back to the launcher', await p.evaluate(() => !document.getElementById('puzzles').classList.contains('on') && document.getElementById('hub').classList.contains('on')));
 
   // ---- session 2: eight more from the set, all right, so acc30 kicks in; seen puzzles are not repeated ----
   const st2 = await p.evaluate(() => window.__puzzles.open({ band: [800, 999], count: 8 }));
-  check('session 2: box-2 card not due, all from the set, none seen before', st2.n === 8 && st2.item.kind === 'set' && !raw.seen[st2.item.id]);
+  check('session 2: the parked puzzle leads, the box-2 card is not due, the rest unseen', st2.n === 8 && st2.item.id === parkedId && st2.item.parked && st2.item.kind === 'set', JSON.stringify(st2.item.id));
+  await waitMove();
+  check('it says it was parked last time', /^Parked last time\. They played /.test(await p.$eval('#pzNote', (e) => e.textContent)));
   for (let k = 0; k < 8; k++) { await waitMove(); await solve(); await p.evaluate(() => window.__puzzles.next()); }
   st = await p.evaluate(() => window.__puzzles.state);
   s1 = await p.evaluate(() => window.__puzzles.stats());
   check('stats: 2 sessions, last 8/8, acc30 = 90 over 10 set puzzles', st.phase === 'end' && s1.sessions === 2 && s1.last.right === 8 && s1.acc30 === 90 && s1.acc30Easy === 90, JSON.stringify(s1));
   const raw2 = await p.evaluate(() => JSON.parse(localStorage.getItem('ghostlap-puzzles-v1')).jesse);
-  check('no set puzzle repeated across sessions', new Set(raw2.log.filter((r) => !r.own).map((r) => r.id)).size === 10);
+  const setIds = raw2.log.filter((r) => !r.own).map((r) => r.id);
+  check('only the parked puzzle came back; solved, it is seen and no longer parked', setIds.length === 10 && new Set(setIds).size === 9 && setIds.filter((x) => x === parkedId).length === 2 && raw2.seen[parkedId] && !Object.keys(raw2.parked).length);
   await p.evaluate(() => window.__puzzles.close());
 
   // ---- per player ----

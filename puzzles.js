@@ -2,7 +2,9 @@
 // "own-game cards": the positions where you went wrong in your analysed games, one move to find, in Leitner boxes like learn.js.
 // Builds its own <section> and <style> (prefix .pz-), so index.html only needs the script tag. Needs window.__coach (renderBoard,
 // history, player) and window.Chess. window.__puzzles: open(opts), close(), stats(), plus test hooks answer(from, to), next(),
-// giveUp() and the state getter.
+// peek() and the state getter.
+// A miss never shows the answer: the piece goes back and you keep looking. Three misses park the puzzle; it leads the next
+// session, and the end-of-session summary is the one place its answer is shown.
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
@@ -49,6 +51,7 @@
     if (!s.own || typeof s.own !== 'object') s.own = {};
     if (!Array.isArray(s.log)) s.log = [];
     if (!(s.ownS >= 0)) s.ownS = 0;   // the own-card session counter for the Leitner schedule (learn.js keeps the same per lesson)
+    if (!s.parked || typeof s.parked !== 'object') s.parked = {};   // set puzzles parked after three misses: id -> { at }. Not seen; they lead the next session
     return s;
   }
 
@@ -108,6 +111,12 @@
   .pz-stats small { font-size: 10px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; font-weight: 700; }
   .pz-line { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 12px; padding: 10px 12px; font-size: 15px; line-height: 1.45; margin: 0 0 8px; }
   .pz-line.pz-ok { border-left-color: var(--green); }
+  .pz-park { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 12px; padding: 10px 12px 12px; margin: 0 0 10px; }
+  .pz-park .pz-ph { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 800; color: var(--amber); }
+  .pz-park .board { --sq: min(30px, calc((100vw - 90px) / 8)); margin: 8px auto 10px; }
+  .pz-park p { margin: 0; font-size: 15px; line-height: 1.4; } .pz-park p b { font-weight: 800; }
+  .pz-park .pz-pl { margin-top: 4px; color: var(--dim); font-size: 13px; }
+  .pz-park .pz-tags { margin-top: 8px; }
   .pz-peekrow { display: flex; justify-content: flex-end; min-height: 0; }
   .pz-peek { margin-top: 8px; padding: 6px 12px; font-size: 13px; }
   .pz-peek.on { color: var(--text); border-color: var(--amber); }
@@ -123,11 +132,12 @@
       <div class="pz-peekrow"><button class="pill pz-peek" id="pzPeek" hidden></button></div>
       <div class="lnote pz-note" id="pzNote"></div>
       <div class="pz-tags" id="pzTags" hidden></div>
-      <div class="btns" style="margin-top:12px"><button class="btn" id="pzNext">I don't see it</button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn primary" id="pzNext" hidden>Next puzzle</button></div>
     </div>
     <div id="pzSum" hidden>
       <div class="endT" id="pzSumT">Session done</div>
       <div class="pz-stats"><div><b id="pzRight"></b><small>Right</small></div><div><b id="pzMean"></b><small>Mean time</small></div><div><b id="pzOwn"></b><small>Own cards</small></div></div>
+      <div id="pzParked"></div>
       <div id="pzLines"></div>
       <p class="chint" id="pzSumMsg"></p>
       <div class="btns" style="margin-top:16px"><button class="btn primary" id="pzDone">Done</button></div>
@@ -153,9 +163,15 @@
     const ownKeys = plan.due.sort((a, b) => (st.own[a].box || 1) - (st.own[b].box || 1) || String(st.own[a].date).localeCompare(String(st.own[b].date)) || st.own[a].ply - st.own[b].ply)
       .slice(0, Math.ceil(count / 2));
     st.ownS = plan.s + 1; persist();
-    const queue = ownKeys.map((k) => { const c = st.own[k]; return { kind: 'own', id: 'own:' + k, key: k, fen: c.fen, line: [c.best], san: c.san, played: c.played, ply: c.ply, date: c.date, prev: c.prev, box: c.box || 1 }; });
-    for (const p of pickSet(band, count - queue.length, st)) queue.push({ kind: 'set', id: p.id, fen: p.fen, line: p.moves, rating: p.rating, themes: p.themes });
-    S = { band, count, minutes, t0: Date.now(), queue, i: -1, done: [], onDone: typeof opts.onDone === 'function' ? opts.onDone : null, item: null, summary: null };
+    // parked puzzles first (oldest first, at most half the session, whatever their band: they are unfinished business)
+    const byId = {}; for (const p of set()) byId[p.id] = p;
+    for (const id of Object.keys(st.parked)) if (!byId[id]) delete st.parked[id];
+    const parkedIds = Object.keys(st.parked).sort((a, b) => String(st.parked[a].at).localeCompare(String(st.parked[b].at))).slice(0, Math.ceil(count / 2));
+    const setItem = (p) => ({ kind: 'set', id: p.id, fen: p.fen, line: p.moves, rating: p.rating, themes: p.themes, parked: !!st.parked[p.id] });
+    const queue = parkedIds.map((id) => setItem(byId[id]));
+    for (const k of ownKeys) { const c = st.own[k]; queue.push({ kind: 'own', id: 'own:' + k, key: k, fen: c.fen, line: [c.best], san: c.san, played: c.played, ply: c.ply, date: c.date, prev: c.prev, box: c.box || 1 }); }
+    for (const p of pickSet(band, count - queue.length, st)) queue.push(setItem(p));
+    S = { band, count, minutes, t0: Date.now(), queue, i: -1, done: [], parked: [], onDone: typeof opts.onDone === 'function' ? opts.onDone : null, item: null, summary: null };
     for (const el of document.querySelectorAll('.screen.on')) el.classList.remove('on');
     $('pzSub').textContent = 'Rated ' + band[0] + '–' + band[1] + ' · ' + queue.length + ' puzzles · about ' + minutes + ' min';
     $('pzPlay').hidden = false; $('pzSum').hidden = true;
@@ -168,7 +184,8 @@
     if (n <= 0) return [];
     const inBand = set().filter((p) => p.rating >= band[0] && p.rating <= band[1]);
     const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-    const pool = shuffle(inBand.filter((p) => !st.seen[p.id])).concat(shuffle(inBand.filter((p) => st.seen[p.id])));
+    const fresh = inBand.filter((p) => !st.parked[p.id]);   // parked ones are already at the head of the queue
+    const pool = shuffle(fresh.filter((p) => !st.seen[p.id])).concat(shuffle(fresh.filter((p) => st.seen[p.id])));
     const out = [];
     while (out.length < n && pool.length) {
       const prev = out.length ? out[out.length - 1].themes[0] : null;
@@ -184,7 +201,7 @@
     if (over) { finish(); return; }
     const q = S.queue[S.i], c = new Chess(q.fen);
     // set puzzles: the fen is before THEIR move, so the solver is the other side; own cards: the fen is before YOUR move
-    S.item = { q, c, k: 0, right: true, shown: null, wrong: null, last: q.kind === 'own' && q.prev ? { from: q.prev.slice(0, 2), to: q.prev.slice(2, 4) } : null,
+    S.item = { q, c, k: 0, right: true, misses: 0, wrong: null, last: q.kind === 'own' && q.prev ? { from: q.prev.slice(0, 2), to: q.prev.slice(2, 4) } : null,
       you: q.kind === 'own' ? c.turn() : (c.turn() === 'w' ? 'b' : 'w'), t: 0, ms: 0, say: '', theirs: '' };
     if (q.kind === 'set') { S.item.phase = 'intro'; draw(); timer = setTimeout(() => theirMove(true), 700); }
     else { S.item.phase = 'move'; S.item.t = Date.now(); draw(); }
@@ -215,8 +232,9 @@
     else { sel = null; targets = []; }
     draw();
   }
-  // a tap pair (or the test hook). Right: play it, then their reply. Wrong: the puzzle is lost, the right move is drawn,
-  // and you still play it and the rest of the line, so the whole pattern is seen. A mate that is not the book move counts too.
+  // a tap pair (or the test hook). Right: play it, then their reply. A mate that is not the book move counts too. Wrong: the
+  // piece goes back, nothing is shown or named, and you keep looking. The first miss makes the puzzle wrong (once, however
+  // many follow); the third miss on the same puzzle, anywhere in the line, parks it.
   function answer(from, to) {
     const it = S && S.item; if (!it || it.phase !== 'move' || !from || !to) return null;
     it.peek = false;   // an answer always lands on the real position
@@ -228,11 +246,11 @@
     const ok = uciOf(m) === want || (from === w.from && to === w.to) || t.in_checkmate();
     if (!ok) {
       if (it.right) { it.right = false; ownBox(it, false); }
-      it.wrong = m.san; it.tried = { from: m.from, to: m.to, cls: 'red' }; it.shown = { from: w.from, to: w.to };
-      it.say = 'Not that. The move is ' + sanOf(it.c, want) + '.';
-      draw(); return { legal: true, ok: false, san: m.san, expect: want };
+      it.misses++; it.wrong = m.san;
+      if (it.misses >= 3) { park(); return { legal: true, ok: false, san: m.san, parked: true }; }
+      draw(); return { legal: true, ok: false, san: m.san, misses: it.misses };
     }
-    it.c.move({ from, to, promotion: promo }); it.k++; it.last = { from, to }; it.shown = null; it.wrong = null; it.tried = null;
+    it.c.move({ from, to, promotion: promo }); it.k++; it.last = { from, to }; it.wrong = null;
     it.say = 'Right: ' + m.san + '.';
     if (it.c.in_checkmate() || it.k >= it.q.line.length) { lineDone(); return { legal: true, ok: true, san: m.san, done: true }; }
     it.phase = 'reply'; draw();
@@ -240,14 +258,21 @@
     return { legal: true, ok: true, san: m.san };
   }
   const sanOf = (c, u) => { try { const t = new Chess(c.fen()), m = t.move(mv(u)); return m ? m.san : u; } catch (e) { return u; } };
-  // "I don't see it": a missing move counts as wrong; the arrow shows it and you play it
-  function giveUp() {
-    const it = S && S.item; if (!it || it.phase !== 'move' || it.shown) return null;
-    it.peek = false;
-    const want = it.q.line[it.k], w = mv(want);
-    if (it.right) { it.right = false; ownBox(it, false); }
-    it.shown = { from: w.from, to: w.to }; it.wrong = null; it.tried = null; it.say = 'The move is ' + sanOf(it.c, want) + '. Play it.';
-    draw(); return { expect: want };
+  // three misses: logged as a wrong answer (not seen, so it comes back), the position and the answer kept for the summary,
+  // and on to the next puzzle after a moment to read the strip
+  const PARK_MS = 2200;
+  function park() {
+    const it = S.item, st = mine(), q = it.q;
+    it.ms = Date.now() - it.t; it.phase = 'parked';
+    if (q.kind === 'set') st.parked[q.id] = { at: new Date().toISOString() };   // an own card is already back in box 1, due every session
+    const rec = { id: q.id, right: false, ms: it.ms, date: new Date().toISOString(), parked: 1 };
+    if (q.kind === 'set') rec.r = q.rating; else rec.own = 1;
+    st.log.push(rec); if (st.log.length > 300) st.log.splice(0, st.log.length - 300);
+    persist();
+    S.done.push({ id: q.id, kind: q.kind, right: false, ms: it.ms, parked: true });
+    S.parked.push({ q, fen: it.c.fen(), k: it.k, you: it.you, last: it.last });
+    draw();
+    timer = setTimeout(() => { if (S && S.item === it && it.phase === 'parked') advance(); }, PARK_MS);
   }
   function ownBox(it, ok) {   // the first answer to an own card moves its box: right up one, wrong to box 1
     if (it.q.kind !== 'own' || it.boxed) return;
@@ -260,14 +285,14 @@
     if (it.right) ownBox(it, true);
     it.ms = Date.now() - it.t; it.phase = 'done';
     const rec = { id: it.q.id, right: it.right, ms: it.ms, date: new Date().toISOString() };
-    if (it.q.kind === 'set') { rec.r = it.q.rating; st.seen[it.q.id] = 1; } else rec.own = 1;
+    if (it.q.kind === 'set') { rec.r = it.q.rating; st.seen[it.q.id] = 1; delete st.parked[it.q.id]; } else rec.own = 1;   // played to the end: no longer parked
     st.log.push(rec); if (st.log.length > 300) st.log.splice(0, st.log.length - 300);
     persist();
     S.done.push({ id: it.q.id, kind: it.q.kind, right: it.right, ms: it.ms });
     draw();
   }
   function next() {
-    if (!S || !S.item || S.item.phase !== 'done') return null;
+    if (!S || !S.item || (S.item.phase !== 'done' && S.item.phase !== 'parked')) return null;
     advance(); return state();
   }
   function finish() {
@@ -286,6 +311,7 @@
     $('pzSumT').textContent = !n ? 'Nothing to play' : right === n ? 'All ' + n + ' right' : right + ' right of ' + n;
     $('pzRight').textContent = right + '/' + n; $('pzMean').textContent = n ? secs(meanMs) : '–';
     $('pzOwn').textContent = own.length ? S.summary.ownRight + '/' + own.length : '0';
+    renderParked();
     const box = $('pzLines'); box.innerHTML = '';
     const say = (t, ok) => { const p = document.createElement('p'); p.className = 'pz-line' + (ok ? ' pz-ok' : ''); p.textContent = t; box.appendChild(p); };
     if (!n) say('No puzzles in this band. Try another band.', false);
@@ -296,33 +322,56 @@
       : 'Own-game cards come from your analysed games: every move that cost 1.5 pawns or more becomes a card.';
     if (n && S.onDone) { try { S.onDone(S.summary); } catch (e) { console.error(e); } }
   }
+  // the parked puzzles of this session, under the stats: the position you were stuck on, the move, the whole line, the tags
+  function renderParked() {
+    const box = $('pzParked'); box.innerHTML = '';
+    for (const p of S.parked) {
+      const c = new Chess(p.fen), d = document.createElement('div'); d.className = 'pz-park';
+      const h = document.createElement('div'); h.className = 'pz-ph'; h.textContent = 'Parked · ' + (p.q.kind === 'own' ? 'your game' : 'puzzle') + ' · back next session'; d.appendChild(h);
+      const bd = document.createElement('div'); bd.className = 'board'; d.appendChild(bd);
+      const a = document.createElement('p'); a.append('The move was '); const bb = document.createElement('b'); bb.textContent = sanOf(c, p.q.line[p.k]); a.append(bb, '.'); d.appendChild(a);
+      const l = document.createElement('p'); l.className = 'pz-pl'; l.textContent = 'The line: ' + lineSan(p.q); d.appendChild(l);
+      const tags = document.createElement('div'); tags.className = 'pz-tags';
+      const add = (t, cls) => { const s = document.createElement('span'); s.className = 'pz-tag' + (cls ? ' ' + cls : ''); s.textContent = t; tags.appendChild(s); };
+      if (p.q.kind === 'set') { add('Rated ' + p.q.rating, 'pz-r'); for (const t of p.q.themes) add(themeName(t)); } else add('Your game', 'pz-own');
+      d.appendChild(tags); box.appendChild(d);
+      window.__coach.renderBoard(bd, c, { flip: p.you === 'b', last: p.last, check: c.in_check() });
+    }
+  }
+  // the whole line in move-numbered SAN from the puzzle's start (for a set puzzle that begins with their move)
+  function lineSan(q) {
+    const c = new Chess(q.fen), out = [];
+    for (let i = 0; i < q.line.length; i++) {
+      const f = c.fen().split(' '), n = f[5], white = f[1] === 'w', m = c.move(mv(q.line[i])); if (!m) break;
+      out.push(white ? n + '. ' + m.san : (i === 0 ? n + '... ' : '') + m.san);
+    }
+    return out.join(' ');
+  }
   function draw() {
     const it = S && S.item; if (!it) return;
     const q = it.q, ph = it.phase, c = it.c, side = it.you === 'w' ? 'White' : 'Black';
-    const arrows = [];   // your try in red, the right move in amber
-    if (it.shown && it.tried) arrows.push(it.tried);
-    if (it.shown) arrows.push({ from: it.shown.from, to: it.shown.to });
     if (it.peek && !canPeek(it)) it.peek = false;
     const pb = $('pzPeek'); pb.hidden = !canPeek(it); pb.classList.toggle('on', !!it.peek);
     pb.textContent = it.peek ? 'After ' + it.setup + ' \u203A' : '\u2039 Before ' + it.setup;
     if (it.peek) {   // the position before their move: no highlight, no arrows, a tap comes back
       const b = new Chess(q.fen);
       window.__coach.renderBoard($('pzBoard'), b, { flip: it.you === 'b', check: b.in_check(), onTap: tap });
-    } else window.__coach.renderBoard($('pzBoard'), c, { flip: it.you === 'b', sel, targets, last: it.last, check: c.in_check(), arrows, onTap: ph === 'move' ? tap : null, busy: ph !== 'move' });
+    } else window.__coach.renderBoard($('pzBoard'), c, { flip: it.you === 'b', sel, targets, last: it.last, check: c.in_check(), onTap: ph === 'move' ? tap : null, busy: ph !== 'move' });
     const Q = $('pzQ'), N = $('pzNote'), done = S.done.length;
     $('pzPos').textContent = (q.kind === 'own' ? 'Your game · box ' + q.box : 'Puzzle') + ' · ' + (S.i + 1) + ' of ' + S.queue.length;
     $('pzBar').style.width = Math.round(done / Math.max(1, S.queue.length) * 100) + '%';
     let k = '', head = '', note = '';
     if (ph === 'intro') { head = 'Watch their move'; note = side + ' to play after their move.'; }
     else if (ph === 'move') {
-      if (it.shown) { k = 'wrong'; head = it.wrong ? 'Not that one' : 'Play the arrow'; note = (it.wrong ? 'You tried ' + it.wrong + '. ' : '') + it.say + ' Then play out the rest of the line.'; }
+      if (it.peek) { head = 'Before ' + it.setup; note = 'The position before they played ' + it.setup + '. Tap the board or the pill to go back.'; }
+      else if (it.wrong) { k = 'wrong'; head = 'Not that one'; note = 'You tried ' + it.wrong + '. Not that. ' + (it.misses >= 2 ? 'Keep looking: one more miss parks it.' : 'Keep looking.'); }
       else if (q.kind === 'own') {
         k = 'own'; head = 'Find the move';
         note = 'From your game' + (q.date ? ' on ' + fmtDate(q.date) : '') + ', move ' + moveNo(q.ply).trim() + ' ' + side + '. You played ' + q.played + ' there. One move to find. Tap a piece, then its square.';
-      } else if (it.peek) { head = 'Before ' + it.setup; note = 'The position before they played ' + it.setup + '. Tap the board or the pill to go back.'; }
-      else if (it.k <= 1) { head = 'Your move'; note = 'They played ' + it.theirs + '. Your move. Play the whole line.'; }
+      } else if (it.k <= 1) { head = 'Your move'; note = (q.parked ? 'Parked last time. ' : '') + 'They played ' + it.theirs + '. Your move. Play the whole line.'; }
       else { k = it.right ? 'right' : 'wrong'; head = 'Your move'; note = it.say + ' They answered ' + it.theirs + '. Keep going.'; }
-    } else if (ph === 'reply') { k = it.right ? 'right' : 'wrong'; head = it.right ? 'Right' : 'Good'; note = it.say + ' Their answer…'; }
+    } else if (ph === 'parked') { k = 'wrong'; head = 'Parked'; note = 'You tried ' + it.wrong + '. Three misses. Parked: it comes back next session.'; }
+    else if (ph === 'reply') { k = it.right ? 'right' : 'wrong'; head = it.right ? 'Right' : 'Good'; note = it.say + ' Their answer…'; }
     else if (ph === 'done') {
       k = it.right ? 'right' : 'wrong'; head = it.right ? 'Solved' : 'Seen, not solved';
       if (q.kind === 'own') note = (it.right ? 'Right: ' + q.san + ', the engine\'s move.' : 'The engine\'s move was ' + q.san + '. You played ' + q.played + ' in the game.') + ' The card is in box ' + ((mine().own[q.key] || {}).box || 1) + ' now.';
@@ -337,9 +386,8 @@
       else add('Your game', 'pz-own');
     }
     const nb = $('pzNext');
-    nb.hidden = ph === 'intro' || ph === 'reply' || (ph === 'move' && !!it.shown);
-    nb.textContent = ph === 'done' ? (S.i + 1 >= S.queue.length || Date.now() - S.t0 >= S.minutes * 60000 ? 'Finish' : 'Next puzzle') : 'I don\'t see it';
-    nb.className = 'btn' + (ph === 'done' ? ' primary' : '');
+    nb.hidden = ph !== 'done' && ph !== 'parked';   // no way out of a puzzle but solving it, three misses, or Back
+    nb.textContent = S.i + 1 >= S.queue.length || Date.now() - S.t0 >= S.minutes * 60000 ? 'Finish' : 'Next puzzle';
   }
   function close() {
     clearTimeout(timer);
@@ -365,16 +413,17 @@
       acc30: pct(setLog.slice(-30)),                                   // set puzzles only: own cards are engine-level, they would skew it
       acc30Easy: pct(setLog.filter((r) => r.r < 1000).slice(-30)),     // the easy band (under 1000), for the curriculum's slow_puzzle_accuracy_pct_easy
       ownCards: { total: keys.length, due: plan.due.length, box3: keys.filter((k) => st.own[k].box >= 3).length },
+      parked: Object.keys(st.parked).length,
     };
   }
   function state() {
     if (!S) return null;
     const it = S.item;
     return { phase: it ? it.phase : 'end', i: S.i, n: S.queue.length, band: S.band, done: S.done.slice(), summary: S.summary,
-      item: it && { kind: it.q.kind, id: it.q.id, fen: it.c.fen(), you: it.you, right: it.right, step: it.k, line: it.q.line.slice(), expect: expect(), shown: it.shown, rating: it.q.rating || null, peek: !!it.peek } };
+      item: it && { kind: it.q.kind, id: it.q.id, fen: it.c.fen(), you: it.you, right: it.right, step: it.k, line: it.q.line.slice(), expect: expect(), misses: it.misses, parked: !!it.q.parked, rating: it.q.rating || null, peek: !!it.peek } };
   }
 
   $('pzBack').onclick = close; $('pzPeek').onclick = () => peek(); $('pzDone').onclick = close;
-  $('pzNext').onclick = () => { const it = S && S.item; if (!it) return; if (it.phase === 'done') next(); else giveUp(); };
-  window.__puzzles = { open, close, stats, answer, next, giveUp, peek, sync: syncOwn, get state() { return state(); }, get count() { return set().length; } };
+  $('pzNext').onclick = () => next();
+  window.__puzzles = { open, close, stats, answer, next, peek, sync: syncOwn, get state() { return state(); }, get count() { return set().length; } };
 })();
