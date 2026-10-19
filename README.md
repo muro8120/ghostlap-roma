@@ -249,10 +249,14 @@ at iPhone width, including one real training game against the engine. The pieces
   your side is at the bottom. Their move plays first, highlighted: *They played Nf3. Your move. Play the whole line.* A pill
   under the board (*‹ Before Nf3*) flips to the position before their move and back, as often as you like, without
   counting as a hint or touching the score; a tap on the board while looking at it flips back first. Tap a
-  piece, then its square. A right move is confirmed quietly and their reply follows. A wrong move, or *I don't see it*,
-  loses the puzzle and draws the right move as an arrow, but you still play out the rest of the line so you see the whole
-  pattern. There are no hints, and the themes and rating only show once the line is over. Before the set puzzles come your
-  own mistakes: every move in an analysed game that cost a pawn and a half or more becomes a card (*From your game on Oct 3,
+  piece, then its square. A right move is confirmed quietly and their reply follows. A wrong move gives nothing away: *Not
+  that one. You tried Be7. Not that. Keep looking.*, the piece goes back and you keep trying; no arrow, no move named, no
+  way to skip. The first miss marks the puzzle wrong (once, however many follow), and a miss anywhere in the line counts.
+  The third miss parks it (*Parked: it comes back next session.*) and the session moves on. A parked puzzle is not counted
+  as seen; it leads the next session, ahead of everything else. The session summary is the one place an answer appears:
+  each parked puzzle gets a card with the position you were stuck on, *The move was Bd6+*, the whole line, and its themes
+  and rating. There are no hints, and the themes and rating of a solved puzzle only show once the line is over. The only
+  ways out of a puzzle are solving it, three misses, or Back. Before the set puzzles come your own mistakes: every move in an analysed game that cost a pawn and a half or more becomes a card (*From your game on Oct 3,
   move 14. You played Nxe5 there.*), with one move to find. Cards live in Leitner boxes like Learn's position cards: box 1
   every session, box 2 every other, box 3 every fourth. The end of a session shows how many you got right, the mean time,
   and a plain line: under 85% says *Slow down. Accuracy before speed.*, and a mean under 15 seconds says *That was fast.
