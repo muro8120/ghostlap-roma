@@ -480,7 +480,7 @@
     el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
   }
   function rateIdle(text) {
-    const el = $('rate'); el.dataset.label = ''; el.classList.remove('in'); el.hidden = hush() || !text;
+    const el = $('rate'); el.dataset.label = ''; el.classList.remove('in', 'dcue'); el.hidden = hush() || !text; $('drillResult').hidden = true;
     $('why').hidden = true; $('whyBtn').hidden = true;
     $('rateLabel').textContent = 'Coach'; $('rateLoss').textContent = ''; $('rateJab').textContent = text;
   }
@@ -498,6 +498,7 @@
     try { if (opts.fen && !new Chess().validate_fen(opts.fen).valid) return null; c0 = new Chess(opts.fen || undefined); } catch (e) { return null; }   // chess.js loads an empty board from a bad fen
     if (game && (state === 'playing' || state === 'thinking')) endGame('loss', 'resign', false);
     cancelAnalysis(); gen++; calibTick();
+    cancelDrillReview(); $('endReview').hidden = true;
     const drill = opts.drill || null, col = opts.color || P().color, you = col === 'r' ? (Math.random() < .5 ? 'w' : 'b') : col;
     const calib = !!opts.calib && !P().calibrated;
     if (calib && !P().calib) { P().calib = { games: [] }; persist(); }
@@ -520,10 +521,11 @@
     game.streaks = streaksOf(P().games); game.focus = fi && fi.chosen ? fi.key : null;
     game.weak = patterns(P().games).items.map((it) => it.key).concat(fi ? [fi.key] : []);
     const focus = focusLine();
-    rateIdle(drill ? drill.title + '. ' + (drill.goal === 'draw' ? 'Hold the draw.' : 'Win it.') + (drill.targetMs ? ' Target ' + mmss(drill.targetMs) + '.' : '') + ' Full-strength engine, clock running.'
+    rateIdle(drill ? ''
       : variant ? VAR_960 + (focus ? ' ' + focus : '')
       : train ? TRAIN_HINT + (focus ? ' ' + focus : '')
       : voice() === 'quiet' ? '' : (calib ? 'Level check, game ' + (P().calib.games.length + 1) + ' of 3. Just play your normal game. ' : '') + (game.tutor ? 'Tutor mode. I show you the options and what they are up to. You still have to choose.' : you === 'w' ? (voice() === 'kind' ? 'Your move. Take your time.' : 'Your move. I’m watching.') : (voice() === 'kind' ? 'You have black. The engine opens.' : 'Black. The engine opens; try to keep up.')) + (focus ? ' ' + focus : ''));
+    if (drill) drillCard(drill);
     $('why').hidden = true; $('whyBtn').hidden = true; $('nudgeRow').hidden = true; $('nudgeHint').hidden = true; board.classList.remove('sandbox'); renderAssist();
     $('takeRow').hidden = true; $('tutor').hidden = !game.tutor; renderTutor();
     thinking(false); setEvalBar(evalBar, { cp: 0 }, you === 'b');
@@ -715,7 +717,7 @@
     renderHist();
     if (showSheet) {
       if (g.drill) { drillDone(g, result, reason); return; }
-      $('chessEnd').querySelector('h3').textContent = 'GAME OVER';
+      $('chessEnd').querySelector('h3').textContent = 'GAME OVER'; $('endReview').hidden = true;
       const k = reason === 'checkmate' ? (result === 'win' ? 'checkmateWin' : 'checkmateLoss') : reason;
       const T = voice() === 'tough' && !g.practice ? END : KIND_END, t = T[k] || T.resign;
       g.endText = t[1] + (g.moves.length ? ' ' + Math.ceil(g.moves.length / 2) + ' moves.' : '') + (g.practice ? ' ' + slipTxt(g.practice) + ' Practice games are not recorded.' : '');
@@ -881,11 +883,13 @@
 
   // ---------- drills: a set position against the full-strength engine, timed, never recorded (endgames.js calls this) ----------
   const DRILL_WHY = { checkmate: 'checkmate', stalemate: 'stalemate', repetition: 'repetition', material: 'insufficient material', '50 moves': 'fifty moves', resign: 'resigned' };
-  // opts: { fen, you, title, goal: 'win'|'draw', targetMs, onDone({ result, ms, plies, metGoal }), onBack }. Either side may be to move in the fen.
+  // opts: { fen, you, title, goal: 'win'|'draw', targetMs, cue, trap, onDone({ result, ms, plies, metGoal }) -> record?, onBack }. Either side may be to move in the fen.
+  // The research's order: the technique and the trap before (the card), nothing during the attempt, one honest line after (the review).
   function drill(opts) {
     opts = opts || {}; if (!opts.fen) return null;
     const you = opts.you === 'b' ? 'b' : 'w';
-    return newGame({ color: you, fen: opts.fen, ctx: null, drill: { opts, title: opts.title || 'Drill', goal: opts.goal === 'draw' ? 'draw' : 'win', targetMs: opts.targetMs > 0 ? opts.targetMs : null, onDone: opts.onDone, onBack: opts.onBack, t0: Date.now(), timer: null } });
+    return newGame({ color: you, fen: opts.fen, ctx: null, drill: { opts, title: opts.title || 'Drill', goal: opts.goal === 'draw' ? 'draw' : 'win', targetMs: opts.targetMs > 0 ? opts.targetMs : null, onDone: opts.onDone, onBack: opts.onBack, t0: Date.now(), timer: null,
+      cue: opts.cue || null, trap: opts.trap || null } });
   }
   // the clock starts once the engine is up (a cold start is not the learner's time) and ticks where the opponent's name goes
   function startDrillClock(g) {
@@ -896,13 +900,117 @@
     const d = g.drill, ms = Date.now() - d.t0, metGoal = d.goal === 'draw' ? result !== 'loss' : result === 'win', n = Math.ceil(g.moves.length / 2);
     $('chessEnd').querySelector('h3').textContent = 'DRILL';
     $('endTitle').textContent = reason === 'checkmate' ? (result === 'win' ? 'Checkmate.' : 'Mated.') : result === 'draw' ? (metGoal ? 'Draw held.' : 'Draw.') : reason === 'resign' ? 'Resigned.' : 'Lost.';
-    $('endMsg').textContent = d.title + ': ' + (DRILL_WHY[reason] || reason) + ' after ' + n + ' move' + (n === 1 ? '' : 's') + ' in ' + mmss(ms) + '.' + (d.targetMs ? ' Target ' + mmss(d.targetMs) + (ms <= d.targetMs ? ': made it.' : ': over.') : '') + ' Drills are not recorded.';
+    $('endMsg').textContent = d.title + ': ' + (DRILL_WHY[reason] || reason) + ' after ' + n + ' move' + (n === 1 ? '' : 's') + ' in ' + mmss(ms) + '.' + (d.targetMs ? ' Target ' + mmss(d.targetMs) + (!metGoal ? '.' : ms <= d.targetMs ? ': made it.' : ': over.') : '') + ' Drills are not recorded.';
     $('endAnalyze').hidden = true; $('endNew').textContent = 'Again'; $('endHome').textContent = 'Back';
     sheet('chessEnd', true);
-    if (typeof d.onDone === 'function') { try { d.onDone({ result, ms, plies: g.moves.length, metGoal }); } catch (e) { console.error(e); } }
+    let rec = null;
+    if (typeof d.onDone === 'function') { try { rec = d.onDone({ result, ms, plies: g.moves.length, metGoal }); } catch (e) { console.error(e); } }
+    drillReview(g, { result, reason, ms, metGoal, best: rec && rec.best > 0 ? rec.best : null });
+  }
+  // the card before and during a drill: the goal and target on the label, the technique, the one trap. Every voice gets it:
+  // it is the drill's instructions, not chatter, and nothing else is said until the drill is over.
+  function drillCard(d) {
+    const el = $('rate'); el.hidden = false; el.classList.add('dcue'); el.dataset.label = '';
+    $('rateLabel').textContent = (d.goal === 'draw' ? 'Hold the draw' : 'Win it') + (d.targetMs ? ' · target ' + mmss(d.targetMs) : '');
+    const j = $('rateJab'); j.textContent = d.cue || d.title + '. Full-strength engine, clock running.';
+    if (d.trap) { const t = document.createElement('span'); t.className = 'trap'; t.innerHTML = ' <b>Trap:</b> '; t.appendChild(document.createTextNode(d.trap)); j.appendChild(t); }
+  }
+
+  // ---------- after a drill: one honest line, found by the engine in the background so the sheet never waits ----------
+  // Win: the first of your moves that cost two moves or more against the fastest mate, or that let the win go; a stalemate
+  // names the move that took the last square; a repetition the move that repeated. Draw: the first move that lost the draw.
+  // The engine's move is named. Capped at a few seconds on the lite engine; a tap scrubs the board and the moves to it.
+  const REVIEW_MS = 4000, REVIEW_DEPTH = 16;
+  let dReview = null;   // { g, sig, done, find, text }
+  function cancelDrillReview() { if (dReview && !dReview.done) {  dReview.sig.cancelled = true; dReview.done = true; if (eng) eng.stop(); } }
+  async function drillReview(g, r) {
+    cancelDrillReview();
+    const d = g.drill, box = $('endReview'), sig = { cancelled: false }, me = dReview = { g, sig, done: false, find: null, text: '' };
+    box.hidden = false; box.className = 'dreview look'; box.textContent = 'Looking at your moves…'; box.onclick = null;
+    const fens = fensOf(g.moves.map((m) => m.uci), d.opts.fen), s = g.you === 'w' ? 1 : -1, n = g.moves.length;
+    const mine = []; for (let i = 0; i < n; i++) if (fens[i].split(' ')[1] === g.you) mine.push(i);
+    // the engine reports mate from White's side; turned into "you mate in N of your moves" (0: mated already) and "they mate"
+    const myMate = (v) => v.mate == null ? null : v.mate === 0 ? (v.cp * s > 0 ? 0 : null) : v.mate * s > 0 ? v.mate * s : null;
+    const theirMate = (v) => v.mate != null && (v.mate === 0 ? v.cp * s < 0 : v.mate * s < 0);
+    const winning = (v) => myMate(v) != null || (!theirMate(v) && v.cp * s >= 300), lost = (v) => theirMate(v) || v.cp * s <= -300;
+    const e = engine(), cache = {}; let timeUp = false, looked = 0;
+    const stopT = setTimeout(() => { timeUp = true; if (eng) eng.stop(); }, REVIEW_MS);
+    const ev = async (i) => { if (cache[i]) return cache[i]; const v = await e.evaluate(fens[i], { depth: REVIEW_DEPTH }); if (timeUp || sig.cancelled) return null; return (cache[i] = v); };
+    // the piece of yours the reply took, if it did: the biggest one missing two plies on
+    const lostPiece = (j) => { if (!fens[j + 2]) return null; const cnt = (f) => { const c = new Chess(f), o = {}; for (const r of c.board()) for (const q of r) if (q && q.color === g.you) o[q.type] = (o[q.type] || 0) + 1; return o; };
+      const a = cnt(fens[j]), b = cnt(fens[j + 2]); return ['q', 'r', 'b', 'n', 'p'].map((t) => (a[t] || 0) > (b[t] || 0) ? PIECE[t] : null).find(Boolean) || null; };
+    const san = (i, u) => { try { const c = new Chess(fens[i]), m = u && c.move(mv(u)); return m ? m.san : null; } catch (x) { return null; } };
+    let find = null;
+    try {
+      if (e) {
+        await engReady;
+        const last = mine.length ? mine[mine.length - 1] : -1;
+        if (d.goal === 'win' && r.reason === 'stalemate' && last === n - 1) {
+          const b = await ev(last); if (b) find = { ply: last, kind: 'stalemate', b };
+        } else if (d.goal === 'win' && (r.reason === 'repetition' || r.reason === '50 moves') && last >= 0) {
+          const b = await ev(last); if (b) find = { ply: last, kind: r.reason === 'repetition' ? 'repeat' : 'fifty', b };
+        } else {
+          for (const j of mine) {
+            const b = await ev(j), a = b && await ev(j + 1); if (!a) break;
+            looked++;
+            if (b.best === g.moves[j].uci) continue;   // the engine's own move: nothing to say, whatever the numbers do
+            if (d.goal === 'win') {
+              if (winning(b) && !winning(a)) { find = { ply: j, kind: 'gone', b, a }; break; }
+              const mb = myMate(b), ma = myMate(a);
+              if (mb != null && ma != null && ma + 1 - mb >= 2) { find = { ply: j, kind: 'slow', b, a, extra: ma + 1 - mb }; break; }
+            } else if (!lost(b) && lost(a)) { find = { ply: j, kind: 'lost', b, a }; break; }
+          }
+        }
+      }
+    } catch (x) { console.error(x); }
+    clearTimeout(stopT);
+    if (sig.cancelled || dReview !== me) return null;
+    let text;
+    if (find) {
+      const j = find.ply, no = +(fens[j].split(' ')[5] || 1), his = g.moves[j].san, best = san(j, find.b.best) || '', mb = myMate(find.b);
+      const head = 'Move ' + no + ', ' + his + ': ';
+      text = head + ({
+        stalemate: () => 'that took their king\'s last square, stalemate. ' + (best ? best + ' kept the win' + (mb ? ' (mate in ' + mb + ')' : '') + '.' : ''),
+        repeat: () => 'the position came round a third time. ' + (best ? best + ' kept it going.' : ''),
+        fifty: () => 'fifty moves without a capture or a pawn move. ' + (best ? best + ' kept it going.' : ''),
+        gone: () => (lostPiece(j) ? 'that gave away the ' + lostPiece(j) + ', and the win with it. ' : 'that let the win go. ') + (best ? best + ' kept it' + (mb ? ', mate in ' + mb : '') + '.' : ''),
+        slow: () => 'that cost ' + find.extra + ' moves (mate in ' + mb + ' became mate in ' + (myMate(find.a) + 1) + '). ' + (best ? best + ' was the fastest.' : ''),
+        lost: () => 'that lost the draw. ' + (best ? best + ' held it.' : ''),
+      })[find.kind]();
+      me.find = { ply: j, kind: find.kind, san: his, best, bestUci: find.b.best };
+      box.className = 'dreview tap'; box.onclick = () => drillScrub(g, fens, me.find);
+    } else {
+      const bestTxt = r.best ? ' Best time ' + mmss(r.best) + '.' : '';
+      text = r.metGoal && (!d.targetMs || r.ms <= d.targetMs) ? 'Nothing went wrong: no move of yours cost anything.' + bestTxt
+        : r.metGoal ? 'No single move cost two or more; the time went on thinking.' + bestTxt
+        : timeUp ? 'Out of time to look: your first ' + looked + ' move' + (looked === 1 ? ' was' : 's were') + ' sound.'
+        : 'The engine finds no single move to blame here: it slipped away gradually.';
+      box.className = 'dreview' + (r.metGoal ? ' ok' : '');
+    }
+    box.textContent = text; me.text = text; me.done = true;
+    return me;
+  }
+  // a tap on the review: the board before your move, your move in red and the engine's in amber, the move list on it.
+  // Any move in the list steps the board there; "Back to the result" brings the sheet back.
+  function drillScrub(g, fens, f) {
+    if (game !== g) return;
+    sheet('chessEnd', false);
+    const show = (ply) => {
+      const at = f && ply === f.ply + 1;   // the move the review is about: show the position before it, with both moves drawn
+      const i = at ? f.ply : ply, c = new Chess(fens[i]), lm = i > 0 ? mv(g.moves[i - 1].uci) : null;
+      renderBoard(board, c, { flip: g.you === 'b', last: lm, check: c.in_check(), busy: true,
+        arrows: at ? (f.bestUci ? [mv(f.bestUci)] : []).concat([Object.assign(mv(g.moves[f.ply].uci), { cls: 'red' })]) : [] });   // yours drawn last, on top
+      renderMoveList($('moveList'), g.moves, ply, show, true);
+    };
+    show(f.ply + 1);
+    const el = $('rate'); el.hidden = false; el.classList.remove('dcue'); el.dataset.label = f.kind === 'lost' || f.kind === 'stalemate' || f.kind === 'gone' ? 'blunder' : 'inaccuracy';
+    $('rateLabel').textContent = 'Review'; $('rateLoss').textContent = ''; $('rateJab').textContent = dReview && dReview.text || '';
+    $('drillResult').hidden = false;
   }
   function drillBack() {
-    const d = game && game.drill; sheet('chessEnd', false);
+    const d = game && game.drill; sheet('chessEnd', false); cancelDrillReview();
+    if (game && game.drill && (state === 'playing' || state === 'thinking')) { cancelAnalysis(); endGame('loss', 'resign', false); }   // walked away mid-drill: no sheet, no onDone, nothing recorded
+    gen++; if (eng) eng.stop();
     if (!(d && typeof d.onBack === 'function')) { goHome(); return; }
     $('chess').classList.remove('on'); $('chessHome').hidden = false; $('chessGame').hidden = true; setState('home');
     d.onBack();
@@ -1502,7 +1610,7 @@
     else goHome();
   }
   function close() {
-    cancelAnalysis();
+    cancelAnalysis(); cancelDrillReview();
     if (game && (state === 'playing' || state === 'thinking')) endGame('loss', 'resign', false);
     gen++; if (eng) eng.stop();
     review = null; sheet('chessEnd', false); $('chess').classList.remove('on'); $('review').classList.remove('on');
@@ -1521,7 +1629,9 @@
   function setReviewLevel(v) { if ((v === 'narrow' || v === 'full') && P().reviewLevel !== v) { P().reviewLevel = v; persist(); if (state === 'review' && review && review.report) renderReview(); } return P().reviewLevel; }
 
   // ---------- wiring --------------------------------------------------------
-  $('chessBack').onclick = close;
+  // the top-left back follows where the game came from: a drill goes back to Endgames and a Learn practice game to its lesson
+  // (both unrecorded), the same as the end sheet's Back; anything else leaves for the launcher
+  $('chessBack').onclick = () => !$('chessGame').hidden && game && game.drill ? drillBack() : !$('chessGame').hidden && game && game.practice ? backToLesson() : close();
   $('reviewBack').onclick = () => { cancelAnalysis(); goHome(); };
   $('newGame').onclick = () => newGame();
   $('eloMinus').onclick = () => { P().elo = clampElo(P().elo - 50); persist(); renderSettings(); };
@@ -1547,6 +1657,7 @@
   $('calibSkip').onclick = () => { P().calibrated = true; P().calib = null; persist(); renderSettings(); };
   $('calibOk').onclick = () => { sheet('calibDone', false); if (state === 'over') goHome(); };
   $('focusClear').onclick = () => { P().focus = null; persist(); renderSettings(); };
+  $('drillResult').onclick = () => { $('drillResult').hidden = true; if (game && game.drill && state === 'over') { drawGame(); renderMoves(); sheet('chessEnd', true); } };
   $('endHome').onclick = () => game && game.practice ? backToLesson() : game && game.drill ? drillBack() : goHome();
   for (const b of $('ctxSheet').querySelectorAll('[data-ctx]')) b.onclick = () => pickCtx(b.dataset.ctx);
   $('ctxSkip').onclick = () => pickCtx(null);
@@ -1576,7 +1687,8 @@
     takeBack() { if (game && game.pending) { const r = game.pending; game.pending = null; r('back'); return true; } return false; },
     liveWith() { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); return true; } return false; },
     get think() { return game ? game.think : null; },
-    practiceState, playOn() { return answer('on'); }, again, backToLesson,
+    practiceState, playOn() { return answer('on'); }, again, backToLesson, drillCard,
+    get drillReview() { return dReview ? { done: dReview.done, find: dReview.find, text: dReview.text } : null; },
     get game() { return game; }, get state() { return state; }, get lastRating() { return lastRating; }, get history() { return P().games; },
     budget() { return assistBudget(P().games); }, get player() { return save.player; }, setPlayer,
     // training: the ledger, post-mortems, Train mode, the review level, day context, drills, events

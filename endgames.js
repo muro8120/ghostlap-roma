@@ -80,6 +80,43 @@
     P('rook-knight', 'S2', null, 'Rook vs knight: stay together', '8/8/8/8/8/3kn3/8/R3K3 w - - 0 1', 'b', 'draw',
       'Keep the knight right next to your king, away from the edge if you can; a knight that wanders off gets trapped.'),
   ];
+  // the coach card for each drill: the technique in a line or two and the one trap, short enough for three lines on an iPhone
+  // (the card notes above are the full version). tools/endgames-test.js checks every position has both.
+  const COACH = {
+    'kq-corner': ["Queen a knight's jump from their king shrinks its box; king up, mate on the edge.", 'stalemate. Leave the king a square until your king arrives.'],
+    'kq-far': ['Herd their king to an edge with quiet queen moves, then bring your king over.', 'stalemate. Leave the king a square until your king arrives.'],
+    'kq-black': ['Same method with Black: shrink the box with the queen, king up, mate on the edge.', 'stalemate. Leave the king a square until your king arrives.'],
+    'kr-opp': ['Kings face to face: a rook check drives theirs back. Not facing: make a waiting rook move.', 'checking when the kings do not face each other.'],
+    'kr-centre': ['Cut their king off with the rook, bring yours up, check only when the kings face each other.', 'letting their king reach the rook: keep it far away.'],
+    'kr-black': ['Rook cuts the board, your king walks up, check only when the kings face each other.', 'a rook beside their king: swing it to the far side.'],
+    'kp-tempo': ['Kings face to face two squares ahead of the pawn: d3 hands them the move, then go round.', 'pushing the pawn before your king leads it.'],
+    'kp-keep': ['When their king steps aside, step forward on the other side and face it again.', 'pushing while their king still faces yours.'],
+    'kp-sixth': ['Your king on the sixth in front of the pawn wins: step beside their king first, then push.', 'an early push lets their king reach stalemate.'],
+    'kp-hold': ['Stay in front of the pawn and face their king every time it steps up.', 'stepping aside: their king walks round you.'],
+    'r2-connected': ['Pawns side by side, rook on the seventh or behind them, king over when the checks start.', 'one pawn alone: their rook picks it off.'],
+    'r2-outside': ['Rook behind the passed pawns; trade rooks whenever you can, the pawn ending wins.', 'a back-rank mate: give your king a square first.'],
+    'lucena': ['Check their king a file away, rook to the fourth rank, walk out, block the last check.', 'leaving the shelter before their king is cut off.'],
+    'philidor': ['Rook on your third rank keeps their king out; once the pawn steps up, check from behind.', 'going passive on the back rank too early.'],
+    'square': ['Draw the square from the pawn to its queening rank; if their king is outside it, just push.', 'a king move instead of the push: count first.'],
+    'outside': ['Push the far pawn to drag their king away, then march your king to the other wing.', 'trading the outside pawn: it is your decoy.'],
+    'protected': ['Their king has to watch your protected passer, so your king is free: go and win a pawn.', 'pushing the passer so it is no longer protected.'],
+    'breakthrough': ['b6! Whichever pawn takes, push the one beside it, and one of yours runs through.', 'starting with a6 or c6: those do not break through.'],
+    'rook-pawn': ['Get into the corner in front of the pawn and shuffle; they can only stalemate you or let you out.', 'leaving the corner: their king shuts you out.'],
+    'reti': ['King down the diagonal (Kg7, Kf6, Ke5): each step chases their pawn and heads for yours.', 'chasing straight down the file: a tempo short.'],
+    'q-centre': ['Check or pin until their king stands in front of the pawn, then bring your king a step closer.', 'loosening the grip for one move: the pawn queens.'],
+    'q-bishop': ['Driven in front of the pawn? Go to the corner instead (Ka1): taking the pawn is stalemate.', 'stepping in front of the pawn with the corner free.'],
+    'q-rook': ['Keep your king next to the pawn; when checked, step into the corner in front of it.', 'drifting away from the pawn: the queen wins it.'],
+    'perpetual': ['Do not try to win: check, check, check (Qe8+, Qe4+) until the position repeats three times.', 'any move that is not a check: mate follows.'],
+    'bishop-pawn': ['Escort the pawn with your king; the bishop covers the squares in front of it.', 'leaving the pawn alone for their king to take.'],
+    'knight-pawn': ['Lead with your king as in king and pawn endings, and bring the knight up to guard the pawn.', 'a loose pawn while the knight is far away.'],
+    'two-bishops': ['Bishops side by side as a wall: drive their king to an edge, then a corner, king close.', 'stalemate in the corner: count their moves.'],
+    'rook-bishop': ['Hide in the corner your bishop does not cover, so the bishop can block checks beside it.', 'the other corner: there you get mated.'],
+    'opposite-bishops': ['Blockade with your king on squares your bishop cannot reach; the bishop watches the other pawn.', 'chasing pawns: just stop them.'],
+    'rook-v-pawn': ['The rook slows the pawn while your king walks straight back towards it.', 'grabbing the pawn when it costs you the rook.'],
+    'pawn-v-rook': ['Push with your king beside the pawn, not in front of it; if the rook blocks, step round it.', 'your king in front of your own pawn.'],
+    'rook-knight': ['Keep the knight right next to your king, away from the edge.', 'a knight that wanders off gets trapped.'],
+  };
+  for (const p of CAT) { const k = COACH[p.id] || []; p.cue = k[0] || null; p.trap = k[1] || null; }
   const SETS = {
     S0: { name: 'Stage 0 · Mates and the opposition', blurb: 'The floor of the plan: mate with king and queen and with king and rook in under 30 seconds, and win king and pawn against king.' },
     S1: { name: 'Stage 1 · Rook endings, two pawns up', blurb: 'Being two pawns up is only worth something if you can turn it into a queen against the best defence.' },
@@ -264,7 +301,7 @@
     const p = byId(id); if (!p || !window.__coach || !window.__coach.drill) return false;
     const player = who();
     $('endgames').classList.remove('on');
-    window.__coach.drill({ fen: p.fen, you: p.you, title: p.title, goal: p.goal, targetMs: p.targetMs,
+    window.__coach.drill({ fen: p.fen, you: p.you, title: p.title, goal: p.goal, targetMs: p.targetMs, cue: p.cue, trap: p.trap,
       onDone: (r) => done(p, player, r || {}),
       onBack: () => { show(); const el = document.querySelector('#egList .eg-pos[data-id="' + p.id + '"]'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' }); } });
     return true;
@@ -275,6 +312,7 @@
     s.pos[p.id] = record(s.pos[p.id], p, r);
     persist();
     if ($('endgames').classList.contains('on')) render();
+    return s.pos[p.id];   // the coach's drill review names the best time from it
   }
 
   $('egBack').onclick = close;

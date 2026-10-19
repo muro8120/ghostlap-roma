@@ -88,6 +88,8 @@
   .hubWrap { width: 100%; max-width: 420px; }
   .hubWrap .brand { justify-content: center; margin-bottom: 2px; }
   .hubWrap .sub { text-align: center; margin-bottom: 26px; }
+  .hubWrap .sub.tagline { margin-bottom: 3px; } .hubWrap .sub.tagline s { opacity: .55; text-decoration-thickness: 1.5px; }   /* the launcher outgrew its tagline: Two struck out, dim */
+  .hubWrap .sub.aside { font-size: 12.5px; opacity: .7; }
   .pick { display: grid; gap: 14px; }
   .pick button { display: grid; grid-template-columns: 64px 1fr auto; gap: 14px; align-items: center; text-align: left; width: 100%;
     background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 16px 16px 16px 14px; }
@@ -363,6 +365,14 @@
   [data-label=forced], .l-forced { --lc: var(--dim); }
   #rate, #rMove { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--lc, var(--line)); border-radius: 14px; padding: 10px 12px 11px; min-height: 92px; }
   #rate.in { animation: rin .35s ease-out; }
+  /* drills: the technique and the one trap on the card before, one line of review under the result after */
+  #rate.dcue #rateJab { font-size: 13.5px; line-height: 1.4; font-weight: 500; }
+  #rate.dcue .trap { color: var(--amber); } #rate.dcue .trap b { font-weight: 800; }
+  #drillResult { margin-top: 10px; padding: 7px 12px; }
+  .dreview { margin: 10px 0 0; padding: 9px 11px; border-radius: 10px; background: var(--panel2); border-left: 3px solid var(--amber); font-size: 14px; line-height: 1.4; text-align: left; color: var(--text); }
+  .dreview.look { color: var(--dim); border-left-color: var(--line); animation: cpulse .9s ease-in-out infinite alternate; }
+  .dreview.ok { border-left-color: var(--green); }
+  .dreview.tap { cursor: pointer; } .dreview.tap::after { content: ' Show me \203A'; color: var(--amber); font-weight: 700; white-space: nowrap; }
   @keyframes rin { 0% { transform: translateY(6px) scale(.985); opacity: .2; } 100% { transform: none; opacity: 1; } }
   #rate .rh { display: flex; align-items: baseline; gap: 10px; }
   #rateLabel, #rMoveHead { font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; color: var(--lc, var(--dim)); }
@@ -440,7 +450,8 @@
 <section id="hub" class="screen on">
   <div class="hubWrap">
     <div class="brand"><h1>GHOST<i>LAP</i></h1><span>ROMA</span></div>
-    <p class="sub">Two ways to lose an evening.</p>
+    <p class="sub tagline"><s>Two</s> Four ways to lose an evening.</p>
+    <p class="sub aside">You are probably here because something else needs doing.</p>
     <div class="pick">
       <button id="pickDrive"><span class="ico">&#127950;</span><span><span class="t">Drive</span><span class="b" style="display:block">Night laps through Rome. Beat your own ghost.</span></span><span class="go">&#8250;</span></button>
       <button id="pickChess"><span class="ico chess">&#9822;</span><span><span class="t">Chess</span><span class="b" style="display:block">Play the engine. The coach rates every move, then takes the game apart.</span></span><span class="go">&#8250;</span></button>
@@ -580,7 +591,7 @@
         <div id="tutorOpts"></div>
         <div id="tutorThreat" class="threat" hidden></div>
       </div>
-      <div id="rate" data-label=""><div class="rh"><span id="rateLabel"></span><span id="rateLoss" class="num"></span><button class="ab" id="whyBtn" hidden aria-label="Why?">αβ</button></div><div id="rateJab"></div>
+      <div id="rate" data-label=""><div class="rh"><span id="rateLabel"></span><span id="rateLoss" class="num"></span><button class="ab" id="whyBtn" hidden aria-label="Why?">αβ</button></div><div id="rateJab"></div><button class="pill" id="drillResult" hidden>Back to the result</button>
         <div class="why" id="why" hidden></div>
         <div class="row2" id="takeRow" hidden style="margin-top:10px"><button class="btn" id="takeBack">Take it back</button><button class="btn primary" id="liveWith">Live with it</button></div>
         <div class="row2" id="slipRow" hidden style="margin-top:10px"><button class="btn primary" id="slipBack">Take it back</button><button class="btn" id="slipOn">Play on anyway</button></div></div>
@@ -700,6 +711,7 @@
     <h3>GAME OVER</h3>
     <div class="endT" id="endTitle">Resigned.</div>
     <div class="msg" id="endMsg"></div>
+    <div class="dreview" id="endReview" hidden></div>
     <div class="btns">
       <button class="btn primary" id="endAnalyze">Analyze</button>
       <div class="row2">

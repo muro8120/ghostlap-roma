@@ -97,12 +97,36 @@ const KEY = 'ghostlap-endgames-v1';
     const hasDrill = await p.evaluate(() => typeof (window.__coach && window.__coach.drill) === 'function');
     check('__coach.drill exists', hasDrill);
     if (hasDrill) {
+      // the coach screen's own back button mid-drill: back to Endgames, not the launcher, and the attempt is not recorded
+      await p.evaluate(() => window.__endgames.open({ set: 'S0' })); await p.waitForTimeout(100);
+      await p.click('#egList .eg-pos[data-id="kq-corner"] .eg-play');
+      await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game && window.__coach.game.drill, null, { timeout: 30000 }).catch(() => {});
+      await p.evaluate(() => window.__coach.move('h1h5')); await p.waitForTimeout(300);
+      await p.click('#chessBack'); await p.waitForTimeout(250);
+      const bk = await p.evaluate(() => ({ eg: document.getElementById('endgames').classList.contains('on'), chess: document.getElementById('chess').classList.contains('on'), hub: document.getElementById('hub').classList.contains('on'),
+        sheet: document.getElementById('chessEnd').classList.contains('on'), tries: (window.__endgames.stats().perPos['kq-corner'] || {}).tries || 0, state: window.__coach.state }));
+      check('back mid-drill lands on Endgames, not the launcher, unrecorded', bk.eg && !bk.chess && !bk.hub && !bk.sheet && bk.tries === 0 && bk.state === 'home', JSON.stringify(bk));
+      // and from a Learn practice game, back goes to the lesson
+      await p.evaluate(() => { document.getElementById('endgames').classList.remove('on'); window.__learn.show('italian'); window.__learn.practice(); });
+      await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game && window.__coach.game.practice, null, { timeout: 30000 }).catch(() => {});
+      await p.click('#chessBack'); await p.waitForTimeout(250);
+      const lb = await p.evaluate(() => ({ lesson: document.getElementById('lesson').classList.contains('on'), chess: document.getElementById('chess').classList.contains('on'), hub: document.getElementById('hub').classList.contains('on') }));
+      check('back from a Learn practice game lands on its lesson', lb.lesson && !lb.chess && !lb.hub, JSON.stringify(lb));
+      await p.evaluate(() => document.getElementById('lesson').classList.remove('on'));
       await p.evaluate(() => window.__endgames.open({ set: 'S0' })); await p.waitForTimeout(100);
       await p.click('#egList .eg-pos[data-id="kq-corner"] .eg-play');
       const started = await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game && window.__coach.game.drill, null, { timeout: 30000 }).then(() => true).catch(() => false);
       const g = await p.evaluate(() => ({ chess: document.getElementById('chess').classList.contains('on'), eg: document.getElementById('endgames').classList.contains('on'), fen: window.__coach.game && window.__coach.game.chess.fen(), you: window.__coach.game && window.__coach.game.you, elo: window.__coach.game && window.__coach.game.elo, opp: document.getElementById('oppName').textContent }));
       check('Play starts the drill on the coach board', started && g.chess && !g.eg && /^8\/8\/8\/4k3\/8\/8\/8\/K6Q w/.test(g.fen) && g.you === 'w' && g.elo === 2850, JSON.stringify(g));
       check('drill shows a timer where the opponent name goes', /^\d+:\d\d$/.test(g.opp), g.opp);
+      // the coach card before the attempt: goal and target on the label, the technique, the one trap, three lines at most
+      const card = await p.evaluate(() => { const j = document.getElementById('rateJab'), lh = parseFloat(getComputedStyle(j).lineHeight);
+        return { label: document.getElementById('rateLabel').textContent, text: j.textContent, cue: document.getElementById('rate').classList.contains('dcue'), hidden: document.getElementById('rate').hidden, lines: Math.round(j.getBoundingClientRect().height / lh) }; });
+      check('drill card: goal and target, the technique and the trap, in three lines', !card.hidden && card.cue && card.label === 'Win it · target 0:30' && /knight's jump/.test(card.text) && /Trap: stalemate\./.test(card.text) && card.lines <= 3, JSON.stringify(card));
+      const fits = await p.evaluate(() => { const j = document.getElementById('rateJab'), lh = parseFloat(getComputedStyle(j).lineHeight), over = [];
+        for (const q of window.__endgames.catalogue) { window.__coach.drillCard(q); const n = Math.round(j.getBoundingClientRect().height / lh); if (n > 3) over.push(q.id + ':' + n); }
+        window.__coach.drillCard(window.__coach.game.drill); return over; });
+      check('every position\'s drill card fits three lines at iPhone width', fits.length === 0, fits.join(' '));
       await p.screenshot({ path: SHOTS + '/e3-drill.png' });
       // our moves come from a second full-strength engine in the page; the coach's engine defends at 2850
       await p.evaluate(() => { window.__egHelper = window.ChessEngine.create(); return window.__egHelper.ready(); });
@@ -124,6 +148,8 @@ const KEY = 'ghostlap-endgames-v1';
       check('stats(): K+Q best time', !!rec && st.KQ_ms_best === rec.best && st.KR_ms_best === null && st.mastered === 0, JSON.stringify({ KQ: st.KQ_ms_best, KR: st.KR_ms_best }));
       check('stored per player under ' + KEY, await p.evaluate((k) => { try { const s = JSON.parse(localStorage.getItem(k)); return !!(s && s.jesse && s.jesse.pos && s.jesse.pos['kq-corner'] && s.jesse.pos['kq-corner'].tries === 1); } catch (e) { return false; } }, KEY));
       const sheet = await p.waitForSelector('#chessEnd.on', { timeout: 5000 }).then(() => true).catch(() => false);
+      const rv0 = await p.waitForFunction(() => { const r = window.__coach.drillReview; return r && r.done && r; }, null, { timeout: 8000 }).then((h) => h.jsonValue()).catch(() => null);
+      check('after the mate the review has its line within a few seconds', !!rv0 && rv0.text.length > 20 && (rv0.find ? /^Move \d+, \S+: that cost \d moves/.test(rv0.text) : /^Nothing went wrong.*Best time \d+:\d\d\.$/.test(rv0.text)), JSON.stringify(rv0));
       await p.screenshot({ path: SHOTS + '/e4-drill-end.png' });
       const btns = await p.$$eval('#chessEnd.on button', (e) => e.filter((x) => x.offsetParent !== null).map((x) => x.textContent.trim()));
       check('end sheet offers Again and Back', sheet && btns.some((t) => /^Again/.test(t)) && btns.some((t) => /^Back/.test(t)), btns.join(' | '));
@@ -135,6 +161,27 @@ const KEY = 'ghostlap-endgames-v1';
       await p.screenshot({ path: SHOTS + '/e5-after-drill.png' });
       await boot();
       check('the record survives a reload', (await p.evaluate(() => (window.__endgames.stats().perPos['kq-corner'] || {}).tries)) === 1);
+
+      // the review after a drill: a stalemate names the move that took the last square and the engine's move; a tap scrubs to it
+      await p.evaluate(() => window.__coach.drill({ fen: 'k7/7Q/1K6/8/8/8/8/8 w - - 0 1', you: 'w', title: 'Queen mate: last step', goal: 'win', targetMs: 30000,
+        cue: window.__endgames.catalogue[0].cue, trap: window.__endgames.catalogue[0].trap }));
+      await p.waitForFunction(() => window.__coach.state === 'playing' && window.__coach.game && window.__coach.game.drill, null, { timeout: 30000 }).catch(() => {});
+      await p.evaluate(() => window.__coach.move('h7c7'));
+      const opened = await p.waitForSelector('#chessEnd.on', { timeout: 5000 }).then(() => true).catch(() => false);
+      const look = await p.$eval('#endReview', (e) => ({ hidden: e.hidden, text: e.textContent }));
+      check('the drill sheet opens at once, the review looking in the background', opened && !look.hidden && look.text.length > 0, JSON.stringify(look));
+      const t0 = Date.now();
+      const rv = await p.waitForFunction(() => { const r = window.__coach.drillReview; return r && r.done && r; }, null, { timeout: 8000 }).then((h) => h.jsonValue()).catch(() => null);
+      check('stalemate review: the move that took the last square, and the engine\'s move', !!rv && rv.find && rv.find.kind === 'stalemate' && /^Move 1, Qc7: that took their king's last square, stalemate\. Q\w+# kept the win \(mate in 1\)\.$/.test(rv.text), JSON.stringify(rv) + ' in ' + (Date.now() - t0) + ' ms');
+      await p.screenshot({ path: SHOTS + '/e6-drill-review.png' });
+      await p.click('#endReview'); await p.waitForTimeout(200);
+      const sc = await p.evaluate(() => ({ sheet: document.getElementById('chessEnd').classList.contains('on'), cur: (document.querySelector('#moveList .m.cur') || {}).textContent, red: document.querySelectorAll('#board .arrow line.red').length,
+        amber: document.querySelectorAll('#board .arrow line:not([class])').length, back: !document.getElementById('drillResult').hidden, label: document.getElementById('rateLabel').textContent, pc: !!document.querySelector('#board [data-sq="h7"] .pc.svg') }));
+      check('a tap on the review scrubs the board and the moves to it', !sc.sheet && sc.cur === 'Qc7' && sc.red === 1 && sc.amber === 1 && sc.back && sc.label === 'Review' && sc.pc, JSON.stringify(sc));
+      await p.screenshot({ path: SHOTS + '/e7-drill-scrub.png' });
+      await p.click('#drillResult'); await p.waitForTimeout(150);
+      check('Back to the result brings the sheet back', await p.$eval('#chessEnd', (e) => e.classList.contains('on')));
+      await p.evaluate(() => { for (const b of document.querySelectorAll('#chessEnd button')) if (b.textContent.trim() === 'Back' && b.offsetParent) { b.click(); break; } }); await p.waitForTimeout(150);
     }
   }
 

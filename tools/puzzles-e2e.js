@@ -81,6 +81,20 @@ let b = null;
   check('"They played X. Your move. Play the whole line."', /^They played \S+\. Your move\. Play the whole line\.$/.test(note1), note1);
   check('no themes or rating before solving', await p.$eval('#pzTags', (e) => e.hidden && !e.textContent));
   await p.screenshot({ path: SHOTS + '/pz2-set-puzzle.png' });
+  // their setup move, back and forth: before has no highlight and the moved piece home, after is the puzzle again; no score change
+  const setup = await p.evaluate(() => { const s = window.__puzzles.state, u = s.item.line[0]; return { from: u.slice(0, 2), to: u.slice(2, 4), pill: document.getElementById('pzPeek').textContent, hidden: document.getElementById('pzPeek').hidden }; });
+  check('a pill offers the position before their move', !setup.hidden && /^\u2039 Before \S+$/.test(setup.pill), JSON.stringify(setup));
+  await p.click('#pzPeek'); await p.waitForTimeout(100);
+  const pk = await p.evaluate((u) => ({ peek: window.__puzzles.state.item.peek, last: document.querySelectorAll('#pzBoard .sq.last').length, from: !!document.querySelector('#pzBoard [data-sq="' + u.from + '"] .pc.svg'),
+    pill: document.getElementById('pzPeek').textContent, q: document.getElementById('pzQ').textContent }), setup);
+  check('before: their piece back home, no highlight, the pill says After', pk.peek && pk.last === 0 && pk.from && /^After \S+ \u203A$/.test(pk.pill) && /^Before /.test(pk.q), JSON.stringify(pk));
+  await p.screenshot({ path: SHOTS + '/pz2b-before.png' });
+  await p.click('#pzPeek'); await p.waitForTimeout(100);
+  check('after: the puzzle again, their move highlighted', !(await p.evaluate(() => window.__puzzles.state.item.peek)) && (await p.$$eval('#pzBoard .sq.last', (e) => e.length)) === 2);
+  await p.click('#pzPeek'); await p.waitForTimeout(100);
+  await p.tap('#pzBoard [data-sq="' + setup.from + '"]'); await p.waitForTimeout(100);
+  const back = await p.evaluate(() => ({ s: window.__puzzles.state.item, sel: document.querySelectorAll('#pzBoard .sq.sel').length, last: document.querySelectorAll('#pzBoard .sq.last').length }));
+  check('a tap while looking before flips back first, selects nothing, scores nothing', !back.s.peek && back.sel === 0 && back.last === 2 && back.s.right === true && back.s.step === 1 && back.s.phase === undefined, JSON.stringify({ peek: back.s.peek, sel: back.sel, right: back.s.right, step: back.s.step }));
   // the first solver move by tapping the real board
   const e1 = st.item.expect;
   for (const sq of [e1.slice(0, 2), e1.slice(2, 4)]) { await p.tap('#pzBoard [data-sq="' + sq + '"]'); await p.waitForTimeout(120); }
