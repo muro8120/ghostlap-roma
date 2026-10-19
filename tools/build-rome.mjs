@@ -16,6 +16,7 @@ const S = 4.5;            // game units per metre
 const SMOOTH = 18;        // metres: corner smoothing (gaussian sigma)
 const REUSE = +(process.env.REUSE || 2.2), NEARBY = +(process.env.NEARBY || 1.25); // between-stop legs: mild push onto fresh streets
 const W = 100, WALL = 45; // route asphalt width / run-off (game units)
+const TURN = +(process.env.TURN || 150); // metres of the way into a stop that the way out may not use (no turning round)
 const log = (...a) => console.log(...a);
 const load = (n) => JSON.parse(fs.readFileSync(path.join(OSM, n + '.json'), 'utf8')).elements;
 
@@ -199,7 +200,7 @@ function buildRoute(spec, sep = 45) {
     return false;
   };
   const legs = [];
-  let from = null;
+  let from = null, back = new Set();
   for (let k = 1; k < spec.stops.length; k++) {
     const a = stopAt[spec.stops[k - 1]], b = stopAt[spec.stops[k]];
     if (!a || !b) throw new Error('missing stop for ' + spec.id);
@@ -207,7 +208,11 @@ function buildRoute(spec, sep = 45) {
     // Every leg is the real shortest walk, except that streets already used cost more, and the
     // last leg home also keeps a little distance from the way out, so you learn a second way back.
     const lastLeg = k === spec.stops.length - 1;
-    const leg = dijkstra(src, dsts, (u, e) => {
+    // No turning round at a stop: the way out may not go back down the last stretch of the way in (TURN metres), so
+    // where a stop is at the end of a street the route carries on round the block and meets the way in further back.
+    // A stop with no other way out would leave no path at all; then (only then) the way back is allowed again.
+    const cost = (ban) => (u, e) => {
+      if (ban && ban.has(key(u, e.to))) return Infinity;
       const wy = ways[e.way];
       let m = wy.name ? 1 : /^(footway|path)$/.test(wy.hw) ? 2 : 1.25;
       if (wy.hw === 'steps') m *= 1.1;
@@ -217,9 +222,13 @@ function buildRoute(spec, sep = 45) {
         if (near((pu[0] + pv[0]) / 2, (pu[1] + pv[1]) / 2, sep)) m *= lastLeg ? 1.8 : NEARBY;
       }
       return e.len * m;
-    });
+    };
+    let leg = dijkstra(src, dsts, cost(back));
+    if (!leg) { log(`   !! ${spec.id}: no way on from ${spec.stops[k - 1]} without turning back`); leg = dijkstra(src, dsts, cost(null)); }
     if (!leg) throw new Error('no path ' + spec.stops[k - 1] + ' -> ' + spec.stops[k]);
     from = leg[leg.length - 1].to;
+    back = new Set();
+    for (let i = leg.length - 1, run = 0; i >= 0 && run < TURN; i--) { back.add(key(leg[i].from, leg[i].to)); run += leg[i].len; }
     for (const s of leg) {
       usedEdge.add(key(s.from, s.to));
       const pa = nodes.get(s.from), pb = nodes.get(s.to), n = Math.ceil(s.len / 8);

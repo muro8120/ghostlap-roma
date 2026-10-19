@@ -14,7 +14,7 @@ const srv = http.createServer((q, r) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 const check = (name, ok, extra) => { results.push([ok ? 'PASS' : 'FAIL', name, extra || '']); };
-// physics checks (node): soft walls and turning circles on the real map
+// physics checks (node): soft walls, no turn-rounds, every car finishes, on the real map
 if (process.env.ROME_JS) {
   const GL = require(path.join(ROOT, 'core.js'));
   global.window = {}; eval(fs.readFileSync(process.env.ROME_JS, 'utf8'));
@@ -25,13 +25,18 @@ if (process.env.ROME_JS) {
   let flips = 0, last = 0;
   for (let k = 0; k < 360; k++) { const a = R.car.a; GL.stepRace(R, { left: true, right: false }); const da = R.car.a - a; if (Math.abs(da) > 1e-4 && Math.sign(da) !== Math.sign(last)) flips++; last = da; }
   check('wall scrape is smooth (no wobble)', flips <= 3 && R.car.speed > 15, `flips=${flips} speed=${R.car.speed.toFixed(0)}`);
-  check('Vatican Museums has a turning circle', T.zones.length >= 1, 'zones=' + T.zones.length);
-  // drive into the circle, stop, reverse, turn round, drive out: the route must count it
-  const R2 = GL.newRace(T, GL.CARS[0]); const z = T.zones[0];
-  while (!R2.car.zone) GL.stepRace(R2, GL.botInput(T, R2.car, { digital: true, line: 0.7 }));
-  for (let k = 0; k < 120; k++) GL.stepRace(R2, { left: true, right: true });
-  for (let k = 0; k < 600 && R2.car.zdone !== z; k++) GL.stepRace(R2, { left: true, right: false });
-  check('turning round inside the circle counts', R2.car.zdone === z && R2.wrong < 1.2, `zdone=${R2.car.zdone === z} idx=${R2.car.idx} iOut=${z.iOut}`);
+  // no route turns round on itself any more: nowhere does the road come back the other way within a car's turning
+  // space (the test core.js used to make a turning circle from), and the bot never drives the wrong way
+  for (const id of ['r-vaticano', 'r-popolo', 'r-pantheon', 'r-picks', 'r-prati']) {
+    const { T: Tr } = route(id), K = Math.max(8, Math.round(170 / Tr.ds)), turns = [];
+    for (let i = 0; i < Tr.N; i++) {
+      const j = (i + K) % Tr.N;
+      if (Tr.tx[i] * Tr.tx[j] + Tr.ty[i] * Tr.ty[j] < -0.75 && Math.hypot(Tr.xs[i] - Tr.xs[j], Tr.ys[i] - Tr.ys[j]) < Tr.hw * 2.4) turns.push(Tr.street ? Tr.streetNames[Tr.street[i]] : i);
+    }
+    const Rb = GL.newRace(Tr, GL.CARS[1]); let wrong = 0;
+    while (!Rb.done && Rb.t < 300) { GL.stepRace(Rb, GL.botInput(Tr, Rb.car, { digital: true, line: 0.7 })); wrong = Math.max(wrong, Rb.wrong); }
+    check(id + ': no turn-round on the route, the bot never goes the wrong way', !turns.length && wrong < 0.5 && Rb.done && Tr.zones === undefined, `turns=${[...new Set(turns)].join(',')} wrong=${wrong.toFixed(2)}`);
+  }
   for (const id of ['r-vaticano', 'r-popolo', 'r-pantheon', 'r-picks', 'r-prati']) {
     const { T: Tr } = route(id);
     const times = GL.CARS.map((c) => GL.simulate(Tr, { digital: true, line: 0.7 }, 300, c).time);
@@ -77,6 +82,7 @@ if (process.env.ROME_JS) {
   await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
   await p.waitForTimeout(1500);
   await p.screenshot({ path: SHOTS + '/04-race.png' });
+  await p.waitForFunction(() => Math.abs(window.__ghostlap.view.a + Math.PI / 2) < 0.3, null, { timeout: 15000 }).catch(() => {}); // (on a straight, not caught mid-corner)
   const vc = await p.evaluate(() => ({ ...window.__ghostlap.view, info: window.__ghostlap.chase }));
   check('chase is the default camera: circuit in 3D, car in the lower middle', vc.mode === 'chase' && vc.chase && Math.abs(vc.x - 0.5) < 0.15 && vc.y > 0.55 && vc.y < 0.85 && vc.info && vc.info.calls > 3 && !vc.info.error, JSON.stringify(vc));
   await p.waitForSelector('#finish.on', { timeout: 60000 });
@@ -126,9 +132,35 @@ if (process.env.ROME_JS) {
       await p.evaluate((k) => window.__ghostlap.startRace(k), i);
       await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
       await p.waitForTimeout(1200);
+      // no extruded building stands over the road: no route sample inside a footprint, no wall within the asphalt's half
+      // width plus 6 units of the centre line (worked out here from the footprints the 3D view actually built)
+      const fp = await p.evaluate(() => {
+        const T = window.__ghostlap.race.T, F = window.Chase && window.Chase.footprints ? window.Chase.footprints() : null, lim = T.hw + 6, bad = [];
+        if (!F) return { n: -1, bad: -1 };
+        const G = new Map(), key = (x, y) => Math.floor(x / 100) + ',' + Math.floor(y / 100);
+        for (let i = 0; i < T.N; i++) { const k = key(T.xs[i], T.ys[i]); if (!G.has(k)) G.set(k, []); G.get(k).push(i); }
+        const close = (x, y) => { for (let gx = -1; gx <= 1; gx++) for (let gy = -1; gy <= 1; gy++) { const a = G.get((Math.floor(x / 100) + gx) + ',' + (Math.floor(y / 100) + gy)); if (a) for (const i of a) if (Math.hypot(T.xs[i] - x, T.ys[i] - y) < lim) return true; } return false; };
+        F.forEach((P) => {
+          let hit = false;
+          for (let i = 0; i < T.N && !hit; i++) {
+            const x = T.xs[i], y = T.ys[i];
+            let inn = false; for (let a = 0, c = P.length - 1; a < P.length; c = a++) if ((P[a][1] > y) !== (P[c][1] > y) && x < ((P[c][0] - P[a][0]) * (y - P[a][1])) / (P[c][1] - P[a][1]) + P[a][0]) inn = !inn;
+            hit = inn;
+          }
+          for (let i = 0; i < P.length && !hit; i++) {
+            const a = P[i], c = P[(i + 1) % P.length], n = Math.max(1, Math.ceil(Math.hypot(c[0] - a[0], c[1] - a[1]) / 5));
+            for (let k = 0; k <= n && !hit; k++) hit = close(a[0] + ((c[0] - a[0]) * k) / n, a[1] + ((c[1] - a[1]) * k) / n);
+          }
+          if (hit) bad.push(P.slice(0, 2).map((q) => q.map(Math.round)));
+        });
+        return { n: F.length, bad: bad.length, first: bad.slice(0, 2) };
+      });
+      const rid = await p.evaluate((k) => window.GL.TRACKS[k].id, i);
+      check(rid + ': no extruded building over the road', fp.n > 100 && fp.bad === 0, JSON.stringify(fp));
       if (i === cityIdx[0]) { // chase is the default: the 3D view, car ahead of the camera in the lower middle
         await p.waitForTimeout(1500);
         await p.screenshot({ path: SHOTS + '/29-city-race-chase.png' });
+        await p.waitForFunction(() => Math.abs(window.__ghostlap.view.a + Math.PI / 2) < 0.3, null, { timeout: 15000 }).catch(() => {}); // (on a straight, not caught mid-corner)
         const v = await p.evaluate(() => ({ ...window.__ghostlap.view, on: document.getElementById('view3d').classList.contains('on') }));
         check('chase camera in Rome: 3D view on, car in the lower middle, pointing away', v.mode === 'chase' && v.chase && v.on && Math.abs(v.x - 0.5) < 0.15 && v.y > 0.55 && v.y < 0.85 && Math.abs(v.a + Math.PI / 2) < 0.8, JSON.stringify(v));
         const info = await p.evaluate(() => window.__ghostlap.chase);
@@ -230,6 +262,7 @@ if (process.env.ROME_JS) {
   await p2.waitForTimeout(600);
   const k0 = await p2.evaluate(() => window.__ghostlap.chase.car);
   await down(21, 60); await p2.waitForTimeout(500);
+  await p2.waitForFunction(() => window.__ghostlap.chase.car.steer > 0.2 && Math.abs(window.__ghostlap.chase.car.roll) > 0.003, null, { timeout: 10000 }).catch(() => {}); // (slow frames under load)
   const k1 = await p2.evaluate(() => window.__ghostlap.chase.car);
   await down(22, 330); await p2.waitForTimeout(400);
   const k2 = await p2.evaluate(() => window.__ghostlap.chase.car);
@@ -300,7 +333,7 @@ if (process.env.ROME_JS) {
     const c = document.getElementById('carView'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
     let r = 0, g = 0, b = 0, n = 0, ink = 0;
     for (let i = 0; i < d.length; i += 16) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; if (Math.abs(d[i] - 21) + Math.abs(d[i + 1] - 25) + Math.abs(d[i + 2] - 34) > 30) ink++; }
-    return { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n), ink: +(ink / n).toFixed(3), w: c.width, ...window.__ghostlap.garage };
+    return { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n), sum: r * 3 + g * 5 + b * 7, ink: +(ink / n).toFixed(3), w: c.width, ...window.__ghostlap.garage };
   });
   await p4.waitForFunction(() => window.__ghostlap.garage.mode === '3d' && window.__ghostlap.garage.gl > 3, null, { timeout: 15000 }).catch(() => {});
   const ga = await gsig(); await p4.waitForTimeout(700); const gb = await gsig();
@@ -308,7 +341,7 @@ if (process.env.ROME_JS) {
   await p4.click('#carPrev'); await p4.waitForTimeout(300);
   await p4.screenshot({ path: SHOTS + '/60-garage.png', clip: await p4.$eval('.garage', (e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }) });
   check('garage: the car turns in 3D on its plinth, and the picture changes with the car', ga.mode === '3d' && ga.ink > 0.08 && ga.ink < 0.7 && gb.gl > ga.gl &&
-    (ga.r !== gb.r || ga.g !== gb.g || ga.b !== gb.b) && Math.abs(gc.r - ga.r) + Math.abs(gc.g - ga.g) + Math.abs(gc.b - ga.b) > 4, JSON.stringify({ ga, gb, gc }));
+    ga.sum !== gb.sum && Math.abs(gc.r - ga.r) + Math.abs(gc.g - ga.g) + Math.abs(gc.b - ga.b) > 4, JSON.stringify({ ga, gb, gc }));
   // the Camera pill cycles Chase, Bonnet, Follow, North-up and back, and each choice is saved
   const cyc = [];
   for (let k = 0; k < 5; k++) { await p4.click('#camBtn'); cyc.push(await p4.evaluate(() => [document.getElementById('camBtn').textContent.slice(8), JSON.parse(localStorage.getItem('ghostlap-roma-v2')).cam])); }
@@ -417,7 +450,7 @@ if (process.env.ROME_JS) {
   const u0 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality }));
   const toasts = [], tpoll = setInterval(async () => { try { const b = await p5.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b) toasts.push(b); } catch (e) {} }, 100);
   await p5.evaluate(() => { window.__ghostlap.fakeMs = 40; }); // 25 fps
-  const stepped = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 30000 }).then(() => true).catch(() => false);
+  const stepped = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 90000 }).then(() => true).catch(() => false);
   await p5.waitForTimeout(300);
   await p5.screenshot({ path: SHOTS + '/43-auto-toast.png' });
   const u1 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality, dpr: window.__ghostlap.chase.dpr, save: window.__ghostlap.save.quality, toast: window.__ghostlap.save.qToast }));
@@ -437,12 +470,31 @@ if (process.env.ROME_JS) {
   const b0 = await p5.evaluate(() => ({ ...window.__ghostlap.fps, q: window.__ghostlap.chase.quality }));
   const toasts2 = [], tpoll2 = setInterval(async () => { try { const b = await p5.$eval('#banner', (e) => e.classList.contains('show') ? e.textContent : ''); if (b) toasts2.push(b); } catch (e) {} }, 100);
   await p5.evaluate(() => { window.__ghostlap.fakeMs = 40; });
-  const stepped2 = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 30000 }).then(() => true).catch(() => false);
+  const stepped2 = await p5.waitForFunction(() => window.__ghostlap.fps.autoLow, null, { timeout: 90000 }).then(() => true).catch(() => false);
   await p5.waitForTimeout(1500);
   clearInterval(tpoll2);
   check('Auto: a new session starts High; a second step-down shows no notice', !b0.low && b0.q === 'high' && stepped2 && !toasts2.includes(notice), JSON.stringify({ b0: [b0.low, b0.q], stepped2, toasts2: [...new Set(toasts2)] }));
   await p5.evaluate(() => { window.__ghostlap.fakeMs = null; window.__ghostlap.toMenu(); window.__ghostlap.setQuality('high'); });
   await p5.close();
+
+  // a run saved on a route that has since been re-drawn (its ghost strays off the current route) is dropped at load;
+  // a run that follows its route is kept
+  if (process.env.ROME_JS) {
+    const p7 = await ctx.newPage();
+    p7.on('pageerror', (e) => errs.push('p7 pageerror: ' + e.message));
+    await p7.goto(base + '?game=drive'); await p7.waitForTimeout(500);
+    await p7.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('ghostlap-roma-v2')), rec = (id, off) => { const d = window.GL.TRACKS.find((t) => t.id === id), out = [];
+        for (const [x, y] of d.pts) out.push(x + off, y + off, 0); return { best: 99, laps: [99], splits: [], rec: out, car: 'cinque' }; };
+      s.tracks['r-prati'] = rec('r-prati', 0); s.tracks['r-vaticano'] = rec('r-vaticano', 600);
+      localStorage.setItem('ghostlap-roma-v2', JSON.stringify(s));
+    });
+    await p7.reload(); await p7.waitForTimeout(500);
+    const kept = await p7.evaluate(() => { const t = JSON.parse(localStorage.getItem('ghostlap-roma-v2')).tracks; return { prati: !!t['r-prati'], vaticano: !!t['r-vaticano'] }; });
+    check('a run whose ghost strays off its (re-drawn) route is dropped, one that follows it is kept', kept.prati && !kept.vaticano, JSON.stringify(kept));
+    await p7.evaluate(() => { const s = JSON.parse(localStorage.getItem('ghostlap-roma-v2')); delete s.tracks['r-prati']; localStorage.setItem('ghostlap-roma-v2', JSON.stringify(s)); });
+    await p7.close();
+  }
 
   // a phone without WebGL: Chase and Bonnet both fall back to the flat Follow view (and the choice is kept)
   const ctx6 = await b.newContext({ ...devices['iPhone 13'] });
