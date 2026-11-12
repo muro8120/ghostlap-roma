@@ -134,6 +134,13 @@ ways to lose an evening; you are probably here because something else needs doin
 - **Long think, live:** in a training game, three minutes into one move the strip says so, once per move: *Three minutes
   on this move. A long think means you do not recognise the position: take the safest move you can see and bank the
   clock.* Nothing is enforced and it never appears in Play or Tutor; the next move brings the training line back.
+- **Add a game (PGN):** PGN is the plain-text record of a chess game that every site exports. *Add a game (PGN)* under
+  *Last games* takes one pasted from lichess (game page, Share & export, Copy PGN), chess.com (Share, PGN) or typed from a
+  scoresheet, asks which side you were (remembered from then on by your name on that site), and treats it like any game
+  played here: post-mortem first, then the analysis, a ledger row, own-game tactics cards, and a tick on the plan's long
+  game. This is the plan's long game as written, against a person: the engine below about 1300 does not blunder the way
+  people do. The game counts as clean, shows as *vs their name* in the history, and where the PGN carries clock comments
+  your think times are read from them (so the long-think figure works). One game per paste, from the normal start only.
 - **Share:** the review's *Share* pill hands the game out as PGN: the usual tags plus *Site "Ghostlap Roma"*, you and
   *Engine 1200* by colour, the moves in SAN with your post-mortem as a comment on the move you named (threat, whether you
   ran the check, tag, your note) and the engine's verdict at the end (accuracy, counts, its first two-pawn swing); a
@@ -263,6 +270,19 @@ at iPhone width, including one real training game against the engine. The pieces
   The research says slow, written, whole line. Speed is not the goal here.* Progress is stored per player under
   `ghostlap-puzzles-v1`. `node tools/puzzles-test.js` replays every puzzle through chess.js and checks the bands and the
   theme cap.
+- **Safe or not** (`safety.js`): the drill for the first Stage 0 criterion, the safety check itself. Tactics trains finding a
+  win; this trains not losing a piece. Each card is a position and one move you are "about to play", drawn as an arrow:
+  *Nf3: safe?* Half the moves are real human blunders (the move that set up a lichess puzzle), half are safe moves in the
+  same positions, so nothing in the position says which you are looking at. Call it *Safe* or *Not safe*. Not safe puts the
+  move on the board and asks you to play their punishment, one try; a right call for the wrong reason counts as a miss, and
+  a safe move has no punishment to show. Every card ends with the answer and, for a blunder, the whole line and a red
+  arrow. Ten cards, about five minutes. The summary gives right calls, the median time to call, dangers missed (a losing
+  move called safe: the hung piece in your games), false alarms, and wrong reasons. The Train screen has a *Safe or not*
+  row under the day's blocks, and under the self-attested safety criterion it prints the evidence (*Last 30 calls: 93%
+  right, median 12 s*); the toggle stays on your word. About 1,400 positions ship in `safety-data.js`, built by
+  `node tools/build-safety.mjs` from the easy two-move puzzles: Stockfish confirms the blunder costs two pawns or more and
+  finds the safe twin (within 0.6 of its best move, the same piece moving where possible). Stored per player under
+  `ghostlap-safety-v1`.
 - **Endgames** (`endgames.js`): thirty-two set positions you play out against the engine at full strength, with a clock
   running and no help. Stage 0 is the floor of the plan: three queen mates and three rook mates, each with a 30-second
   target, three king-and-pawn wins that need the opposition, plus one where you hold the draw with the lone king, because
@@ -317,6 +337,14 @@ mistake or blunder; inaccuracies are printed as warnings (`--lessons` runs just 
   rate and how many are in box 3. Drill progress is stored per player (whoever is picked on the chess home) and lesson
   under `ghostlap-learn-v1`, apart from the chess history, and the Learn list shows a small ring per opening once a drill has been done.
 
+## Backup
+
+Everything is stored on the phone only, and the home-screen web app and the TestFlight app do not share storage. *Backup*
+at the foot of the launcher saves every save (lap times and ghosts, both players' chess games and ledger, tactics, drills,
+the plan) as one file, `ghostlap-backup-<date>.json`, through the share sheet (Save to Files) or as a download. *Restore
+from a file* replaces everything on the phone with the file's contents, after asking. The launcher shows when a backup was
+last saved.
+
 ## Install on iPhone
 
 1. Open the GitHub Pages URL in **Safari**.
@@ -336,7 +364,7 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 ## Files
 
 - `index.html`: layout and styles (launcher, drive menu, race HUD, chess, review)
-- `hub.js`: the launcher (Drive or Chess)
+- `hub.js`: the launcher, and Backup
 - `engine.js`: Stockfish worker wrapper, move rating, coach lines, postgame analysis (runs under node too: `node tools/engine-test.js`,
   which drives the vendored engine and also checks every lesson line)
 - `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen and feedback cards, patterns and escalation, level check, game history, Train mode, the day sheet, the post-mortem gate, the ledger, drills and the coach events
@@ -344,6 +372,7 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `curriculum.js`: the chess curriculum (stages, pearls, metrics) and the exit-criteria maths over the coach's ledger (runs under node too: `node tools/curriculum-test.js`)
 - `plan.js`: the Train screen
 - `puzzles.js`, `puzzles-data.js`: the Tactics screen and its lichess puzzle set (`tools/build-puzzles.mjs`, `node tools/puzzles-test.js`)
+- `safety.js`, `safety-data.js`: the Safe or not drill and its positions (`tools/build-safety.mjs`)
 - `endgames.js`: the Endgames catalogue and drill screen (`node tools/endgames-test.js`)
 - `openings.js`: ECO opening table (generated from the lichess TSVs, lines up to 14 plies)
 - `vendor/`: chess.js, the Stockfish lite WASM engine, the piece SVGs (`pieces/` cburnett for Classic, `pieces-stone/` for Stone and Dark,
@@ -356,6 +385,6 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `docs/chess/`: the research report, the learning plan and the curriculum JSON behind Train
 - `docs/drive/3d-conversion.md`: how the race became 3D: what stays 2D, what changed, the draw-call budget per quality level
-- `tools/`: OSM fetch and build scripts, synthetic test map, headless tests (`tools/e2e.js`, `tools/chess-e2e.js`, `tools/themes-e2e.js` (the four board templates on every board, with screenshots), `tools/puzzles-e2e.js`, `tools/endgames-e2e.js`, `tools/plan-e2e.js`)
+- `tools/`: OSM fetch and build scripts, synthetic test map, headless tests (`tools/e2e.js`, `tools/chess-e2e.js`, `tools/themes-e2e.js` (the four board templates on every board, with screenshots), `tools/puzzles-e2e.js`, `tools/endgames-e2e.js`, `tools/plan-e2e.js`, `tools/extras-e2e.js` (adding a game, Safe or not, backup))
 - `package.json`, `capacitor.config.json`, `ios/`, `tools/build-www.mjs`: the native iOS wrapper (see TESTFLIGHT.md)
 

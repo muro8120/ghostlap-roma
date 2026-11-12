@@ -12,7 +12,9 @@
     "test:puzzles": "node tools/puzzles-test.js",
     "test:endgames": "node tools/endgames-test.js",
     "test:chess": "node tools/chess-e2e.js && node tools/themes-e2e.js",
-    "test:train": "node tools/puzzles-e2e.js && node tools/endgames-e2e.js && node tools/plan-e2e.js"
+    "test:train": "node tools/puzzles-e2e.js && node tools/endgames-e2e.js && node tools/plan-e2e.js",
+    "test:extras": "node tools/extras-e2e.js",
+    "build:safety": "node tools/build-safety.mjs"
   },
   "dependencies": {
     "@capacitor/core": "8.5.3",

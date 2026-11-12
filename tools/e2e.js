@@ -82,8 +82,10 @@ if (process.env.ROME_JS) {
   await p.waitForFunction(() => window.__ghostlap.state === 'race', null, { timeout: 5000 });
   await p.waitForTimeout(1500);
   await p.screenshot({ path: SHOTS + '/04-race.png' });
-  await p.waitForFunction(() => Math.abs(window.__ghostlap.view.a + Math.PI / 2) < 0.3, null, { timeout: 15000 }).catch(() => {}); // (on a straight, not caught mid-corner)
-  const vc = await p.evaluate(() => ({ ...window.__ghostlap.view, info: window.__ghostlap.chase }));
+  // on a straight, not caught mid-corner: the view is read in the same frame the wait sees it (at fast=6 on a slow box a
+  // frame is a second of race, so a separate read afterwards can land in the next corner)
+  const vc = await p.waitForFunction(() => Math.abs(window.__ghostlap.view.a + Math.PI / 2) < 0.3 && { ...window.__ghostlap.view, info: window.__ghostlap.chase }, null, { timeout: 15000 }).then((h) => h.jsonValue())
+    .catch(() => p.evaluate(() => ({ ...window.__ghostlap.view, info: window.__ghostlap.chase })));
   check('chase is the default camera: circuit in 3D, car in the lower middle', vc.mode === 'chase' && vc.chase && Math.abs(vc.x - 0.5) < 0.15 && vc.y > 0.55 && vc.y < 0.85 && vc.info && vc.info.calls > 3 && !vc.info.error, JSON.stringify(vc));
   await p.waitForSelector('#finish.on', { timeout: 60000 });
   await p.waitForTimeout(300);

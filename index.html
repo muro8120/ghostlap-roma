@@ -440,7 +440,10 @@
   .think { margin-top: 6px; color: var(--amber); font-size: 13px; line-height: 1.35; }
   .rcard.k-call { --kc: var(--silver); }
   .cbar .share { margin-left: auto; padding: 7px 12px; color: var(--amber); border-color: rgba(242,178,76,.5); font-weight: 700; flex: none; }
-  #pgnText { display: block; width: 100%; height: 42vh; margin-top: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 10px 12px; font: 12px/1.4 ui-monospace, Menlo, monospace; resize: none; -webkit-user-select: text; user-select: text; text-align: left; }
+  #pgnText, #importText { display: block; width: 100%; height: 42vh; margin-top: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 10px 12px; font: 12px/1.4 ui-monospace, Menlo, monospace; resize: none; -webkit-user-select: text; user-select: text; text-align: left; }
+  #importText { height: 26vh; }
+  #importSide { display: grid; gap: 8px; margin-top: 10px; } #importSide[hidden] { display: none; } #importSide .pill { padding: 10px 12px; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hubBackup { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin-top: 14px; } .hubBackup .pill { padding: 5px 12px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -458,7 +461,7 @@
       <button id="pickLearn"><span class="ico">&#127891;</span><span><span class="t">Learn</span><span class="b" style="display:block">Opening lessons, step by step, then practice them against the engine.</span></span><span class="go">&#8250;</span></button>
       <button id="pickTrain"><span class="ico">&#128642;</span><span><span class="t">Train</span><span class="b" style="display:block">The plan. What to do today, the stage you are in, and what your own games say about moving on.</span></span><span class="go">&#8250;</span></button>
     </div>
-    <p class="hubFoot" id="hubOffline">Checking offline&hellip;</p>
+    <p class="hubFoot hubBackup"><span id="hubOffline">Checking offline&hellip;</span><button class="pill" id="backupBtn">Backup</button><span id="backupWhen"></span></p>
   </div>
 </section>
 
@@ -577,6 +580,8 @@
       <div class="cset" id="patterns"></div>
       <h2>Last games</h2>
       <div id="chessHist"></div>
+      <p class="chint" style="margin-top:10px">Played a person, on lichess, chess.com or over a board? Add the game: it gets the same post-mortem, review and place in your numbers.</p>
+      <button class="pill" id="importBtn">Add a game (PGN)</button>
     </div>
     <div id="chessGame" hidden>
       <div class="prow"><b id="oppName">Engine</b><span id="thinking"></span></div>
@@ -729,6 +734,25 @@
     <div class="btns"><button class="btn primary" id="pgnClose">Done</button></div>
   </div>
 </div>
+<div class="sheet" id="backupSheet">
+  <div class="panel">
+    <h3>BACKUP</h3>
+    <div class="msg" id="backupMsg">Everything lives on this phone only: lap times and ghosts, chess games, the ledger, tactics, drills and the plan, for both players. Save a copy to Files now and then, and before you delete the app or move to another phone.</div>
+    <div class="btns"><button class="btn primary" id="backupSave">Save a backup file</button></div>
+    <div class="btns"><button class="btn" id="backupLoad">Restore from a file</button></div>
+    <div class="btns"><button class="btn" id="backupClose">Done</button></div>
+    <input type="file" id="backupFile" accept=".json,application/json" hidden>
+  </div>
+</div>
+<div class="sheet" id="importSheet">
+  <div class="panel">
+    <h3>ADD A GAME</h3>
+    <div class="msg" id="importMsg"></div>
+    <textarea id="importText" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Paste the PGN here"></textarea>
+    <div id="importSide" hidden><button class="pill" id="importW"></button><button class="pill" id="importB"></button></div>
+    <div class="btns"><button class="btn" id="importCancel">Cancel</button><button class="btn primary" id="importGo" disabled>Add and review</button></div>
+  </div>
+</div>
 <div class="sheet" id="calibDone">
   <div class="panel">
     <h3>LEVEL CHECK</h3>
@@ -771,9 +795,11 @@
 <script src="lessons.js"></script>
 <script src="curriculum.js"></script>
 <script src="puzzles-data.js"></script>
+<script src="safety-data.js"></script>
 <script src="coach.js"></script>
 <script src="learn.js"></script>
 <script src="puzzles.js"></script>
+<script src="safety.js"></script>
 <script src="endgames.js"></script>
 <script src="plan.js"></script>
 <script src="hub.js"></script>

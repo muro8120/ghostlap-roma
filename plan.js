@@ -162,8 +162,8 @@
   .pl-slept { justify-content: flex-end; } .pl-slept .pill { padding: 7px 11px; }
   .pl-debt { display: flex; align-items: center; gap: 10px; background: var(--panel2); border-left: 4px solid var(--amber); border-radius: 10px; padding: 9px 11px; font-size: 14px; line-height: 1.35; }
   .pl-debt .btn { height: 38px; font-size: 14px; padding: 0 14px; flex: none; margin-left: auto; }
-  .pl-block, .pl-crit, .pl-rrow, .pl-fold, .pl-adv { border-top: 1px solid var(--line); padding-top: 10px; }
-  .pl-block { display: grid; gap: 4px; }
+  .pl-block, .pl-xblock, .pl-crit, .pl-rrow, .pl-fold, .pl-adv { border-top: 1px solid var(--line); padding-top: 10px; }
+  .pl-block, .pl-xblock { display: grid; gap: 4px; }
   .pl-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
   .pl-name { font-weight: 700; font-size: 16px; min-width: 0; }
   .pl-meta, .pl-dim { color: var(--dim); font-size: 12px; line-height: 1.4; }
@@ -177,6 +177,7 @@
   .pl-act .btn { height: 42px; font-size: 15px; padding: 0 16px; flex: none; }
   .pl-act .pill { padding: 8px 12px; flex: none; }
   .pl-count { color: var(--dim); font-size: 12px; margin-left: auto; text-align: right; }
+  .pl-xblock .pl-act .pl-dim { margin-left: auto; text-align: right; }
   .pl-step b { display: block; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
   .pl-step div { font-size: 15px; line-height: 1.45; }
   .pl-pearl { display: grid; gap: 4px; border-top: 1px solid var(--line); padding-top: 10px; }
@@ -274,6 +275,22 @@
     row.appendChild(bar);
     return row;
   }
+  // Safe or not: not a block in the curriculum, but the drill for its first Stage 0 criterion (the safety check, habitual, under
+  // 20 s). Short enough for any day, a shift evening included: it is repetition, not new material.
+  const safetyStats = () => { try { return window.__safety ? window.__safety.stats() : null; } catch (e) { return null; } };
+  const safetyLine = (st) => !st || !st.n ? 'Not tried yet.' : st.acc30 == null ? st.n + ' calls so far; a figure after 30.'
+    : 'Last 30 calls: ' + st.acc30 + '% right, median ' + Math.round(st.medMs30 / 1000) + ' s' + (st.missed30 ? ', ' + st.missed30 + ' losing ' + (st.missed30 === 1 ? 'move' : 'moves') + ' called safe.' : '.');
+  function openSafety() { hide(); window.__safety.open({ onDone: () => {}, onBack: show }); }
+  function safetyRow() {
+    const row = h('div', 'pl-xblock'); row.id = 'plSafety';   // not .pl-block: those are the curriculum's own blocks
+    add(row, add(h('div', 'pl-top'), h('span', 'pl-name', 'Safe or not')),
+      h('div', 'pl-meta', 'Any day · about 5 min'),
+      h('div', 'pl-txt', 'Ten moves you are about to play. Call each one safe or not; if not, show their punishment. Their checks, captures, threats.'));
+    const bar = h('div', 'pl-act'), bt = h('button', 'btn primary', 'Safe or not'); bt.id = 'plSafetyGo'; bt.onclick = openSafety;
+    add(bar, bt, h('span', 'pl-dim', safetyLine(safetyStats())));
+    row.appendChild(bar);
+    return row;
+  }
   function renderToday() {
     const el = $('plToday'); el.innerHTML = '';
     const s = mine(), ctx = ctxNow(), card = h('div', 'cset pl-card');
@@ -299,6 +316,7 @@
       add(card, add(d, h('span', null, debt === 1 ? '1 game owes a post-mortem.' : debt + ' games owe a post-mortem.'), b));
     }
     for (const b of C.blocksFor(s.stage, ctx || null)) card.appendChild(blockRow(b));
+    if (window.__safety) card.appendChild(safetyRow());
     el.appendChild(card);
   }
   function renderWeek() {
@@ -336,6 +354,8 @@
   function critRow(c) {
     const row = h('div', 'pl-crit ' + c.status); row.dataset.metric = c.metric; row.dataset.status = c.status;
     const body = h('div'); add(body, h('div', null, c.label), c.note ? h('div', 'pl-dim', c.note) : null);
+    // the safety check is on your word, but the drill gives the word something to stand on
+    if (c.metric === 'safety_check_seconds' && window.__safety) { const d = h('div', 'pl-dim', 'Safe or not drill: ' + safetyLine(safetyStats())); d.id = 'plSafetyEv'; body.appendChild(d); }
     add(row, h('span', 'pl-mark', MARK[c.status] || '?'), body);
     if (c.source === 'self') {
       const t = h('button', 'pill' + (c.actual === true ? ' on' : ''), c.actual === true ? 'Yes' : 'Not yet'); t.dataset.attest = c.metric;
@@ -451,7 +471,7 @@
       const s = mine();
       if (e && CTX[e.ctx] && !CTX[s.days[today()]]) { s.days[today()] = e.ctx; persist(); }
       if (e && e.variant === '960' && e.id) { s.diag[thisMonth()] = e.id; persist(); }   // the month's diagnostic is done (the local calendar month, like the days)
-      const b = e && e.mode === 'train' ? blockOfKind('game') : null;
+      const b = e && (e.mode === 'train' || e.src === 'pgn') ? blockOfKind('game') : null;   // a game against a person, added as PGN, is the plan's long game too
       if (b) tick(b.id); else if (on()) render();
     });
     c0.on('analysed', () => { if (on()) render(); });

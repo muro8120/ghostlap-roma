@@ -1370,8 +1370,8 @@
       const acc = g.report && g.report.accuracy ? g.report.accuracy[g.you] + '%' : '—';
       d.innerHTML = '<div><b class="res"></b><small></small></div><div class="num"><span></span><small>elo</small></div><div class="num"><span></span><small>acc</small></div><button class="pill rv">Review</button>';
       const b = d.querySelector('.res'); b.textContent = RES[g.result] || '?'; b.classList.add(g.result);
-      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.calib ? ' · level check' : '') + (g.practice ?' · ' + g.practice : '') + (g.tutor ? ' · tutor' : '') + (g.mode === 'train' ? ' · train' : '') + (g.variant === '960' ? ' · 960' : '') + (!g.pm && !g.practice ? ' · post-mortem due' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '') + (g.nudges ? ' · ' + g.nudges + ' nudge' + (g.nudges > 1 ? 's' : '') : '') + (g.assist && g.assist.used ? ' · assist ' + g.assist.used + '/' + g.assist.budget : '');
-      d.children[1].firstChild.textContent = g.elo; d.children[2].firstChild.textContent = acc;
+      d.querySelector('small').textContent = fmtDate(g.date) + ' · ' + COLN[g.you][0] + ' · ' + g.reason + (g.calib ? ' · level check' : '') + (g.practice ?' · ' + g.practice : '') + (g.tutor ? ' · tutor' : '') + (g.mode === 'train' ? ' · train' : '') + (g.variant === '960' ? ' · 960' : '') + (g.src === 'pgn' ? ' · vs ' + String(g.opp || 'a person').slice(0, 18) : '') + (!g.pm && !g.practice ? ' · post-mortem due' : '') + (g.takebacks ? ' · ' + g.takebacks + ' undo' : '') + (g.hints ? ' · ' + g.hints + ' hint' + (g.hints > 1 ? 's' : '') : '') + (g.nudges ? ' · ' + g.nudges + ' nudge' + (g.nudges > 1 ? 's' : '') : '') + (g.assist && g.assist.used ? ' · assist ' + g.assist.used + '/' + g.assist.budget : '');
+      d.children[1].firstChild.textContent = g.elo || '—'; d.children[2].firstChild.textContent = acc;
       d.querySelector('.rv').onclick = () => gate(g).then((ok) => ok && openReview(g));
       el.appendChild(d);
     }
@@ -1505,11 +1505,81 @@
   // ---------- share: the game as PGN with the post-mortem as a comment on the move you named, and the engine's verdict at the end ----------
   const pgnLabel = (list, v) => { const hit = list.find((x) => x[0] === v); return hit ? hit[1][0].toLowerCase() + hit[1].slice(1) : v || 'none'; };   // "Nothing I saw" mid-sentence
   const pgnDate = (iso) => { const d = new Date(iso); return isNaN(d) ? '????.??.??' : d.getFullYear() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + String(d.getDate()).padStart(2, '0'); };
+  // ---------- games from elsewhere: a pasted PGN (lichess, chess.com, a club game) becomes an entry like any other ----------
+  // The plan's long game is a game against a person; the engine at low strength does not blunder the way people do. An
+  // imported game owes its post-mortem, is analysed, and gets a ledger row. It is clean by definition (no help from this app).
+  // Only the first game of a paste is read, comments and variations are dropped, and it must start from the normal position.
+  function readPgn(text) {
+    text = String(text || '').replace(/\r/g, '').trim();
+    if (!text) return { error: 'Paste the game first.' };
+    const second = text.indexOf('[Event ', text.indexOf('[Event ') + 1);
+    if (second > 0) text = text.slice(0, second).trim();
+    const tags = {}; text.replace(/\[(\w+)\s+"((?:[^"\\]|\\.)*)"\]/g, (m, k, v) => { tags[k] = v.replace(/\\(.)/g, '$1'); return m; });
+    if (tags.FEN || (tags.Variant && !/^standard$/i.test(tags.Variant))) return { error: 'Only games from the normal start position can be added.' };
+    const c = new Chess();
+    if (!c.load_pgn(text, { sloppy: true })) return { error: 'That does not read as a game. Paste the whole PGN, moves included.' };
+    const hist = c.history({ verbose: true });
+    if (hist.length < 2) return { error: 'There are no moves in that.' };
+    let res = tags.Result === '1-0' ? 'w' : tags.Result === '0-1' ? 'b' : tags.Result === '1/2-1/2' ? 'd' : null;
+    if (c.in_checkmate()) res = c.turn() === 'w' ? 'b' : 'w'; else if (!res && c.in_draw()) res = 'd';
+    if (!res) return { error: 'The game has no result yet. Add it when it is over.' };
+    const term = String(tags.Termination || '');
+    const reason = c.in_checkmate() ? 'checkmate' : c.in_stalemate() ? 'stalemate' : /time/i.test(term) ? 'time' : res === 'd' ? 'draw' : /abandon/i.test(term) ? 'abandoned' : 'resign';
+    // think times from the clock comments ([%clk h:mm:ss], lichess and chess.com both write them): the mover's clock before, minus after, plus the increment
+    const clk = []; text.replace(/\[%clk\s+(\d+):(\d+):(\d+(?:\.\d+)?)\]/g, (m, h, mi, se) => { clk.push((+h * 3600 + +mi * 60 + +se) * 1000); return m; });
+    const tc = /^(\d+)\+(\d+)/.exec(tags.TimeControl || ''), inc = tc ? +tc[2] * 1000 : 0;
+    const times = clk.length === hist.length ? clk.map((t, i) => { const before = i >= 2 ? clk[i - 2] : tc ? +tc[1] * 1000 : null; return before == null ? null : Math.max(0, Math.round(before - t + inc)); }) : null;
+    const d = /^(\d{4})\.(\d\d)\.(\d\d)$/.exec(tags.UTCDate || tags.Date || ''), tm = /^(\d\d):(\d\d)/.exec(tags.UTCTime || '');
+    let date = null; if (d) { const x = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3], tm ? +tm[1] : 12, tm ? +tm[2] : 0)); if (!isNaN(x) && x.getTime() <= Date.now() + 864e5) date = x.toISOString(); }
+    const who = (k) => ({ name: tags[k] && tags[k] !== '?' ? tags[k] : k, elo: /^\d+$/.test(tags[k + 'Elo'] || '') ? +tags[k + 'Elo'] : null });
+    return { tags, white: who('White'), black: who('Black'), res, reason, date, times, tc: tags.TimeControl || null,
+      moves: hist.map((m) => m.from + m.to + (m.promotion || '')), sans: hist.map((m) => m.san) };
+  }
+  // which side was you: the handle remembered from the last import, when it matches one of the names
+  function pgnSide(g) { const h = (P().handle || '').toLowerCase(); return !h ? null : g.white.name.toLowerCase() === h ? 'w' : g.black.name.toLowerCase() === h ? 'b' : null; }
+  function importPgn(text, you) {
+    const g = readPgn(text); if (g.error) return g;
+    if (you !== 'w' && you !== 'b') you = pgnSide(g);
+    if (!you) return { error: 'Say which side you played.', white: g.white, black: g.black };
+    const me = you === 'w' ? g.white : g.black, opp = you === 'w' ? g.black : g.white;
+    const key = g.moves.join(' ');
+    if (P().games.some((e) => e.src === 'pgn' && e.you === you && e.moves.join(' ') === key)) return { error: 'That game is already here.' };
+    const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: g.date || new Date().toISOString(), elo: opp.elo, you,
+      result: g.res === 'd' ? 'draw' : g.res === you ? 'win' : 'loss', reason: g.reason, moves: g.moves, sans: g.sans,
+      hints: 0, nudges: 0, tutor: false, takebacks: 0, practice: null, assist: null, hinted: [], report: null,
+      mode: 'play', ctx: null, times: g.times ? g.times.map((t, i) => (i % 2 === 0) === (you === 'w') ? t : null) : null, pm: null, variant: null, slept: null,
+      src: 'pgn', opp: opp.name, tc: g.tc };
+    entry.clean = isClean(entry);
+    if (me.name !== 'White' && me.name !== 'Black') P().handle = me.name;
+    P().games.unshift(entry); P().games.sort((a, b) => String(b.date).localeCompare(String(a.date))); P().games = P().games.slice(0, 20); persist();
+    renderHist(); emit('game', entry);
+    return { entry: P().games.includes(entry) ? entry : null, error: P().games.includes(entry) ? null : 'That game is older than the 20 kept here.' };
+  }
+  let imp = null;   // the sheet's reading of the pasted text: { g, you }
+  function importRead() {
+    const g = readPgn($('importText').value), msg = $('importMsg'), row = $('importSide'), go = $('importGo');
+    imp = g.error ? null : { g, you: imp && imp.g && imp.g.moves.join() === g.moves.join() ? imp.you : pgnSide(g) };
+    row.hidden = !imp; go.disabled = !imp || !imp.you;
+    if (!imp) { msg.textContent = $('importText').value.trim() ? g.error : 'On lichess: the game page, Share & export, Copy PGN. On chess.com: Share, PGN, copy. Then paste it here.'; return; }
+    const label = (p) => p.name + (p.elo ? ' (' + p.elo + ')' : '');
+    $('importW').textContent = 'White: ' + label(g.white); $('importB').textContent = 'Black: ' + label(g.black);
+    $('importW').classList.toggle('on', imp.you === 'w'); $('importB').classList.toggle('on', imp.you === 'b');
+    msg.textContent = Math.ceil(g.moves.length / 2) + ' moves' + (g.tc ? ' · ' + g.tc : '') + (g.times ? ' · clock times found' : '') + '. ' + (imp.you ? 'Your post-mortem comes first, then the engine.' : 'Which side were you?');
+  }
+  function importOpen() { $('importText').value = ''; imp = null; importRead(); sheet('importSheet', true); }
+  function importGo() {
+    if (!imp || !imp.you) return null;
+    const r = importPgn($('importText').value, imp.you);
+    if (r.error) { $('importMsg').textContent = r.error; return r; }
+    sheet('importSheet', false);
+    gate(r.entry).then((ok) => ok && openReview(r.entry));
+    return r;
+  }
   function pgnOf(entry) {
     if (!entry || !Array.isArray(entry.sans)) return '';
-    const you = entry.you, rep = entry.report, name = ownerOf(entry).name, eng = 'Engine ' + entry.elo;
+    const you = entry.you, rep = entry.report, name = ownerOf(entry).name, eng = entry.src === 'pgn' ? entry.opp || 'Opponent' : 'Engine ' + entry.elo;
     const result = entry.result === 'draw' ? '1/2-1/2' : (entry.result === 'win') === (you === 'w') ? '1-0' : '0-1';
-    const head = [['Event', entry.mode === 'train' ? 'Ghostlap training game' : 'Ghostlap game'], ['Site', 'Ghostlap Roma'], ['Date', pgnDate(entry.date)], ['Round', '-'],
+    const head = [['Event', entry.src === 'pgn' ? 'Game added to Ghostlap' : entry.mode === 'train' ? 'Ghostlap training game' : 'Ghostlap game'], ['Site', 'Ghostlap Roma'], ['Date', pgnDate(entry.date)], ['Round', '-'],
       ['White', you === 'w' ? name : eng], ['Black', you === 'b' ? name : eng], ['Result', result]];
     if (entry.variant === '960') head.push(['Variant', 'Chess960 (no castling)'], ['SetUp', '1'], ['FEN', entry.fen || '']);
     const esc = (s) => String(s).replace(/[\\"]/g, '\\$&');
@@ -1648,6 +1718,9 @@
   $('rWhyBtn').onclick = () => { const w = $('rWhy'); if (!w.hidden) { w.hidden = true; return; } showWhy(); };
   $('rShare').onclick = share;
   $('pgnClose').onclick = () => sheet('pgnSheet', false);
+  $('importBtn').onclick = importOpen; $('importCancel').onclick = () => sheet('importSheet', false); $('importGo').onclick = importGo;
+  $('importText').addEventListener('input', importRead);
+  $('importW').onclick = () => { if (imp) { imp.you = 'w'; importRead(); } }; $('importB').onclick = () => { if (imp) { imp.you = 'b'; importRead(); } };
   $('takeBack').onclick = () => { if (game && game.pending) { const r = game.pending; game.pending = null; r('back'); } };
   $('liveWith').onclick = () => { if (game && game.pending) { const r = game.pending; game.pending = null; r('live'); } };
   $('analyzeBtn').onclick = analyze;
@@ -1692,7 +1765,7 @@
     get game() { return game; }, get state() { return state; }, get lastRating() { return lastRating; }, get history() { return P().games; },
     budget() { return assistBudget(P().games); }, get player() { return save.player; }, setPlayer,
     // training: the ledger, post-mortems, Train mode, the review level, day context, drills, events
-    get ledger() { return P().ledger.slice(); }, pmDebt, postMortem, drill, on, off, ctxToday, setCtx, sleptToday, pgnOf, share, fen960,
+    get ledger() { return P().ledger.slice(); }, pmDebt, postMortem, drill, on, off, ctxToday, setCtx, sleptToday, pgnOf, share, readPgn, importPgn, fen960,
     get mode() { return P().mode; }, setMode, get reviewLevel() { return P().reviewLevel; }, setReviewLevel,
     get pm() { return pm ? { id: pm.entry.id, step: pm.step, ply: pm.ply, threat: pm.threat, checked: pm.checked, tag: pm.tag } : null; }, ledgerRow, isClean,
     setVoice(v) { if (VOICES.includes(v)) { P().voice = v; persist(); renderSettings(); } return voice(); }, patterns() { return patterns(P().games); }, whyText,
