@@ -5,7 +5,7 @@ ways to lose an evening; you are probably here because something else needs doin
 
 - **Drive:** a small top-down night racer set in Rome. Race three laps, and your best run comes back as a ghost to beat.
 - **Chess:** play Stockfish with a coach who rates every move you make and then takes the whole game apart.
-- **Learn:** opening lessons taught from both sides, with drills.
+- **Learn:** move-safety lessons for Stage 0, then opening lessons taught from both sides, with drills.
 - **Train:** the staged learning plan built from the research in `docs/chess/`: what to do today, the week's pearl, your
   stage and its exit criteria measured from your own games, tactics and endgame drills.
 
@@ -303,7 +303,21 @@ at iPhone width, including one real training game against the engine. The pieces
 
 ## Learn
 
-The third card on the launcher. Nineteen lessons: three on basics (opening principles, what to do when you leave the book,
+The third card on the launcher. First on the screen, **Move safety · Stage 0** (`basics.js`): six short lessons that are
+the plan's Stage 0 lesson block inside the app, so it works offline. They are done, not read: each is three to five steps
+on a board, about five minutes, and every step after the first asks something. *Look* (a position with squares ringed and
+arrows), *tap* (tap every undefended piece, or everything they can capture, then Check: green found, amber missed, red was
+not one), *move* (play it; a wrong move says why and asks again, the third miss shows the move), *pick* (choose a line of
+text). The six: Undefended pieces; Checks, captures, threats (the safety check, ending on a button to *Safe or not*);
+Count before you capture (attackers against defenders, cheapest first); Ahead? Trade pieces; The two basic mates (the box,
+the face-off, the stalemate trap); The opposition (win it and hold it). Each ends with how many you got right first time,
+one sentence to take away, its pearl from the curriculum, and a button to the drill that practises it. A finished lesson
+gets a tick and its best score on the list, per player (`ghostlap-basics-v1`). The Train screen's lesson block has a
+*Lessons* button that opens the list. No engine runs on the phone for these; instead `node tools/basics-test.js` checks
+every claim in them: tap answers are recomputed from the position, and the moves and verdicts are put to Stockfish
+(the best move, a move that must be worse by so much, the only winning or only drawing move at depth 30).
+
+Then nineteen lessons: three on basics (opening principles, what to do when you leave the book,
 how to read a position) and sixteen openings, each opening taught from both sides. With White: Italian, Ruy Lopez,
 Queen's Gambit and London, plus the Open Sicilian (English Attack), the Advance French, the Advance Caro-Kann (Short
 Variation) and the Classical King's Indian (Bayonet). With Black: Sicilian (Najdorf), French, Caro-Kann and King's Indian,
@@ -369,6 +383,7 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
   which drives the vendored engine and also checks every lesson line)
 - `coach.js`: chess board, live rating strip, nudge, tutor, end sheet, review screen and feedback cards, patterns and escalation, level check, game history, Train mode, the day sheet, the post-mortem gate, the ledger, drills and the coach events
 - `lessons.js`, `learn.js`: opening lessons, the Learn screen and its drills
+- `basics.js`: the Stage 0 move-safety lessons and their screen (`node tools/basics-test.js` checks every position)
 - `curriculum.js`: the chess curriculum (stages, pearls, metrics) and the exit-criteria maths over the coach's ledger (runs under node too: `node tools/curriculum-test.js`)
 - `plan.js`: the Train screen
 - `puzzles.js`, `puzzles-data.js`: the Tactics screen and its lichess puzzle set (`tools/build-puzzles.mjs`, `node tools/puzzles-test.js`)
@@ -385,6 +400,6 @@ TestFlight. The step-by-step for the Mac is in [TESTFLIGHT.md](TESTFLIGHT.md). T
 - `sw.js`: offline cache. Bump `CACHE` when you change any file (the engine wasm is about 1.8 MB, cached once).
 - `docs/chess/`: the research report, the learning plan and the curriculum JSON behind Train
 - `docs/drive/3d-conversion.md`: how the race became 3D: what stays 2D, what changed, the draw-call budget per quality level
-- `tools/`: OSM fetch and build scripts, synthetic test map, headless tests (`tools/e2e.js`, `tools/chess-e2e.js`, `tools/themes-e2e.js` (the four board templates on every board, with screenshots), `tools/puzzles-e2e.js`, `tools/endgames-e2e.js`, `tools/plan-e2e.js`, `tools/extras-e2e.js` (adding a game, Safe or not, backup))
+- `tools/`: OSM fetch and build scripts, synthetic test map, headless tests (`tools/e2e.js`, `tools/chess-e2e.js`, `tools/themes-e2e.js` (the four board templates on every board, with screenshots), `tools/puzzles-e2e.js`, `tools/endgames-e2e.js`, `tools/plan-e2e.js`, `tools/extras-e2e.js` (adding a game, Safe or not, the Stage 0 lessons, backup))
 - `package.json`, `capacitor.config.json`, `ios/`, `tools/build-www.mjs`: the native iOS wrapper (see TESTFLIGHT.md)
 

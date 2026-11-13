@@ -4,7 +4,7 @@
   const $ = (id) => document.getElementById(id);
   const hub = $('hub');
   // every screen that can be open when someone heads back to the launcher, the injected ones (tactics, endgames, plan) included
-  const SCREENS = ['menu', 'hud', 'chess', 'review', 'learn', 'lesson', 'drill', 'puzzles', 'safety', 'endgames', 'plan'];
+  const SCREENS = ['menu', 'hud', 'chess', 'review', 'learn', 'lesson', 'drill', 'puzzles', 'safety', 'basics', 'endgames', 'plan'];
   const hideAll = () => { for (const id of SCREENS) { const el = $(id); if (el) el.classList.remove('on'); } };
   function show() { hideAll(); hub.classList.add('on'); }
   const leave = () => { hideAll(); hub.classList.remove('on'); };   // whatever was open, one screen at a time

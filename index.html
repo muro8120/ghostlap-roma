@@ -458,7 +458,7 @@
     <div class="pick">
       <button id="pickDrive"><span class="ico">&#127950;</span><span><span class="t">Drive</span><span class="b" style="display:block">Night laps through Rome. Beat your own ghost.</span></span><span class="go">&#8250;</span></button>
       <button id="pickChess"><span class="ico chess">&#9822;</span><span><span class="t">Chess</span><span class="b" style="display:block">Play the engine. The coach rates every move, then takes the game apart.</span></span><span class="go">&#8250;</span></button>
-      <button id="pickLearn"><span class="ico">&#127891;</span><span><span class="t">Learn</span><span class="b" style="display:block">Opening lessons, step by step, then practice them against the engine.</span></span><span class="go">&#8250;</span></button>
+      <button id="pickLearn"><span class="ico">&#127891;</span><span><span class="t">Learn</span><span class="b" style="display:block">Move-safety lessons first, then the openings, step by step.</span></span><span class="go">&#8250;</span></button>
       <button id="pickTrain"><span class="ico">&#128642;</span><span><span class="t">Train</span><span class="b" style="display:block">The plan. What to do today, the stage you are in, and what your own games say about moving on.</span></span><span class="go">&#8250;</span></button>
     </div>
     <p class="hubFoot hubBackup"><span id="hubOffline">Checking offline&hellip;</span><button class="pill" id="backupBtn">Backup</button><span id="backupWhen"></span></p>
@@ -639,7 +639,7 @@
 <section id="learn" class="screen">
   <div class="wrap">
     <div class="cbar"><button class="back" id="learnBack" aria-label="Back">&#8249;</button><h1>LEARN</h1></div>
-    <p class="chint">The names at the top of your games, explained. Each lesson is a line you can step through, with what to aim for and what to avoid. Openings come with a Practice button: the coach walks you through the line move by move and stops you when you leave it. Then drill it from memory and with position cards until it sticks.</p>
+    <p class="chint">Two kinds of lesson. Move safety comes first: short lessons with a question at every step, on the habits that decide games at the start. Then the names at the top of your games: each opening is a line you can step through, with what to aim for and what to avoid, a Practice button, and drills.</p>
     <div id="learnList"></div>
   </div>
 </section>
@@ -797,6 +797,7 @@
 <script src="puzzles-data.js"></script>
 <script src="safety-data.js"></script>
 <script src="coach.js"></script>
+<script src="basics.js"></script>
 <script src="learn.js"></script>
 <script src="puzzles.js"></script>
 <script src="safety.js"></script>

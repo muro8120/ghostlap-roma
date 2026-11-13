@@ -60,6 +60,23 @@
 
   function renderList() {
     const el = $('learnList'); el.innerHTML = '';
+    // Stage 0 first: the move-safety lessons (basics.js), a question at every step. A tick once a lesson has been finished.
+    const floor = window.__basics ? window.__basics.list() : [];
+    if (floor.length) {
+      const h = document.createElement('h2'); h.textContent = 'Move safety · Stage 0'; h.id = 'learnFloorH'; el.appendChild(h);
+      const n = document.createElement('p'); n.className = 'chint'; n.style.margin = '-4px 0 10px'; n.textContent = 'Start here. What decides games below 1400: pieces left loose, replies not checked, captures not counted. About five minutes each, a question at every step.'; el.appendChild(n);
+      const wrap = document.createElement('div'); wrap.className = 'tracks'; wrap.id = 'learnFloor';
+      for (const l of floor) {
+        const b = document.createElement('button'); b.className = 'card lcard'; b.dataset.floor = l.id;
+        b.innerHTML = '<span class="cap">&#9823;</span><div><div class="t"></div><div class="b"></div></div><span class="go">&#8250;</span>';
+        b.querySelector('.t').textContent = l.title;
+        if (l.done) { const i = document.createElement('span'); i.className = 'bs-tick'; i.textContent = '\u2713'; i.title = 'Done ' + l.done.n + (l.done.n > 1 ? ' times' : ' time') + ', best ' + l.done.best + '/' + l.done.of; b.querySelector('.t').appendChild(i); }
+        b.querySelector('.b').textContent = l.blurb + (l.done ? ' Best ' + l.done.best + '/' + l.done.of + ' first time.' : '');
+        b.onclick = () => window.__basics.open(l.id);
+        wrap.appendChild(b);
+      }
+      el.appendChild(wrap);
+    }
     const groups = { basics: [], w: [], b: [] };
     for (const l of L) groups[l.kind === 'basics' ? 'basics' : l.side].push(l);
     for (const k of ['basics', 'w', 'b']) {
@@ -81,7 +98,7 @@
     }
   }
   function open() {
-    for (const id of ['hub', 'menu', 'hud', 'chess', 'review', 'lesson', 'drill']) { const e = $(id); if (e) e.classList.remove('on'); }
+    for (const id of ['hub', 'menu', 'hud', 'chess', 'review', 'lesson', 'drill', 'basics']) { const e = $(id); if (e) e.classList.remove('on'); }
     renderList(); $('learn').classList.add('on'); $('learn').scrollTo(0, 0);
   }
   function close() { for (const id of ['learn', 'lesson', 'drill']) $(id).classList.remove('on'); if (window.__hub) window.__hub.show(); }

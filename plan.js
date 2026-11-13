@@ -270,6 +270,8 @@
     const bar = h('div', 'pl-act'), can = canAct(k);
     if (can && ACT[k]) { const bt = h('button', 'btn' + (k === 'lesson' ? '' : ' primary'), ACT[k]); bt.dataset.act = k; bt.onclick = () => act(b); bar.appendChild(bt); }
     // a manual tick for what the app cannot see: lessons, the odd exercise, or a module that is not loaded
+    // the Stage 0 lessons live in the app (basics.js, on the Learn screen): one tap from the lesson block
+    if (k === 'lesson' && window.__basics && window.__hub && window.__hub.learn) { const lb = h('button', 'btn primary', 'Lessons'); lb.id = 'plLessons'; lb.onclick = () => { hide(); window.__hub.learn(); }; bar.insertBefore(lb, bar.firstChild); }
     if (k === 'lesson' || k === 'manual' || !can) { const d = h('button', 'pill', 'Done'); d.dataset.done = b.id; d.onclick = () => tick(b.id); bar.appendChild(d); }
     bar.appendChild(h('span', 'pl-count num', countText(n, f)));
     row.appendChild(bar);

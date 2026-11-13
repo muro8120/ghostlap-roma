@@ -132,6 +132,56 @@ let b = null;
   const ev = await p.$eval('#plSafetyEv', (e) => e.textContent);
   check('after 30 calls the plan shows accuracy and the median time', /Last 30 calls: 100% right, median \d+ s\./.test(ev), ev);
 
+  // ---- the Stage 0 lessons ----
+  check('basics hook present, six lessons', await p.evaluate(() => !!window.__basics && window.__basics.list().length === 6));
+  await p.evaluate(() => window.__hub.learn()); await p.waitForTimeout(200);
+  check('Learn lists Move safety first, six cards, none ticked', await p.evaluate(() => { const l = document.getElementById('learnList'); return l.firstElementChild.id === 'learnFloorH' && document.querySelectorAll('#learnFloor .lcard').length === 6 && !document.querySelector('#learnFloor .bs-tick'); }));
+  await p.click('#learnFloor [data-floor=loose]'); await p.waitForTimeout(200);
+  check('a lesson opens on a show step: text, marked squares, Next', await p.evaluate(() => document.getElementById('basics').classList.contains('on') && !document.getElementById('learn').classList.contains('on')
+    && document.getElementById('bsTitle').textContent === 'UNDEFENDED PIECES' && document.querySelectorAll('#bsBoard .sq.bs-mark').length === 2 && document.getElementById('bsGo').textContent === 'Next' && document.getElementById('bsPos').textContent === '1 of 5'));
+  await p.screenshot({ path: SHOTS + '/x6-lesson-show.png' });
+  await p.click('#bsGo');
+  // tap step, answered right by real taps
+  await p.click('#bsBoard [data-sq=c2]'); await p.click('#bsBoard [data-sq=c5]'); await p.click('#bsBoard [data-sq=a1]'); await p.click('#bsBoard [data-sq=a1]'); await p.click('#bsBoard [data-sq=e4]');
+  check('tap step: taps toggle, an empty square does nothing, the button says Check', await p.evaluate(() => { const s = window.__basics.state.step; return s.t === 'tap' && s.taps.sort().join() === 'c2,c5' && document.querySelectorAll('#bsBoard .sq.bs-pick').length === 2 && document.getElementById('bsGo').textContent === 'Check'; }));
+  await p.click('#bsGo');
+  check('checked right: green squares, the why, Next', await p.evaluate(() => window.__basics.state.step.right === true && document.querySelectorAll('#bsBoard .sq.bs-ok').length === 2 && document.getElementById('bsQ').textContent === 'Right' && /Both bishops/.test(document.getElementById('bsNote').textContent) && document.getElementById('bsGo').textContent === 'Next'));
+  await p.click('#bsGo');
+  // tap step, answered wrong: one found, two missed, one that was not one
+  await p.click('#bsBoard [data-sq=f4]'); await p.click('#bsBoard [data-sq=c8]'); await p.click('#bsGo');
+  check('checked wrong: green, amber and red, and the answer explained', await p.evaluate(() => window.__basics.state.step.right === false && document.querySelectorAll('#bsBoard .sq.bs-ok').length === 1 && document.querySelectorAll('#bsBoard .sq.bs-miss').length === 2 && document.querySelectorAll('#bsBoard .sq.bs-bad').length === 1 && document.getElementById('bsQ').textContent === 'Not quite'));
+  await p.screenshot({ path: SHOTS + '/x7-lesson-tap.png' });
+  await p.click('#bsGo');
+  // move step: a wrong move first (still asked), then the right one by taps
+  const w1 = await p.evaluate(() => window.__basics.move('g8', 'h8'));
+  check('move step: a wrong move says so and asks again', w1 && w1.right === false && !w1.shown && await p.evaluate(() => window.__basics.state.step.phase === 'ask' && /^Kh8: not that one/.test(document.getElementById('bsNote').textContent) && document.getElementById('bsGo').hidden));
+  await p.click('#bsBoard [data-sq=e4]'); await p.click('#bsBoard [data-sq=d2]');
+  check('the right move by taps ends the step, but not as right first time', await p.evaluate(() => { const s = window.__basics.state; return s.step.phase === 'done' && s.step.right === false && document.getElementById('bsQ').textContent === 'Got there' && /Nxd2/.test(document.getElementById('bsNote').textContent); }));
+  await p.click('#bsGo');
+  const r5 = await p.evaluate(() => window.__basics.move('a7', 'a8'));
+  check('last step right first time', r5 && r5.right === true && (await p.$eval('#bsGo', (e) => e.textContent)) === 'Finish');
+  await p.click('#bsGo'); await p.waitForTimeout(100);
+  const end = await p.evaluate(() => ({ t: document.getElementById('bsSumT').textContent, end: document.getElementById('bsEnd').textContent, pearl: document.getElementById('bsPearl').textContent, next: document.getElementById('bsNextGo').textContent, done: window.__basics.done('loose') }));
+  check('summary: 2 of 4 right first time, the takeaway, the pearl, a way on', end.t === '2 of 4 right first time' && /whose pieces are loose/.test(end.end) && /^The pearl: /.test(end.pearl) && end.next === 'Tactics' && end.done && end.done.n === 1 && end.done.best === 2 && end.done.of === 4, JSON.stringify(end));
+  await p.screenshot({ path: SHOTS + '/x8-lesson-end.png' });
+  await p.click('#bsDone'); await p.waitForTimeout(150);
+  check('back on Learn the lesson is ticked with its best', await p.evaluate(() => document.getElementById('learn').classList.contains('on') && document.querySelectorAll('#learnFloor .bs-tick').length === 1 && /Best 2\/4 first time/.test(document.querySelector('#learnFloor [data-floor=loose] .b').textContent)));
+  // every other lesson plays through by its own answers: pick, mate-by-any-mating-move, three misses showing the move
+  const all = await p.evaluate(() => { const out = {}; for (const l of window.FLOOR_LESSONS) { if (l.id === 'loose') continue; window.__basics.open(l.id);
+    for (const s of l.steps) { if (s.t === 'tap') { for (const q of s.answer) window.__basics.tap(q); window.__basics.check(); } else if (s.t === 'pick') window.__basics.pick(s.answer); else if (s.t === 'move') window.__basics.move(s.answer[0].slice(0, 2), s.answer[0].slice(2, 4)); window.__basics.next(); }
+    const st = window.__basics.state; out[l.id] = st.ended && st.first === st.asked ? 'ok' : JSON.stringify(st); } return out; });
+  check('the other five lessons play through, every answer accepted', Object.values(all).every((v) => v === 'ok') && Object.keys(all).length === 5, JSON.stringify(all));
+  const three = await p.evaluate(() => { window.__basics.open('mates'); window.__basics.next(); const a = window.__basics.move('c1', 'c7'), note = document.getElementById('bsNote').textContent; window.__basics.move('c1', 'c2'); const c = window.__basics.move('c1', 'c3');
+    return { a, note, c, phase: window.__basics.state.step.phase, arrow: document.querySelectorAll('#bsBoard .arrow line').length, q: document.getElementById('bsQ').textContent }; });
+  check('the stalemate move gets its own line; the third miss shows the move as an arrow', three.a.right === false && /^Qc7: Stalemate/.test(three.note) && three.c.shown === true && three.phase === 'done' && three.arrow === 1 && three.q === 'Not quite', JSON.stringify(three));
+  await p.evaluate(() => { window.__basics.close(); window.__basics.open('cct'); const l = window.FLOOR_LESSONS.find((x) => x.id === 'cct'); for (const s of l.steps) { if (s.t === 'tap') { for (const q of s.answer) window.__basics.tap(q); window.__basics.check(); } else if (s.t === 'pick') window.__basics.pick(s.answer); else if (s.t === 'move') window.__basics.move(s.answer[0].slice(0, 2), s.answer[0].slice(2, 4)); window.__basics.next(); } });
+  await p.click('#bsNextGo'); await p.waitForTimeout(150);
+  check('the safety lesson hands on to Safe or not', await p.evaluate(() => document.getElementById('safety').classList.contains('on') && !document.getElementById('basics').classList.contains('on')));
+  await p.evaluate(() => window.__safety.close());
+  await p.evaluate(() => window.__hub.train()); await p.waitForTimeout(200);
+  await p.click('#plLessons'); await p.waitForTimeout(150);
+  check('Train: the lesson block has a Lessons button that opens Learn', await p.evaluate(() => document.getElementById('learn').classList.contains('on') && !document.getElementById('plan').classList.contains('on')));
+
   // ---- backup ----
   await p.evaluate(() => window.__hub.show());
   check('the launcher has the Backup pill, never saved', await p.evaluate(() => !!document.getElementById('backupBtn') && /never saved/.test(document.getElementById('backupWhen').textContent)));

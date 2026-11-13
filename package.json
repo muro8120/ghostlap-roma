@@ -14,6 +14,7 @@
     "test:chess": "node tools/chess-e2e.js && node tools/themes-e2e.js",
     "test:train": "node tools/puzzles-e2e.js && node tools/endgames-e2e.js && node tools/plan-e2e.js",
     "test:extras": "node tools/extras-e2e.js",
+    "test:basics": "node tools/basics-test.js",
     "build:safety": "node tools/build-safety.mjs"
   },
   "dependencies": {
